@@ -5,9 +5,11 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -15,6 +17,8 @@ import (
 )
 
 type Service struct {
+	teeID common.Address
+
 	vs       *voting.Storage
 	policies chan policy.SigningPolicy
 
@@ -32,6 +36,10 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 }
 
 func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
+	if i.Data.TeeID != s.teeID {
+		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
+	}
+
 	hash, err := i.Data.HashForSigning()
 	if err != nil {
 		return nil, fmt.Errorf("processing instruction %v", err)
