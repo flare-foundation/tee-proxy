@@ -7,7 +7,7 @@ import (
 	"io"
 
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
-	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"time"
 
@@ -52,7 +52,7 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	err = s.as.Enqueue(ctx, action, redis.Read)
+	err = s.as.Enqueue(ctx, action, queue.Read)
 	if err != nil {
 		return err
 	}

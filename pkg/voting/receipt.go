@@ -23,6 +23,7 @@ type SignedReceipt struct {
 	Signature hexutil.Bytes `json:"signature"`
 }
 
+// Hash returns the hash of the receipt.
 func (r *Receipt) Hash() common.Hash {
 	return crypto.Keccak256Hash(
 		r.InstructionHash[:],
@@ -33,6 +34,7 @@ func (r *Receipt) Hash() common.Hash {
 	)
 }
 
+// Sign signs the receipt with the private key and returns signed receipt.
 func (r *Receipt) Sign(pk *ecdsa.PrivateKey) (*SignedReceipt, error) {
 	h := r.Hash()
 

@@ -1,4 +1,4 @@
-package redis
+package queue
 
 import (
 	"context"
@@ -27,7 +27,7 @@ func (id *StoringID) String() string {
 	return fmt.Sprintf("%s:%s", id.ActionID, id.SubmissionTag)
 }
 
-type ActionStorage struct {
+type ActionQueues struct {
 	actions   *Storage[*types.Action]
 	readQueue *Storage[*StoringID]
 	mainQueue *Storage[*StoringID]
@@ -39,18 +39,12 @@ type ResponseStorage struct {
 	s *Storage[*types.ActionResponse]
 }
 
-func NewActionStorage(client *redis.Client) *ActionStorage {
-	return &ActionStorage{
+func NewActionQueues(client *redis.Client) *ActionQueues {
+	return &ActionQueues{
 		actions:   NewStore[*types.Action](Actions, client),
 		readQueue: NewStore[*StoringID](ReadQueue, client),
 		mainQueue: NewStore[*StoringID](MainQueue, client),
 		// inProcessingQueue: NewStore[*types.Action](InProcessingQueue, client),
-	}
-}
-
-func NewResponseStorage(client *redis.Client) *ResponseStorage {
-	return &ResponseStorage{
-		NewStore[*types.ActionResponse](Results, client),
 	}
 }
 
@@ -66,7 +60,7 @@ func NewResponseStorage(client *redis.Client) *ResponseStorage {
 
 // ! 8. ReadQueuedActionResult
 
-func (as *ActionStorage) Enqueue(ctx context.Context, action *types.Action, queueID QueueID) error {
+func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID QueueID) error {
 	id := StoringID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
 
 	err := as.actions.Set(ctx, id.String(), action)
@@ -86,7 +80,7 @@ func (as *ActionStorage) Enqueue(ctx context.Context, action *types.Action, queu
 	return err
 }
 
-func (as *ActionStorage) GetAction(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.Action, error) {
+func (as *ActionQueues) GetAction(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.Action, error) {
 	id := StoringID{ActionID: actionID, SubmissionTag: submissionTag}
 
 	action, err := as.actions.Get(ctx, id.String())
@@ -99,7 +93,7 @@ func (as *ActionStorage) GetAction(ctx context.Context, actionID common.Hash, su
 
 var ErrEmptyQueue = errors.New("empty queue")
 
-func (as *ActionStorage) Pop(ctx context.Context, id QueueID) (*types.Action, error) {
+func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, error) {
 	var queue *Storage[*StoringID]
 
 	switch id {
@@ -133,8 +127,14 @@ func (as *ActionStorage) Pop(ctx context.Context, id QueueID) (*types.Action, er
 }
 
 // GetQueuedActionCount returns the number of elements in the actionStorage.
-func (as *ActionStorage) QueueLength(ctx context.Context) (int64, error) {
+func (as *ActionQueues) QueueLength(ctx context.Context) (int64, error) {
 	return as.mainQueue.GetQueueLength(ctx)
+}
+
+func NewResponseStorage(client *redis.Client) *ResponseStorage {
+	return &ResponseStorage{
+		NewStore[*types.ActionResponse](Results, client),
+	}
 }
 
 func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.ActionResponse) error {

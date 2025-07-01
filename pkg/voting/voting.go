@@ -146,8 +146,6 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 			s.OutEnd <- box
 		}()
-
-		// todo add receipt
 	}
 
 	var vg voterGroup = 0
@@ -178,6 +176,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	round.VotingBoxes[id] = boxes
 
 	if finished {
+		round.limiter.Decrement(box.Proposer)
 		s.OutThreshold <- box
 	}
 

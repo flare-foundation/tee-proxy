@@ -12,7 +12,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
-	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
 
@@ -24,8 +24,8 @@ type Storage struct {
 
 	db *gorm.DB
 
-	actionStorage *redis.ActionStorage
-	resultStorage *redis.ResponseStorage
+	actionStorage *queue.ActionQueues
+	resultStorage *queue.ResponseStorage
 
 	sync.RWMutex
 }
@@ -104,7 +104,7 @@ func (is *Storage) oneCycle(ctx context.Context) error {
 		return err
 	}
 
-	err = is.actionStorage.Enqueue(ctx, action, redis.Read)
+	err = is.actionStorage.Enqueue(ctx, action, queue.Read)
 	if err != nil {
 		return err
 	}

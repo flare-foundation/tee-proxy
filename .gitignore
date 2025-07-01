@@ -1,7 +1,2 @@
-node_modules
-tee-node
-
-tests/scripts/logs/*
-
-
-notes/
+.env
+.vscode

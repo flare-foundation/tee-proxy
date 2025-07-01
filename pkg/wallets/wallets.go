@@ -13,7 +13,7 @@ import (
 
 	"github.com/flare-foundation/tee-node/pkg/types"
 
-	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
@@ -36,8 +36,8 @@ type Storage struct {
 	Keys          map[IDPair]*KeyData
 	Backups       map[IDPair]*types.WalletGetBackupResponse // todo align this with docs
 
-	as *redis.ActionStorage
-	rs *redis.ResponseStorage
+	as *queue.ActionQueues
+	rs *queue.ResponseStorage
 
 	sync.RWMutex
 }
@@ -54,7 +54,7 @@ func (s *Storage) Sync(ctx context.Context) error {
 		return err
 	}
 
-	err = s.as.Enqueue(ctx, action, redis.Read)
+	err = s.as.Enqueue(ctx, action, queue.Read)
 	if err != nil {
 		return err
 	}

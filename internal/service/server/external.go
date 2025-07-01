@@ -57,6 +57,10 @@ func NewExternal(port string,
 	return &e
 }
 
+func (e *External) Serve() error {
+	return e.server.ListenAndServe()
+}
+
 func (e *External) instructionHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

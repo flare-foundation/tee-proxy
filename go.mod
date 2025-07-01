@@ -3,6 +3,7 @@ module github.com/flare-foundation/tee-proxy
 go 1.24.4
 
 require (
+	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.15.7
 	github.com/flare-foundation/go-flare-common v1.2.1-0.20250701112222-2363a03c115d
 	github.com/flare-foundation/tee-node v0.0.1
@@ -45,6 +46,7 @@ require (
 	github.com/supranational/blst v0.3.14 // indirect
 	github.com/tklauser/go-sysconf v0.3.15 // indirect
 	github.com/tklauser/numcpus v0.10.0 // indirect
+	github.com/yuin/gopher-lua v1.1.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect

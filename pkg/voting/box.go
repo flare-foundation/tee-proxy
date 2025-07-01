@@ -52,6 +52,7 @@ type vote struct {
 	AdditionalVariableMessage []byte
 }
 
+// voteBox holds one voting process.
 type voteBox struct {
 	Proposer common.Address
 

@@ -38,7 +38,7 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 	cosigners := make(map[common.Address]bool)
 
 	//  todo add reissue and other commands
-	if data.OPType == constants.XRP.Hash() && (data.OPCommand == constants.Pay.Hash() || data.OPCommand == constants.Reissue.Hash()) { //OPType=="XRP", OPCommand == "PAY" or "REISSUE"
+	if data.OPType == constants.XRP.Hash() && (data.OPCommand == constants.Pay.Hash() || data.OPCommand == constants.Reissue.Hash()) { // OPType=="XRP", OPCommand == "PAY" or "REISSUE"
 		originalMessage, err := types.ParseSignPaymentRequest(data)
 		if err != nil {
 			return nil, 0, err

@@ -22,17 +22,13 @@ func TestLimiter(t *testing.T) {
 	err := l.Increment(voters[0])
 	require.NoError(t, err)
 
-	err = l.Decrement(voters[0])
-	require.NoError(t, err)
-
-	err = l.Decrement(voters[1])
-	require.NoError(t, err)
+	l.Decrement(voters[0])
+	l.Decrement(voters[1])
 
 	err = l.Increment(voters[2])
 	require.Error(t, err)
 
-	err = l.Decrement(voters[2])
-	require.Error(t, err)
+	l.Decrement(voters[2])
 
 	// reach limit
 	for range limit {

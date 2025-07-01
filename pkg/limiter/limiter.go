@@ -84,13 +84,15 @@ func (l *Limiter) Increment(address common.Address) error {
 }
 
 // Decrement decrements counter for address in round.
-func (l *Limiter) Decrement(address common.Address) error {
+//
+// If the address is not registered or has zero pending requests, the call is ineffectual.
+func (l *Limiter) Decrement(address common.Address) {
 	l.Lock()
 	defer l.Unlock()
 
 	state, exists := l.counter[address]
 	if !exists {
-		return ErrUnregistered
+		return
 	}
 
 	if state.pending > 0 {
@@ -98,6 +100,4 @@ func (l *Limiter) Decrement(address common.Address) error {
 	}
 
 	state.TotalCompleted++
-
-	return nil
 }

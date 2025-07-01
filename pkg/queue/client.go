@@ -1,4 +1,4 @@
-package redis
+package queue
 
 import (
 	"context"
@@ -9,25 +9,19 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type StorageKeyContext string
+type KeyPrefix string
 
 const (
-	Actions               StorageKeyContext = "QueuedAction"
-	Results               StorageKeyContext = "ActionResult"
-	InProcessingQueue     StorageKeyContext = "InProcessingQueue"
-	VotingProcess         StorageKeyContext = "VotingProcess"
-	InstructionIdToHashes StorageKeyContext = "InstructionIdToHashes"
+	Actions KeyPrefix = "Action"
+	Results KeyPrefix = "Results"
 
-	VotingProcessVotes     StorageKeyContext = "VotingProcessVotes"
-	VotingProcessFinalized StorageKeyContext = "VotingProcessFinalized"
-
-	ReadQueue StorageKeyContext = "ReadActionQueue"
-	MainQueue StorageKeyContext = "MainActionQueue"
+	ReadQueue KeyPrefix = "ReadQueue"
+	MainQueue KeyPrefix = "MainQueue"
 )
 
 type Storage[T any] struct {
-	client            *redis.Client
-	storageKeyContext StorageKeyContext
+	client    *redis.Client
+	keyPrefix KeyPrefix
 }
 
 func NewClient(host string) *redis.Client {
@@ -35,10 +29,10 @@ func NewClient(host string) *redis.Client {
 		Addr: host})
 }
 
-func NewStore[T any](storageKeyContext StorageKeyContext, client *redis.Client) *Storage[T] {
+func NewStore[T any](keyPrefix KeyPrefix, client *redis.Client) *Storage[T] {
 	return &Storage[T]{
-		client:            client,
-		storageKeyContext: storageKeyContext,
+		client:    client,
+		keyPrefix: keyPrefix,
 	}
 }
 
@@ -103,23 +97,25 @@ func (s *Storage[T]) Enqueue(ctx context.Context, item T) error {
 }
 
 func (s *Storage[T]) Dequeue(ctx context.Context) (T, error) {
-	var value T
+	var t T
+
 	data, err := s.client.RPop(ctx, s.prefix("")).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return t, ErrEmptyQueue
+	}
 	if err != nil {
-		return value, err
+		return t, err
 	}
-	if len(data) == 0 {
-		return value, errors.New("empty queue")
-	}
-	err = json.Unmarshal(data, &value)
-	return value, err
+	err = json.Unmarshal(data, &t)
+	return t, err
 }
 
 func (s *Storage[T]) GetQueueLength(ctx context.Context) (int64, error) {
 	return s.client.LLen(ctx, s.prefix("")).Result()
 }
 
-func (s *Storage[T]) ClearStorageForContext(ctx context.Context) error {
+// Clear deletes all storage's entries from database.
+func (s *Storage[T]) Clear(ctx context.Context) error {
 	keys, err := s.client.Keys(ctx, s.prefix("*")).Result()
 	if err != nil {
 		return err
@@ -130,11 +126,7 @@ func (s *Storage[T]) ClearStorageForContext(ctx context.Context) error {
 	return s.client.Del(ctx, keys...).Err()
 }
 
-// prefix prefixes key with storageKeyContext-.
+// prefix prefixes key with keyPrefix-.
 func (s *Storage[T]) prefix(key string) string {
-	return string(s.storageKeyContext) + "-" + key
-}
-
-func (s *Storage[T]) ClearRedis() {
-	s.client.FlushAll(context.Background())
+	return string(s.keyPrefix) + "-" + key
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
@@ -22,7 +22,7 @@ type Service struct {
 	vs       *voting.Storage
 	policies chan policy.SigningPolicy
 
-	as *redis.ActionStorage
+	as *queue.ActionQueues
 	pk *ecdsa.PrivateKey
 }
 
@@ -67,7 +67,7 @@ func (m *Service) Forward(ctx context.Context) error {
 				continue
 			}
 
-			err = m.as.Enqueue(ctx, a, redis.Main)
+			err = m.as.Enqueue(ctx, a, queue.Main)
 			if err != nil {
 				continue
 			}
@@ -80,7 +80,7 @@ func (m *Service) Forward(ctx context.Context) error {
 				continue
 			}
 
-			err = m.as.Enqueue(ctx, a, redis.Main)
+			err = m.as.Enqueue(ctx, a, queue.Main)
 			if err != nil {
 				continue
 			}

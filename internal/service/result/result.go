@@ -6,11 +6,11 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/queue"
 )
 
 type Service struct {
-	*redis.ResponseStorage
+	*queue.ResponseStorage
 }
 
 // Serve returns response for actionID with tag "threshold" if present.
