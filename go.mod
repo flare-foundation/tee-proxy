@@ -4,7 +4,7 @@ go 1.24.4
 
 require (
 	github.com/ethereum/go-ethereum v1.15.7
-	github.com/flare-foundation/go-flare-common v1.2.1-0.20250627124831-2233c2c6a3d0
+	github.com/flare-foundation/go-flare-common v1.2.1-0.20250701112222-2363a03c115d
 	github.com/flare-foundation/tee-node v0.0.1
 	github.com/redis/go-redis/v9 v9.8.0
 	github.com/stretchr/testify v1.10.0

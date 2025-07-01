@@ -66,7 +66,10 @@ func (s *Storage) Sync(ctx context.Context) error {
 
 	s.Lock()
 	defer s.Unlock()
-	s.storeWallets(result)
+	err = s.storeWallets(result)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

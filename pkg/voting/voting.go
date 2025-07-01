@@ -1,19 +1,16 @@
 package voting
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"time"
 
-	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/storage"
 	"github.com/flare-foundation/tee-proxy/pkg/limiter"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
-
-	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
@@ -41,13 +38,15 @@ type Storage struct {
 
 	meta meta.Meta
 
-	out chan<- *types.Action // todo: decide on type
+	outThreshold chan *voteBox // maybe a copy
+	outEnd       chan *voteBox // todo: decide on type
+
 }
 
 type VoterType uint8
 
-func NewStorage(size int, meta meta.Meta, out chan *types.Action) *Storage {
-	return &Storage{storage.New[uint64, *Round](size), meta, out}
+func NewStorage(size int, meta meta.Meta, outThreshold, outEnd chan *voteBox) *Storage {
+	return &Storage{storage.New[uint64, *Round](size), meta, outThreshold, outEnd}
 }
 
 type Round struct {
@@ -83,13 +82,13 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	}
 
 	if !data.RewardEpochID.IsUint64() {
-		return nil, errors.New("RewardEpochID overflow")
+		return nil, fmt.Errorf("%w, reward epoch overflow", status.HTTP[400])
 	}
 	reID := data.RewardEpochID.Uint64()
 
 	round, exists := s.Get(reID)
 	if !exists {
-		return nil, fmt.Errorf("no round %d", reID)
+		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], reID)
 	}
 
 	boxes, exist := round.VotingBoxes[id]
@@ -125,7 +124,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 		cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
 		if err != nil {
-			return nil, fmt.Errorf("cannot get cosigners for %v: %v", id, err)
+			return nil, fmt.Errorf("cannot get cosigners for %v: %w", id, err)
 		}
 
 		if cosigners[signer] {
@@ -133,41 +132,33 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		}
 
 		if err := round.limiter.Increment(signer); err != nil {
-			return nil, fmt.Errorf("cannot propose in round %d, %v", reID, err)
+			return nil, err
 		}
 
 		box, err = newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
 		// we only save it if no errors are returned
 		if err != nil {
-			return nil, fmt.Errorf("cannot create new box %v", id)
+			return nil, fmt.Errorf("cannot create new vote box %w", err)
 		}
 
 		go func() {
 			time.Sleep(time.Until(box.EndTime))
 
-			box.Lock()
-			defer box.Unlock()
-			defer box.delete()
-
-			action, err := box.action(types.End)
-			if err != nil {
-				logger.Debugf("closing vote %v", err)
-
-				return
-			}
-
-			s.out <- action
+			s.outEnd <- box
 		}()
 
 		// todo add receipt
 	}
 
-	weight := round.policy.Voters.VoterDataMap[signer].Weight
 	var vg voterGroup = 0
+	weight := uint16(0)
 
-	if weight != 0 {
+	vd, exists := round.policy.Voters.VoterDataMap[signer]
+	if exists {
 		vg |= 0b01
+		weight = vd.Weight
 	}
+
 	if box.proposal.Cosigners[signer] {
 		vg |= 0b10
 	}
@@ -187,17 +178,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	round.VotingBoxes[id] = boxes
 
 	if finished {
-		action, err := box.action(types.Threshold)
-		if err != nil {
-			return &receipt, fmt.Errorf("assembling action for %v, %v: %v", id, hash, err)
-		}
-
-		err = round.limiter.Decrement(box.Proposer)
-		if err != nil {
-			return &receipt, err
-		}
-
-		s.out <- action
+		s.outThreshold <- box
 	}
 
 	return &receipt, nil

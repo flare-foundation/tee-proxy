@@ -1,15 +1,15 @@
 package limiter
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
-var unregisteredError = errors.New("voter not registered")
-var limitReachedError = errors.New("propose limit reached")
+var ErrUnregistered = fmt.Errorf("%w: voter not registered", status.HTTP[403])
+var ErrLimitReached = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
 
 type Limiter struct {
 	counter map[common.Address]*State
@@ -29,7 +29,7 @@ type State struct {
 	TotalCompleted int
 }
 
-// New creates a new limiter that holds counters for <size> rounds and allows at mosts maxPendingRequests per voter.
+// New creates a new Limiter that holds counters for <size> rounds and allows at mosts maxPendingRequests per voter.
 func New(voters []common.Address, maxPendingRequests uint) *Limiter {
 	c := make(map[common.Address]*State)
 
@@ -69,12 +69,12 @@ func (l *Limiter) Increment(address common.Address) error {
 
 	state, exists := l.counter[address]
 	if !exists {
-		return fmt.Errorf("voter %v not registered", address)
+		return ErrUnregistered
 	}
 
 	// Check if the validator has too many pending requests
 	if state.pending >= l.maxPendingRequests {
-		return fmt.Errorf("voter %v has too may pending requests", address)
+		return ErrLimitReached
 	}
 
 	state.pending++
@@ -90,7 +90,7 @@ func (l *Limiter) Decrement(address common.Address) error {
 
 	state, exists := l.counter[address]
 	if !exists {
-		return fmt.Errorf("voter %v not registered in round", address)
+		return ErrUnregistered
 	}
 
 	if state.pending > 0 {

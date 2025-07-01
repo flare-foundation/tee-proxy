@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
@@ -144,16 +145,16 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	var receipt Receipt
 
 	if voterGroup == invalidVoter {
-		return receipt, false, errors.New("invalid voter")
+		return receipt, false, fmt.Errorf("%w: invalid voter", status.HTTP[403])
 	}
 
 	now := time.Now()
 
 	if vb.EndTime.Before(now) {
-		return receipt, false, fmt.Errorf("voting already ended")
+		return receipt, false, fmt.Errorf("%w: voting already ended", status.HTTP[403])
 	}
 	if _, exists := vb.votes[signer]; exists {
-		return receipt, false, fmt.Errorf("signature from %s already added", signer)
+		return receipt, false, fmt.Errorf("%w: signature already stored", status.HTTP[403])
 	}
 
 	vote := &vote{
@@ -163,11 +164,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		AdditionalVariableMessage: additionalVariableMessage,
 	}
 
-	hash, err := instruction.NextVoteHash(vb.VoteHash, signer, signature, additionalVariableMessage, uint64(now.Unix()))
-	if err != nil {
-		return receipt, false, fmt.Errorf("calculating next hash: %v", err)
-	}
-	vb.VoteHash = hash
+	vb.VoteHash = instruction.NextVoteHash(vb.VoteHash, signer, signature, additionalVariableMessage, uint64(now.Unix()))
 	vb.votes[signer] = vote
 
 	vb.weight += weight
@@ -181,7 +178,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		Sequence:                      vote.Sequence,
 		AdditionalVariableMessageHash: crypto.Keccak256Hash(additionalVariableMessage),
 		Timestamp:                     uint64(now.Unix()),
-		VoteHash:                      hash,
+		VoteHash:                      vb.VoteHash,
 	}
 
 	if !vb.finalized && vb.weight >= vb.proposal.Threshold && vb.cosignerWeight >= vb.proposal.CosignerThreshold {

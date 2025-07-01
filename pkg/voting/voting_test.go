@@ -25,9 +25,10 @@ func (*testMeta) Threshold(_ *instruction.DataFixed) (int, error) {
 }
 
 func TestStorage(t *testing.T) {
-	out := make(chan *types.Action, 3)
+	out := make(chan *voteBox, 3)
+	outEnd := make(chan *voteBox, 3)
 
-	s := NewStorage(3, &testMeta{}, out)
+	s := NewStorage(3, &testMeta{}, out, outEnd)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 
@@ -59,15 +60,36 @@ func TestStorage(t *testing.T) {
 	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
 	require.NoError(t, err)
 
+	pk, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	af := crypto.PubkeyToAddress(pk.PublicKey)
+	sf, err := instruction.SignInstructionHash(h, pk)
+	require.NoError(t, err)
+
 	r1, err := s.AddVote(i, a1, s1)
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), r1.Sequence)
+
+	hf, err := i.HashFixed()
+	require.NoError(t, err)
+	require.Equal(t, hf, r1.InstructionHash)
 
 	r2, err := s.AddVote(i, a2, s2)
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), r2.Sequence)
 
-	a := <-out
+	_, err = s.AddVote(i, af, sf)
+	require.Error(t, err)
 
-	require.NotNil(t, a)
+	box := <-out
+
+	require.True(t, box.finalized)
+	require.False(t, box.deleted)
+	require.Equal(t, uint16(2), box.weight)
+	require.Equal(t, uint16(0), box.cosignerWeight)
+
+	a, err := box.action(types.Threshold)
+	require.NoError(t, err)
+
+	require.Equal(t, a.Data.ID, i.InstructionID)
 }

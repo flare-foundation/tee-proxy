@@ -104,7 +104,10 @@ func (is *Storage) oneCycle(ctx context.Context) error {
 		return err
 	}
 
-	is.actionStorage.Enqueue(ctx, action, redis.Read)
+	err = is.actionStorage.Enqueue(ctx, action, redis.Read)
+	if err != nil {
+		return err
+	}
 
 	time.Sleep(10 * time.Second)
 
@@ -148,7 +151,10 @@ func (is *Storage) waitOnResponse(ctx context.Context, timeout time.Duration, ac
 
 	result := new(types.TeeInfoResponse)
 
-	json.Unmarshal(response.Result.ResultData.Message, result)
+	err = json.Unmarshal(response.Result.ResultData.Message, result)
+	if err != nil {
+		return nil, err
+	}
 
 	return result, err
 }
