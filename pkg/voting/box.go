@@ -100,14 +100,14 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 }
 
 // delete clears voteBox and sets it's deleted status to true.
-func (vb *voteBox) delete() {
+func (vb *voteBox) Delete() {
 	vb.proposal = nil
 	vb.votes = nil
 
 	vb.deleted = true
 }
 
-func (vb *voteBox) action(tag types.SubmissionTag) (*types.Action, error) {
+func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	if vb.deleted {
 		return nil, errors.New("already deleted")
 	}

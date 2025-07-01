@@ -6,8 +6,8 @@ import (
 
 	"github.com/flare-foundation/tee-node/pkg/types"
 
-	"github.com/flare-foundation/tee-proxy/pkg/service/action"
-	"github.com/flare-foundation/tee-proxy/pkg/service/result"
+	"github.com/flare-foundation/tee-proxy/internal/service/action"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
 
 	"github.com/flare-foundation/tee-proxy/pkg/redis"
 )

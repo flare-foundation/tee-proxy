@@ -38,8 +38,8 @@ type Storage struct {
 
 	meta meta.Meta
 
-	outThreshold chan *voteBox // maybe a copy
-	outEnd       chan *voteBox // todo: decide on type
+	OutThreshold chan *voteBox // maybe a copy
+	OutEnd       chan *voteBox // todo: decide on type
 
 }
 
@@ -144,7 +144,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		go func() {
 			time.Sleep(time.Until(box.EndTime))
 
-			s.outEnd <- box
+			s.OutEnd <- box
 		}()
 
 		// todo add receipt
@@ -178,7 +178,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	round.VotingBoxes[id] = boxes
 
 	if finished {
-		s.outThreshold <- box
+		s.OutThreshold <- box
 	}
 
 	return &receipt, nil

@@ -88,7 +88,7 @@ func TestStorage(t *testing.T) {
 	require.Equal(t, uint16(2), box.weight)
 	require.Equal(t, uint16(0), box.cosignerWeight)
 
-	a, err := box.action(types.Threshold)
+	a, err := box.Action(types.Threshold)
 	require.NoError(t, err)
 
 	require.Equal(t, a.Data.ID, i.InstructionID)

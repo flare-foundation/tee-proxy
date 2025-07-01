@@ -9,10 +9,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/service/action"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/info"
-	"github.com/flare-foundation/tee-proxy/pkg/service/action"
-	"github.com/flare-foundation/tee-proxy/pkg/service/instruction"
-	"github.com/flare-foundation/tee-proxy/pkg/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 

@@ -1,0 +1,95 @@
+package instruction
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"fmt"
+
+	"github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-proxy/pkg/redis"
+	"github.com/flare-foundation/tee-proxy/pkg/voting"
+
+	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/utils"
+)
+
+type Service struct {
+	vs       *voting.Storage
+	policies chan policy.SigningPolicy
+
+	as *redis.ActionStorage
+	pk *ecdsa.PrivateKey
+}
+
+func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.SignedReceipt, error) {
+	r, err := s.process(i)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.Sign(s.pk)
+}
+
+func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
+	hash, err := i.Data.HashForSigning()
+	if err != nil {
+		return nil, fmt.Errorf("processing instruction %v", err)
+	}
+
+	signer, err := utils.SignatureToSignersAddress(hash[:], i.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("retrieving signer %v", err)
+	}
+
+	return s.vs.AddVote(&i.Data, signer, i.Signature)
+}
+
+func (m *Service) Forward(ctx context.Context) error {
+	// this can be done directly
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("forwarding context stopped %v", ctx.Err())
+		case box := <-m.vs.OutThreshold:
+			box.RLock()
+			a, err := box.Action(types.Threshold)
+			box.RUnlock()
+			if err != nil {
+				continue
+			}
+
+			err = m.as.Enqueue(ctx, a, redis.Main)
+			if err != nil {
+				continue
+			}
+
+		case box := <-m.vs.OutEnd:
+			box.RLock()
+			a, err := box.Action(types.End)
+			box.RUnlock()
+			if err != nil {
+				continue
+			}
+
+			err = m.as.Enqueue(ctx, a, redis.Main)
+			if err != nil {
+				continue
+			}
+			box.Lock()
+			box.Delete()
+			box.Unlock()
+		}
+	}
+}
+
+func (s *Service) ListenToPolicies(ctx context.Context) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("listenToPolicies stopped %v", ctx.Err())
+		case policy := <-s.policies:
+			s.vs.CreateRound(&policy)
+		}
+	}
+}
