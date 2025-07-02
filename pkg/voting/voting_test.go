@@ -20,7 +20,7 @@ func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, u
 	return map[common.Address]bool{}, 0, nil
 }
 
-func (*testMeta) Threshold(_ *instruction.DataFixed) (int, error) {
+func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 	return -1, nil
 }
 
@@ -92,4 +92,74 @@ func TestStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, a.Data.ID, i.InstructionID)
+}
+
+func TestComputeThresholdSigningPolicy(t *testing.T) {
+	tests := []struct {
+		totalWeight uint16
+		threshold   uint16
+	}{
+		{
+			totalWeight: 0,
+			threshold:   0,
+		},
+		{
+			totalWeight: 65491,
+			threshold:   32746,
+		},
+		{
+			totalWeight: 65493,
+			threshold:   32747,
+		},
+		{
+			totalWeight: 65498,
+			threshold:   32749,
+		},
+		{
+			totalWeight: 65496,
+			threshold:   32748,
+		},
+	}
+
+	for j, test := range tests {
+		require.Equal(t, test.threshold, computeThreshold(test.totalWeight, 5000), j)
+	}
+}
+
+func TestComputeThresholdCustom(t *testing.T) {
+	tests := []struct {
+		totalWeight uint16
+		bips        int
+		threshold   uint16
+	}{
+		{
+			totalWeight: 0,
+			bips:        0,
+			threshold:   0,
+		},
+		{
+			totalWeight: 100,
+			bips:        0,
+			threshold:   0,
+		},
+		{
+			totalWeight: 10000,
+			bips:        1,
+			threshold:   1,
+		},
+		{
+			totalWeight: 1,
+			bips:        1,
+			threshold:   1,
+		},
+		{
+			totalWeight: 123,
+			bips:        10000,
+			threshold:   123,
+		},
+	}
+
+	for j, test := range tests {
+		require.Equal(t, test.threshold, computeThreshold(test.totalWeight, test.bips), j)
+	}
 }

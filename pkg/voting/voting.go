@@ -2,8 +2,6 @@ package voting
 
 import (
 	"fmt"
-	"math"
-	"math/big"
 	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
@@ -15,6 +13,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 )
+
+const maxBIPS = 10000
 
 const proposalExpiration = 120 * time.Second // MORE??
 
@@ -99,27 +99,19 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	box, exist := boxes[hash]
 	if !exist {
-		t, err := s.meta.Threshold(&data.DataFixed)
+		t, err := s.meta.ThresholdBIPS(&data.DataFixed)
 		if err != nil {
 			return nil, fmt.Errorf("cannot get threshold for %v", id)
 		}
 
 		var threshold uint16
-		if t == -1 {
+		switch {
+		case t == -1:
 			threshold = round.policy.Threshold
-		} else if t < -1 || t > math.MaxUint16 {
+		case t < -1 || t > maxBIPS:
 			return nil, fmt.Errorf("invalid threshold %d for %v", t, id)
-		} else {
-			totalWeight := big.NewInt(int64(round.policy.Voters.TotalWeight))
-			tBIPS := big.NewInt(int64(t))
-
-			totalWeight.Mul(totalWeight, tBIPS)
-			tBig := totalWeight.Div(totalWeight, big.NewInt(10000))
-
-			tUin64 := tBig.Uint64()
-
-			//todo make safe conversion
-			threshold = uint16(tUin64)
+		default:
+			threshold = computeThreshold(round.policy.Voters.TotalWeight, t)
 		}
 
 		cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
@@ -181,4 +173,18 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	}
 
 	return &receipt, nil
+}
+
+// computeThreshold matches the computation of the threshold for signing policy.
+// It is assumed that 0 <= bips <= 10000.
+func computeThreshold(total uint16, bips int) uint16 {
+	t64 := uint64(total)
+	b64 := uint64(bips)
+	t := t64 * b64 / maxBIPS
+
+	if (t64*b64)%maxBIPS != 0 {
+		t++
+	}
+
+	return uint16(t) //nolint:gosec
 }

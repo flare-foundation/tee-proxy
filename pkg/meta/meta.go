@@ -20,10 +20,10 @@ type Meta interface {
 	//
 	// If no cosigners are set, empty list and threshold zero is returned.
 	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64, error)
-	// Threshold returns custom threshold for the instruction.
+	// ThresholdBIPS returns custom thresholdBIPS for the instruction.
 	//
 	// If no specific threshold is set -1 is returned.
-	Threshold(*instruction.DataFixed) (int, error)
+	ThresholdBIPS(*instruction.DataFixed) (int, error)
 }
 
 type meta struct {
@@ -76,12 +76,17 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 	return cosigners, 0, nil
 }
 
-func (m *meta) Threshold(data *instruction.DataFixed) (int, error) {
+func (m *meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
 	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
 		var message = new(connector.IFtdcHubFtdcProve)
 		err := structs.DecodeTo(connector.MessageArguments[constants.Prove], data.OriginalMessage, message)
 		if err != nil {
 			return -1, err
+		}
+
+		tBIPS := int(message.ThresholdBIPS)
+		if tBIPS == 0 {
+			return -1, nil
 		}
 
 		return int(message.ThresholdBIPS), nil // todo: is this always set??

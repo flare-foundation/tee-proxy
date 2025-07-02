@@ -182,7 +182,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		VoteHash:                      vb.VoteHash,
 	}
 
-	if !vb.finalized && vb.weight >= vb.proposal.Threshold && vb.cosignerWeight >= vb.proposal.CosignerThreshold {
+	if !vb.finalized && vb.weight > vb.proposal.Threshold && vb.cosignerWeight >= vb.proposal.CosignerThreshold {
 		vb.finalized = true
 		return receipt, true, nil
 	}
