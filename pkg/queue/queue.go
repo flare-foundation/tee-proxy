@@ -9,6 +9,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
 type QueueID string
@@ -60,6 +61,8 @@ func NewActionQueues(client *redis.Client) *ActionQueues {
 
 // ! 8. ReadQueuedActionResult
 
+var ErrInvalidQueueID = fmt.Errorf("%w: invalid queue id", status.HTTP[400])
+
 func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID QueueID) error {
 	id := StoringID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
 
@@ -74,7 +77,7 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 	case Read:
 		err = as.readQueue.Enqueue(ctx, &id)
 	default:
-		return fmt.Errorf("invalid queueID %s", queueID)
+		return ErrInvalidQueueID
 	}
 
 	return err
@@ -91,7 +94,7 @@ func (as *ActionQueues) GetAction(ctx context.Context, actionID common.Hash, sub
 	return action, nil
 }
 
-var ErrEmptyQueue = errors.New("empty queue")
+var ErrEmptyQueue = fmt.Errorf("%w: empty queue", status.HTTP[404])
 
 func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, error) {
 	var queue *Storage[*StoringID]
@@ -102,7 +105,7 @@ func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, err
 	case Read:
 		queue = as.readQueue
 	default:
-		return nil, fmt.Errorf("invalid queueID: %s", id)
+		return nil, ErrInvalidQueueID
 	}
 
 	storingID, err := queue.Dequeue(ctx)
