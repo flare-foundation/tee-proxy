@@ -94,7 +94,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	boxes, exist := round.VotingBoxes[id]
 	if !exist {
 		boxes = make(map[common.Hash]*voteBox)
-		// we only save it if no errors are returned
+		// we only save it at the end if no errors are returned
 	}
 
 	box, exist := boxes[hash]
@@ -123,12 +123,13 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 			round.limiter.Add(signer)
 		}
 
-		if err := round.limiter.Increment(signer); err != nil {
+		err = round.limiter.Increment(signer)
+		if err != nil {
 			return nil, err
 		}
 
 		box, err = newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
-		// we only save it if no errors are returned
+		// we only save it at the end if no errors are returned
 		if err != nil {
 			return nil, fmt.Errorf("cannot create new vote box %w", err)
 		}
