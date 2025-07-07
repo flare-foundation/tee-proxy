@@ -79,7 +79,7 @@ func FetchSigningPolicyInitializedEvents(ctx context.Context, db *gorm.DB, relay
 
 func fetchVoterRegistered(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicyID uint32, signingPolicyAddress common.Address) ([]database.Log, error) {
 	address := hex.EncodeToString(voterRegistryAddress[:])
-	topic0 := hex.EncodeToString(voterPreRegisteredEventSel[:])
+	topic0 := hex.EncodeToString(voterRegisteredEventSel[:])
 	topic1Bytes := make([]byte, 32)
 	binary.BigEndian.PutUint32(topic1Bytes[28:], signingPolicyID)
 	topic1 := hex.EncodeToString(topic1Bytes)
