@@ -3,11 +3,9 @@ package policy
 import (
 	"context"
 	"crypto/ecdsa"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -64,75 +62,66 @@ txRecovery:
 
 // fetchSigningPolicyInitializedEventLogs
 func FetchSigningPolicyInitializedEvents(ctx context.Context, db *gorm.DB, relayContractAddress common.Address, initialSigningPolicyID uint32) ([]database.Log, error) {
-	address := hex.EncodeToString(relayContractAddress[:])
-	topic0 := hex.EncodeToString(signingPolicyInitializedEventSel[:])
-	topic1Bytes := make([]byte, 32)
-	binary.BigEndian.PutUint32(topic1Bytes[28:], initialSigningPolicyID)
-	topic1 := hex.EncodeToString(topic1Bytes)
-
 	var logs []database.Log
 
-	err := db.WithContext(ctx).Where("address = ? AND topic0 = ? AND topic1 >= ?", address, topic0, topic1).Order("timestamp").Find(&logs).Error // todo add retry
+	err := db.WithContext(ctx).Where("address = ? AND topic0 = ? AND topic1 >= ?",
+		AddressToQueryParam(relayContractAddress),
+		hex.EncodeToString(signingPolicyInitializedEventSel[:]),
+		hex.EncodeToString(Uint32ToHash(initialSigningPolicyID).Bytes()),
+	).Order("timestamp").Find(&logs).Error // todo add retry
 
 	return logs, err
 }
 
 func fetchVoterRegistered(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicyID uint32, signingPolicyAddress common.Address) ([]database.Log, error) {
-	address := hex.EncodeToString(voterRegistryAddress[:])
-	topic0 := hex.EncodeToString(voterRegisteredEventSel[:])
-	topic1Bytes := make([]byte, 32)
-	binary.BigEndian.PutUint32(topic1Bytes[28:], signingPolicyID)
-	topic1 := hex.EncodeToString(topic1Bytes)
+	topics := [4]common.Hash{}
 
-	topic2Bytes := make([]byte, 32)
-	copy(topic2Bytes[12:], signingPolicyAddress[:])
-	topic2 := hex.EncodeToString(topic2Bytes)
+	topics[0] = voterRegisteredEventSel
+	topics[1] = Uint32ToHash(signingPolicyID)
+	topics[2] = AddressToHash(signingPolicyAddress)
 
-	var logs []database.Log
-	err := db.WithContext(ctx).Where("address = ? AND topic0 = ? AND topic1 = ? AND topic2 = ?", address, topic0, topic1, topic2).Find(&logs).Error // todo add retry
+	params := database.LogsFullParams{
+		Address: voterRegistryAddress,
+		Topics:  topics,
+		Number:  -1,
+	}
 
-	return logs, err
+	return database.FetchLogsFull(ctx, db, params)
 }
 
 func fetchVoterPreRegistered(ctx context.Context, db *gorm.DB, voterPreRegistryAddress common.Address, signingPolicyID uint32, identityAddress common.Address) ([]database.Log, error) {
-	address := hex.EncodeToString(voterPreRegistryAddress[:])
+	topics := [4]common.Hash{}
 
-	topic0 := hex.EncodeToString(voterPreRegisteredEventSel[:])
+	topics[0] = voterPreRegisteredEventSel
+	topics[1] = AddressToHash(identityAddress)
+	topics[2] = Uint32ToHash(signingPolicyID)
 
-	topic1Bytes := make([]byte, 32)
-	copy(topic1Bytes[12:], identityAddress[:])
-	topic1 := hex.EncodeToString(topic1Bytes)
+	params := database.LogsFullParams{
+		Address: voterPreRegistryAddress,
+		Topics:  topics,
+		Number:  -1,
+	}
 
-	topic2Bytes := make([]byte, 32)
-	binary.BigEndian.PutUint32(topic2Bytes[28:], signingPolicyID)
-	topic2 := hex.EncodeToString(topic2Bytes)
-
-	var logs []database.Log
-	err := db.WithContext(ctx).Where("address = ? AND topic0 = ? AND topic1 = ? AND topic2 = ?", address, topic0, topic1, topic2).Find(&logs).Error // todo add retry
-
-	return logs, err
+	return database.FetchLogsFull(ctx, db, params)
 }
 
 func fetchSigningPolicyAddressRegistrationConfirmed(ctx context.Context, db *gorm.DB, entityManagerAddress common.Address, identityAddress, signingPolicyAddress common.Address) ([]database.Log, error) {
-	address := hex.EncodeToString(entityManagerAddress[:])
+	topics := [4]common.Hash{}
 
-	topic0 := hex.EncodeToString(signingPolicyAddressRegistrationConfirmedEventSel[:])
+	topics[0] = signingPolicyAddressRegistrationConfirmedEventSel
+	topics[1] = AddressToHash(identityAddress)
+	topics[2] = AddressToHash(signingPolicyAddress)
 
-	topic1Bytes := make([]byte, 32)
-	copy(topic1Bytes[12:], identityAddress[:])
-	topic1 := hex.EncodeToString(topic1Bytes)
+	params := database.LogsFullParams{
+		Address: entityManagerAddress,
+		Topics:  topics,
+		Number:  -1,
+	}
 
-	topic2Bytes := make([]byte, 32)
-	copy(topic2Bytes[12:], signingPolicyAddress[:])
-	topic2 := hex.EncodeToString(topic2Bytes)
-
-	var logs []database.Log
-	err := db.WithContext(ctx).Where("address = ? AND topic0 = ? AND topic1 = ? AND topic2 = ?", address, topic0, topic1, topic2).Find(&logs).Error // todo add retry
-
-	return logs, err
+	return database.FetchLogsFull(ctx, db, params)
 }
 
-func recoverInputs(input []byte) (identityAddress common.Address, sig *registry.IVoterRegistrySignature, err error) {
+func recoverInputsRegisterVoter(input []byte) (identityAddress common.Address, sig *registry.IVoterRegistrySignature, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			e, ok := r.(error)
@@ -187,26 +176,13 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 	return crypto.SigToPub(sigMsg, serializeSig(signature))
 }
 
-func SafeUint32(b *big.Int) (uint32, error) {
-	idNegative := b.Sign() == -1
-	idOverflow := b.BitLen() > 32
-
-	if idNegative || idOverflow {
-		return 0, errors.New("invalid uint32")
-	}
-
-	u := uint32(b.Uint64()) //nolint:gosec // if above checks for under and overflow
-
-	return u, nil
-}
-
 func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, log database.Log) (*ecdsa.PublicKey, error) {
 	input, err := hex.DecodeString(log.Transaction.Input)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tx input: %w", err)
 	}
 
-	identityAddress, sig, err := recoverInputs(input)
+	identityAddress, sig, err := recoverInputsRegisterVoter(input)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tx input format: %w", err)
 	}

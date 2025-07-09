@@ -12,7 +12,7 @@ var HTTP = map[int]error{
 	500: errors.New("'internal server error'"),
 }
 
-// ErrToCode returns a code for an error.
+// ErrToCode returns a http code for an error.
 //
 // Works only if err is wrapped HTTPError. Otherwise -1 is returned.
 func ErrToCode(err error) int {
