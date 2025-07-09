@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
+// Receipt as used for voting transparency.
 type Receipt struct {
 	InstructionHash               common.Hash `json:"instructionHash"`
 	Sequence                      uint64      `json:"sequence"`
@@ -18,6 +19,7 @@ type Receipt struct {
 	VoteHash                      common.Hash `json:"voteHash"`
 }
 
+// SignedReceipt combines Receipt and its signature.
 type SignedReceipt struct {
 	Receipt   Receipt       `json:"receipt"`
 	Signature hexutil.Bytes `json:"signature"`
@@ -49,4 +51,11 @@ func (r *Receipt) Sign(pk *ecdsa.PrivateKey) (*SignedReceipt, error) {
 	}
 
 	return sr, nil
+}
+
+// RecoverPubKey recovers signer of the signed receipt.
+func (r *SignedReceipt) RecoverPubKey() (*ecdsa.PublicKey, error) {
+	msg := accounts.TextHash(r.Receipt.Hash().Bytes())
+
+	return crypto.SigToPub(msg, r.Signature)
 }

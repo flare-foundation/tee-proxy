@@ -34,6 +34,7 @@ type proposal struct {
 	sync.Mutex
 }
 
+// newProposal assembles a new proposal
 func newProposal(data *instruction.DataFixed, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) *proposal {
 	return &proposal{
 		Instruction: data,
@@ -73,6 +74,7 @@ type voteBox struct {
 	sync.RWMutex
 }
 
+// newVoteBox assembles new voteBox.
 func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) (*voteBox, error) {
 	proposal := newProposal(data, threshold, cosigners, cosignerThreshold)
 
@@ -108,6 +110,7 @@ func (vb *voteBox) Delete() {
 	vb.deleted = true
 }
 
+// Action creates Action with provided tag from a finalized voteBox.
 func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	if vb.deleted {
 		return nil, errors.New("already deleted")
@@ -142,6 +145,10 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	return a, nil
 }
 
+// addVote adds vote to a voteBox and returns a Receipt and a boolean indicator of finalization,
+// that is true only the first time the conditions for finalization are fulfilled.
+//
+// The returned receipt has zero valued Instruction Hash that has to be filled in the calling function.
 func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (Receipt, bool, error) {
 	var receipt Receipt
 
@@ -190,6 +197,9 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
+// signersData returns slices of signatures, additionalVariableMessages, and timestamps.
+// signature, additionalVariableMessages, and timestamps in slot j come from the same vote.
+// Slices are sorted according to the arrival of votes.
 func (vb *voteBox) signersData() (signatures []hexutil.Bytes, additionalVariableMessages []hexutil.Bytes, timestamps []uint64) {
 	signatures = make([]hexutil.Bytes, len(vb.votes))
 	additionalVariableMessages = make([]hexutil.Bytes, len(vb.votes))
