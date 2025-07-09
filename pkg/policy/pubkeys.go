@@ -18,7 +18,21 @@ import (
 	"gorm.io/gorm"
 )
 
-func RecoverPubKey(ctx context.Context, db *gorm.DB, signingPolicyAddress common.Address, signingPolicyID uint32, addresses addresses) (*ecdsa.PublicKey, error) {
+// addresses stores addresses of the smart contracts.
+type addresses struct {
+	voterRegistry    common.Address
+	voterPreRegistry common.Address
+	entityManager    common.Address
+}
+
+// RecoverPubKey recovers public key for signingPolicyAddress in signingPolicyID.
+func RecoverPubKey(
+	ctx context.Context,
+	db *gorm.DB,
+	signingPolicyAddress common.Address,
+	signingPolicyID uint32,
+	addresses addresses,
+) (*ecdsa.PublicKey, error) {
 	vrLogs, err := fetchVoterRegistered(ctx, db, addresses.voterRegistry, signingPolicyID, signingPolicyAddress)
 	if err != nil {
 		return nil, err
@@ -60,12 +74,18 @@ txRecovery:
 	return recoverPubKeyFromTransaction(*rLog[0].Transaction, signingPolicyAddress)
 }
 
-// fetchSigningPolicyInitializedEventLogs
-func FetchSigningPolicyInitializedEvents(ctx context.Context, db *gorm.DB, relayContractAddress common.Address, initialSigningPolicyID uint32) ([]database.Log, error) {
+// fetchSigningPolicyInitializedEventLogs fetches all signingPolicyInitialized event logs
+// emitted by Relay with signingPolicyID higher or equal to initialSigningPolicyID.
+func FetchSigningPolicyInitializedEvents(
+	ctx context.Context,
+	db *gorm.DB,
+	relayAddress common.Address,
+	initialSigningPolicyID uint32,
+) ([]database.Log, error) {
 	var logs []database.Log
 
 	err := db.WithContext(ctx).Where("address = ? AND topic0 = ? AND topic1 >= ?",
-		AddressToQueryParam(relayContractAddress),
+		AddressToQueryParam(relayAddress),
 		hex.EncodeToString(signingPolicyInitializedEventSel[:]),
 		hex.EncodeToString(Uint32ToHash(initialSigningPolicyID).Bytes()),
 	).Order("timestamp").Find(&logs).Error // todo add retry
@@ -73,12 +93,22 @@ func FetchSigningPolicyInitializedEvents(ctx context.Context, db *gorm.DB, relay
 	return logs, err
 }
 
-func fetchVoterRegistered(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicyID uint32, signingPolicyAddress common.Address) ([]database.Log, error) {
+// fetchVoterRegistered fetches all voterRegistered event logs emitted by voterRegistry
+// with signingPolicyID and signingPolicyAddress as third and fourth topic respectively.
+//
+// There should always be at most one such event.
+func fetchVoterRegistered(
+	ctx context.Context,
+	db *gorm.DB,
+	voterRegistryAddress common.Address,
+	signingPolicyID uint32,
+	signingPolicyAddress common.Address,
+) ([]database.Log, error) {
 	topics := [4]common.Hash{}
 
 	topics[0] = voterRegisteredEventSel
-	topics[1] = Uint32ToHash(signingPolicyID)
-	topics[2] = AddressToHash(signingPolicyAddress)
+	topics[2] = Uint32ToHash(signingPolicyID)
+	topics[3] = AddressToHash(signingPolicyAddress)
 
 	params := database.LogsFullParams{
 		Address: voterRegistryAddress,
@@ -89,7 +119,17 @@ func fetchVoterRegistered(ctx context.Context, db *gorm.DB, voterRegistryAddress
 	return database.FetchLogsFull(ctx, db, params)
 }
 
-func fetchVoterPreRegistered(ctx context.Context, db *gorm.DB, voterPreRegistryAddress common.Address, signingPolicyID uint32, identityAddress common.Address) ([]database.Log, error) {
+// fetchVoterPreRegistered fetches all voterPreRegistered event logs emitted by voterPreRegistry
+// with identityAddress and signingPolicyID as second and third topic respectively.
+//
+// There should always be at most one such event.
+func fetchVoterPreRegistered(
+	ctx context.Context,
+	db *gorm.DB,
+	voterPreRegistryAddress common.Address,
+	signingPolicyID uint32,
+	identityAddress common.Address,
+) ([]database.Log, error) {
 	topics := [4]common.Hash{}
 
 	topics[0] = voterPreRegisteredEventSel
@@ -105,7 +145,13 @@ func fetchVoterPreRegistered(ctx context.Context, db *gorm.DB, voterPreRegistryA
 	return database.FetchLogsFull(ctx, db, params)
 }
 
-func fetchSigningPolicyAddressRegistrationConfirmed(ctx context.Context, db *gorm.DB, entityManagerAddress common.Address, identityAddress, signingPolicyAddress common.Address) ([]database.Log, error) {
+func fetchSigningPolicyAddressRegistrationConfirmed(
+	ctx context.Context,
+	db *gorm.DB,
+	entityManagerAddress common.Address,
+	identityAddress,
+	signingPolicyAddress common.Address,
+) ([]database.Log, error) {
 	topics := [4]common.Hash{}
 
 	topics[0] = signingPolicyAddressRegistrationConfirmedEventSel
@@ -121,6 +167,7 @@ func fetchSigningPolicyAddressRegistrationConfirmed(ctx context.Context, db *gor
 	return database.FetchLogsFull(ctx, db, params)
 }
 
+// recoverInputsRegisterVoter unpacks arguments for registerVoter of preRegisterVoter method.
 func recoverInputsRegisterVoter(input []byte) (identityAddress common.Address, sig *registry.IVoterRegistrySignature, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -155,6 +202,7 @@ func recoverInputsRegisterVoter(input []byte) (identityAddress common.Address, s
 	return identityAddress, sig, nil
 }
 
+// serializeSig serializes signature to [R||S||V-27].
 func serializeSig(s *registry.IVoterRegistrySignature) []byte {
 	sig := make([]byte, 0, 65)
 
@@ -165,6 +213,9 @@ func serializeSig(s *registry.IVoterRegistrySignature) []byte {
 	return sig
 }
 
+// recoverPubKeyFromRegistration recovers the public key from the signature of the message.
+//
+// See preRegisterVoter or registerVoter of VoterPreRegistry or VoterRegistry, for the message that is signed and how it is signed.
 func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID uint32, signature *registry.IVoterRegistrySignature) (*ecdsa.PublicKey, error) {
 	msg, err := msgArgs.Pack(rewardEpochID, identityAddress)
 	if err != nil {
@@ -176,6 +227,9 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 	return crypto.SigToPub(sigMsg, serializeSig(signature))
 }
 
+// recoverPubKeyFromEvent recovers public key from the input of a transaction that emitted log.
+// The log should be VoterRegistered or VoterPreRegistered.
+// If the underling transaction should call registerVoter or preRegisterVoter method.
 func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, log database.Log) (*ecdsa.PublicKey, error) {
 	input, err := hex.DecodeString(log.Transaction.Input)
 	if err != nil {
@@ -202,10 +256,4 @@ func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID
 
 func recoverPubKeyFromTransaction(tx database.Transaction, signingPolicyAddress common.Address) (*ecdsa.PublicKey, error) {
 	return nil, errors.New("todo")
-}
-
-type addresses struct {
-	voterRegistry    common.Address
-	voterPreRegistry common.Address
-	entityManager    common.Address
 }

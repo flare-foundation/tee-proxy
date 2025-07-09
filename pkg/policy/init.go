@@ -20,10 +20,10 @@ var (
 
 	signNewSigningPolicySel [4]byte // len = 4
 
-	registerVoterArgs        abi.Arguments // same as preRegisterVoterArgs
-	signNewSigningPolicyArgs abi.Arguments // same as preRegisterVoterArgs
+	registerVoterArgs        abi.Arguments // VoterRegistry registerVoter, same arguments as VoterPreRegistry preRegisterVoter.
+	signNewSigningPolicyArgs abi.Arguments // FlareSystemsManager signNewSigningPolicy.
 
-	msgArgs abi.Arguments
+	msgArgs abi.Arguments // (uint32, address) (on contract it is (uint24, address) but the encoding is the same), see variable messageHash in registerVoter method.
 )
 
 func init() {
