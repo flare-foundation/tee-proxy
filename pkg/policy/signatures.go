@@ -23,6 +23,7 @@ const maxAllowedConsecutiveErrors = 15
 
 var ErrDeadlineExceeded = errors.New("deadline exceeded")
 var ErrTooManyErrors = errors.New("too many errors")
+var ErrThresholdNotReached = errors.New("threshold not reached")
 
 // recoverInputsSignNewSigningPolicy unpacks transaction input for signNewSigningPolicy method of FlareSystemsManager smart contract.
 //
@@ -88,7 +89,15 @@ func recoverSigner(hash common.Hash, signature *registry.IVoterRegistrySignature
 // Signatures are extracted from the transactions to FlareSystemsManager calling signNewSigningPolicy method.
 // The process ends when signatures of +50% weight are collected, in such case signatures are returned,
 // or deadline is exceeded or too many consecutive errors while querying db occurred, in which case error is returned.
-func collectSignatures(ctx context.Context, db *gorm.DB, flareSystemsManagerAddress common.Address, startBlock int64, deadline uint64, newPolicy policy.SigningPolicy, activePolicy policy.SigningPolicy) ([]*registry.IVoterRegistrySignature, error) {
+func collectSignatures(
+	ctx context.Context,
+	db *gorm.DB,
+	flareSystemsManagerAddress common.Address,
+	startBlock int64,
+	deadline uint64,
+	newPolicy policy.SigningPolicy,
+	activePolicy policy.SigningPolicy,
+) ([]*registry.IVoterRegistrySignature, error) {
 	from := startBlock
 
 	expectedHash := common.BytesToHash(newPolicy.Hash())
@@ -142,29 +151,16 @@ mainLoop:
 
 		if len(txs) > 0 {
 			for j := range txs {
-				input, err := hex.DecodeString(txs[j].Input)
-				if err != nil {
-					continue
-				}
-				spID, hash, sig, err := recoverInputsSignNewSigningPolicy(input)
-				if err != nil {
-					continue
-				}
-				if int64(spID) != newPolicy.RewardEpochID || hash.Cmp(expectedHash) != 0 {
-					continue
-				}
-
-				signer, err := recoverSigner(expectedHash, sig)
+				signer, sig, err := checkAndExtract(txs[j].Input, expectedHash, newPolicy.RewardEpochID)
 				if err != nil {
 					continue
 				}
 
-				signerAddress := crypto.PubkeyToAddress(*signer)
-				weight := activePolicy.Voters.VoterWeightForAddress(signerAddress)
+				weight := activePolicy.Voters.VoterWeightForAddress(signer)
 
-				if !voted[signerAddress] {
+				if weight > 0 && !voted[signer] {
 					sigs = append(sigs, sig)
-					voted[signerAddress] = true
+					voted[signer] = true
 					weightCollected += weight
 
 					if weightCollected > activePolicy.Threshold {
@@ -180,4 +176,84 @@ mainLoop:
 	}
 
 	return sigs, nil
+}
+
+// fetchSignatures fetches providers' signatures for signing policy according to the previous signing policy.
+// Signatures are extracted from the transactions to FlareSystemsManager calling signNewSigningPolicy method from block range [fromBlock, toBlock).
+//
+// The function can be used when enough signatures is already published on chain.
+// Range should be set according to the signing policy - from block in which the signingPolicyInitialized is emitted to start of the signing policy.
+func fetchSignatures(
+	ctx context.Context,
+	db *gorm.DB,
+	flareSystemsManagerAddress common.Address,
+	fromBlock int64,
+	toBlock int64,
+	sPolicy policy.SigningPolicy,
+	previousSPolicy policy.SigningPolicy,
+) ([]*registry.IVoterRegistrySignature, error) {
+	params := database.TxParams{
+		ToAddress:   flareSystemsManagerAddress,
+		FunctionSel: signNewSigningPolicySel,
+		From:        fromBlock,
+		To:          toBlock,
+	}
+
+	expectedHash := common.BytesToHash(sPolicy.Hash())
+	weightCollected := uint16(0)
+	sigs := make([]*registry.IVoterRegistrySignature, 0, 100)
+
+	voted := make(map[common.Address]bool, 100)
+
+	txs, err := database.FetchTransactionsByAddressAndSelectorBlockNumber(ctx, db, params)
+	if err != nil {
+		return nil, err
+	}
+
+	for j := range txs {
+		signer, sig, err := checkAndExtract(txs[j].Input, expectedHash, sPolicy.RewardEpochID)
+		if err != nil {
+			continue
+		}
+		weight := previousSPolicy.Voters.VoterWeightForAddress(signer)
+
+		if weight > 0 && !voted[signer] {
+			sigs = append(sigs, sig)
+			voted[signer] = true
+			weightCollected += weight
+
+			if weightCollected > previousSPolicy.Threshold {
+				break
+			}
+		}
+	}
+
+	if weightCollected <= previousSPolicy.Threshold {
+		return nil, ErrThresholdNotReached
+	}
+
+	return sigs, nil
+}
+
+// checkAndExtract recovers data (signingPolicyID, signingPolicyHash and signature) from the input and checks that they match the expectations.
+// The function returns the address of the signer and the signature if the expectations are met.
+func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID int64) (common.Address, *registry.IVoterRegistrySignature, error) {
+	inputB, err := hex.DecodeString(input)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+	spID, hash, sig, err := recoverInputsSignNewSigningPolicy(inputB)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+	if int64(spID) != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
+		return common.Address{}, nil, fmt.Errorf("invalid data provided")
+	}
+
+	signer, err := recoverSigner(expectedHash, sig)
+	if err != nil {
+		return common.Address{}, nil, err
+	}
+
+	return crypto.PubkeyToAddress(*signer), sig, nil
 }
