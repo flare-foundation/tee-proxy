@@ -43,10 +43,10 @@ func init() {
 	event := relay.RelaySigningPolicyInitialized{
 		RewardEpochId:      big.NewInt(1),
 		StartVotingRoundId: 0,
-		Threshold:          2,
+		Threshold:          3,
 		Seed:               big.NewInt(2),
 		Voters:             voters,
-		Weights:            []uint16{1, 1, 1},
+		Weights:            []uint16{3, 2, 1},
 		SigningPolicyBytes: []byte{},
 		Timestamp:          0,
 	}
