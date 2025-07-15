@@ -9,8 +9,6 @@ import (
 	"sync"
 	"time"
 
-	// "tee-node/pkg/tee/wallets" // Todo: Remove the dependence on the tee wallets
-
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"

@@ -25,8 +25,6 @@ type proposal struct {
 	Cosigners         map[common.Address]bool // list of cosigners extracted in the first vote from key metadata or from attestation request (FTDC).
 	CosignerThreshold uint16                  // cosigner threshold, extracted on the vote, like cosigners.
 
-	// Todo: VoteHash (dynamically calculated on the fly or stored and modified at each update)
-
 	// additional data
 	RequestPolicy *policy.SigningPolicy
 	Result        []byte
@@ -34,7 +32,7 @@ type proposal struct {
 	sync.Mutex
 }
 
-// newProposal assembles a new proposal
+// newProposal assembles a new proposal.
 func newProposal(data *instruction.DataFixed, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) *proposal {
 	return &proposal{
 		Instruction: data,
@@ -53,8 +51,8 @@ type vote struct {
 	AdditionalVariableMessage []byte
 }
 
-// voteBox holds one voting process.
-type voteBox struct {
+// VoteBox holds one voting process.
+type VoteBox struct {
 	Proposer common.Address
 
 	proposal *proposal
@@ -74,8 +72,8 @@ type voteBox struct {
 	sync.RWMutex
 }
 
-// newVoteBox assembles new voteBox.
-func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) (*voteBox, error) {
+// newVoteBox assembles new VoteBox.
+func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) (*VoteBox, error) {
 	proposal := newProposal(data, threshold, cosigners, cosignerThreshold)
 
 	now := time.Now()
@@ -86,7 +84,7 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 		return nil, fmt.Errorf("computing initial hash %v", err)
 	}
 
-	vb := &voteBox{
+	vb := &VoteBox{
 		Proposer:       proposer,
 		proposal:       proposal,
 		votes:          map[common.Address]*vote{},
@@ -102,16 +100,16 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 	return vb, nil
 }
 
-// delete clears voteBox and sets it's deleted status to true.
-func (vb *voteBox) Delete() {
+// delete clears VoteBox and sets it's deleted status to true.
+func (vb *VoteBox) Delete() {
 	vb.proposal = nil
 	vb.votes = nil
 
 	vb.deleted = true
 }
 
-// Action creates Action with provided tag from a finalized voteBox.
-func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
+// Action creates Action with provided tag from a finalized VoteBox.
+func (vb *VoteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	if vb.deleted {
 		return nil, errors.New("already deleted")
 	}
@@ -145,11 +143,11 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	return a, nil
 }
 
-// addVote adds vote to a voteBox and returns a Receipt and a boolean indicator of finalization,
+// addVote adds vote to a VoteBox and returns a Receipt and a boolean indicator of finalization,
 // that is true only the first time the conditions for finalization are fulfilled.
 //
 // The returned receipt has zero valued Instruction Hash that has to be filled in the calling function.
-func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (Receipt, bool, error) {
+func (vb *VoteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (Receipt, bool, error) {
 	var receipt Receipt
 
 	if voterGroup == invalidVoter {
@@ -197,10 +195,55 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
+func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round, id common.Hash) (*VoteBox, error) {
+	t, err := s.meta.ThresholdBIPS(&data.DataFixed)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get threshold for %v", id)
+	}
+
+	var threshold uint16
+	switch {
+	case t == -1:
+		threshold = round.policy.Threshold
+	case t < -1 || t > maxBIPS:
+		return nil, fmt.Errorf("invalid threshold %d for %v", t, id)
+	default:
+		threshold = computeThreshold(round.policy.Voters.TotalWeight, t)
+	}
+
+	cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get cosigners for %v: %w", id, err)
+	}
+
+	if cosigners[signer] {
+		round.limiter.Add(signer)
+	}
+
+	err = round.limiter.Increment(signer)
+	if err != nil {
+		return nil, err
+	}
+
+	box, err := newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
+	// we only save it at the end if no errors are returned
+	if err != nil {
+		return nil, fmt.Errorf("cannot create new vote box %w", err)
+	}
+
+	go func() {
+		time.Sleep(time.Until(box.EndTime))
+
+		s.OutEnd <- box
+	}()
+
+	return box, nil
+}
+
 // signersData returns slices of signatures, additionalVariableMessages, and timestamps.
 // signature, additionalVariableMessages, and timestamps in slot j come from the same vote.
 // Slices are sorted according to the arrival of votes.
-func (vb *voteBox) signersData() (signatures []hexutil.Bytes, additionalVariableMessages []hexutil.Bytes, timestamps []uint64) {
+func (vb *VoteBox) signersData() (signatures []hexutil.Bytes, additionalVariableMessages []hexutil.Bytes, timestamps []uint64) {
 	signatures = make([]hexutil.Bytes, len(vb.votes))
 	additionalVariableMessages = make([]hexutil.Bytes, len(vb.votes))
 	timestamps = make([]uint64, len(vb.votes))
@@ -214,4 +257,18 @@ func (vb *voteBox) signersData() (signatures []hexutil.Bytes, additionalVariable
 	}
 
 	return signatures, additionalVariableMessages, timestamps
+}
+
+// computeThreshold matches the computation of the threshold for signing policy.
+// It is assumed that 0 <= bips <= 10000.
+func computeThreshold(total uint16, bips int) uint16 {
+	t64 := uint64(total)
+	b64 := uint64(bips)
+	t := t64 * b64 / maxBIPS
+
+	if (t64*b64)%maxBIPS != 0 {
+		t++
+	}
+
+	return uint16(t) //nolint:gosec
 }

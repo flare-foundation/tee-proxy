@@ -45,19 +45,18 @@ type Storage struct {
 	meta meta.Meta
 
 	// Channel for boxes that reach threshold.
-	OutThreshold chan *voteBox
+	OutThreshold chan *VoteBox
 	// Channel for boxes that reach the end of voting.
-	OutEnd chan *voteBox
+	OutEnd chan *VoteBox
 }
 
-// NewStorage returns new Storage with
-func NewStorage(size int, meta meta.Meta, outThreshold, outEnd chan *voteBox) *Storage {
+func NewStorage(size int, meta meta.Meta, outThreshold, outEnd chan *VoteBox) *Storage {
 	return &Storage{storage.New[uint64, *Round](size), meta, outThreshold, outEnd}
 }
 
 type Round struct {
 	policy      *policy.SigningPolicy
-	VotingBoxes map[common.Hash](map[common.Hash]*voteBox) // instructionID -> instructionHash -> VoteBox
+	VotingBoxes map[common.Hash](map[common.Hash]*VoteBox) // instructionID -> instructionHash -> VoteBox
 
 	limiter *limiter.Limiter
 }
@@ -74,7 +73,7 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 
 	r := &Round{
 		policy:      policy,
-		VotingBoxes: map[common.Hash]map[common.Hash]*voteBox{},
+		VotingBoxes: map[common.Hash]map[common.Hash]*VoteBox{},
 		limiter:     limiter,
 	}
 
@@ -83,7 +82,7 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 
 // AddVote adds vote to a correct vote box in a correct round and returns a receipt.
 // If a round does not exits an error is returned.
-// If a voteBox does not exist yet, a new voteBox is created if the proposer is not limited.
+// If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
 
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*Receipt, error) {
 	id := data.InstructionID
@@ -103,54 +102,27 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], reID)
 	}
 
+	err = s.meta.CheckConsistency(data, signer)
+	if err != nil {
+		return nil, fmt.Errorf("verifying message validity: %w", err)
+	}
+
 	boxes, exist := round.VotingBoxes[id]
 	if !exist {
-		boxes = make(map[common.Hash]*voteBox)
+		boxes = make(map[common.Hash]*VoteBox)
 		// we only save it at the end if no errors are returned
 	}
 
 	box, exist := boxes[hash]
 	if !exist {
-		t, err := s.meta.ThresholdBIPS(&data.DataFixed)
-		if err != nil {
-			return nil, fmt.Errorf("cannot get threshold for %v", id)
-		}
-
-		var threshold uint16
-		switch {
-		case t == -1:
-			threshold = round.policy.Threshold
-		case t < -1 || t > maxBIPS:
-			return nil, fmt.Errorf("invalid threshold %d for %v", t, id)
-		default:
-			threshold = computeThreshold(round.policy.Voters.TotalWeight, t)
-		}
-
-		cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
-		if err != nil {
-			return nil, fmt.Errorf("cannot get cosigners for %v: %w", id, err)
-		}
-
-		if cosigners[signer] {
-			round.limiter.Add(signer)
-		}
-
-		err = round.limiter.Increment(signer)
+		box, err = s.startVoteBox(data, signer, round, id)
 		if err != nil {
 			return nil, err
 		}
+	}
 
-		box, err = newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
-		// we only save it at the end if no errors are returned
-		if err != nil {
-			return nil, fmt.Errorf("cannot create new vote box %w", err)
-		}
-
-		go func() {
-			time.Sleep(time.Until(box.EndTime))
-
-			s.OutEnd <- box
-		}()
+	if box.deleted {
+		return nil, fmt.Errorf("%w, voting already ended %d", status.HTTP[400], id)
 	}
 
 	var vg voterGroup = 0
@@ -186,18 +158,4 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	}
 
 	return &receipt, nil
-}
-
-// computeThreshold matches the computation of the threshold for signing policy.
-// It is assumed that 0 <= bips <= 10000.
-func computeThreshold(total uint16, bips int) uint16 {
-	t64 := uint64(total)
-	b64 := uint64(bips)
-	t := t64 * b64 / maxBIPS
-
-	if (t64*b64)%maxBIPS != 0 {
-		t++
-	}
-
-	return uint16(t) //nolint:gosec
 }
