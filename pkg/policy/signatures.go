@@ -28,7 +28,7 @@ var ErrThresholdNotReached = errors.New("threshold not reached")
 // recoverInputsSignNewSigningPolicy unpacks transaction input for signNewSigningPolicy method of FlareSystemsManager smart contract.
 //
 // Does not work if the call to the method is done in an internal transacting.
-func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, newSigningPolicyHash common.Hash, signature *registry.IVoterRegistrySignature, err error) {
+func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, newSigningPolicyHash common.Hash, signature *registry.Signature, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			e, ok := r.(error)
@@ -68,9 +68,9 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	newSigningPolicyHash = *ip1
 
-	i2 := abi.ConvertType(inputs[2], new(registry.IVoterRegistrySignature))
+	i2 := abi.ConvertType(inputs[2], new(registry.Signature))
 
-	signature, ok = i2.(*registry.IVoterRegistrySignature)
+	signature, ok = i2.(*registry.Signature)
 	if !ok {
 		return 0, common.Hash{}, nil, errors.New("invalid second input")
 	}
@@ -79,7 +79,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 }
 
 // recoverSigner returns public key form signature of a hash.
-func recoverSigner(hash common.Hash, signature *registry.IVoterRegistrySignature) (*ecdsa.PublicKey, error) {
+func recoverSigner(hash common.Hash, signature *registry.Signature) (*ecdsa.PublicKey, error) {
 	sigMsg := accounts.TextHash(hash[:])
 
 	return crypto.SigToPub(sigMsg, serializeSig(signature))
@@ -97,12 +97,13 @@ func collectSignatures(
 	deadline uint64,
 	newPolicy policy.SigningPolicy,
 	activePolicy policy.SigningPolicy,
-) ([]*registry.IVoterRegistrySignature, error) {
+) ([]*registry.Signature, []*ecdsa.PublicKey, error) {
 	from := startBlock
 
 	expectedHash := common.BytesToHash(newPolicy.Hash())
 	weightCollected := uint16(0)
-	sigs := make([]*registry.IVoterRegistrySignature, 0, 100)
+	sigs := make([]*registry.Signature, 0, 100)
+	keys := make([]*ecdsa.PublicKey, 0, 100)
 
 	voted := make(map[common.Address]bool, 100)
 
@@ -111,7 +112,7 @@ func collectSignatures(
 mainLoop:
 	for {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 
 		state, err := database.FetchState(ctx, db, nil)
@@ -122,11 +123,11 @@ mainLoop:
 				continue
 			}
 
-			return nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
+			return nil, nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
 		}
 
 		if state.BlockTimestamp > deadline {
-			return nil, ErrDeadlineExceeded
+			return nil, nil, ErrDeadlineExceeded
 		}
 
 		to := int64(state.Index)
@@ -146,7 +147,7 @@ mainLoop:
 				continue
 			}
 
-			return nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
+			return nil, nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
 		}
 
 		if len(txs) > 0 {
@@ -156,11 +157,14 @@ mainLoop:
 					continue
 				}
 
-				weight := activePolicy.Voters.VoterWeightForAddress(signer)
+				addr := crypto.PubkeyToAddress(*signer)
 
-				if weight > 0 && !voted[signer] {
+				weight := activePolicy.Voters.VoterWeightForAddress(addr)
+
+				if weight > 0 && !voted[addr] {
 					sigs = append(sigs, sig)
-					voted[signer] = true
+					keys = append(keys, signer)
+					voted[addr] = true
 					weightCollected += weight
 
 					if weightCollected > activePolicy.Threshold {
@@ -175,7 +179,7 @@ mainLoop:
 		time.Sleep(5 * time.Second)
 	}
 
-	return sigs, nil
+	return sigs, keys, nil
 }
 
 // fetchSignatures fetches providers' signatures for signing policy according to the previous signing policy.
@@ -189,9 +193,9 @@ func fetchSignatures(
 	flareSystemsManagerAddress common.Address,
 	fromBlock int64,
 	toBlock int64,
-	sPolicy policy.SigningPolicy,
-	previousSPolicy policy.SigningPolicy,
-) ([]*registry.IVoterRegistrySignature, error) {
+	sPolicy *policy.SigningPolicy,
+	previousSPolicy *policy.SigningPolicy,
+) ([]*registry.Signature, []*ecdsa.PublicKey, error) {
 	params := database.TxParams{
 		ToAddress:   flareSystemsManagerAddress,
 		FunctionSel: signNewSigningPolicySel,
@@ -201,13 +205,15 @@ func fetchSignatures(
 
 	expectedHash := common.BytesToHash(sPolicy.Hash())
 	weightCollected := uint16(0)
-	sigs := make([]*registry.IVoterRegistrySignature, 0, 100)
+
+	sigs := make([]*registry.Signature, 0, 100)
+	keys := make([]*ecdsa.PublicKey, 0, 100)
 
 	voted := make(map[common.Address]bool, 100)
 
 	txs, err := database.FetchTransactionsByAddressAndSelectorBlockNumber(ctx, db, params)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for j := range txs {
@@ -215,11 +221,14 @@ func fetchSignatures(
 		if err != nil {
 			continue
 		}
-		weight := previousSPolicy.Voters.VoterWeightForAddress(signer)
 
-		if weight > 0 && !voted[signer] {
+		addr := crypto.PubkeyToAddress(*signer)
+		weight := previousSPolicy.Voters.VoterWeightForAddress(addr)
+
+		if weight > 0 && !voted[addr] {
 			sigs = append(sigs, sig)
-			voted[signer] = true
+			keys = append(keys, signer)
+			voted[addr] = true
 			weightCollected += weight
 
 			if weightCollected > previousSPolicy.Threshold {
@@ -229,31 +238,31 @@ func fetchSignatures(
 	}
 
 	if weightCollected <= previousSPolicy.Threshold {
-		return nil, ErrThresholdNotReached
+		return nil, nil, ErrThresholdNotReached
 	}
 
-	return sigs, nil
+	return sigs, keys, nil
 }
 
 // checkAndExtract recovers data (signingPolicyID, signingPolicyHash and signature) from the input and checks that they match the expectations.
 // The function returns the address of the signer and the signature if the expectations are met.
-func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID int64) (common.Address, *registry.IVoterRegistrySignature, error) {
+func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID int64) (*ecdsa.PublicKey, *registry.Signature, error) {
 	inputB, err := hex.DecodeString(input)
 	if err != nil {
-		return common.Address{}, nil, err
+		return nil, nil, err
 	}
 	spID, hash, sig, err := recoverInputsSignNewSigningPolicy(inputB)
 	if err != nil {
-		return common.Address{}, nil, err
+		return nil, nil, err
 	}
 	if int64(spID) != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
-		return common.Address{}, nil, fmt.Errorf("invalid data provided")
+		return nil, nil, fmt.Errorf("invalid data provided")
 	}
 
 	signer, err := recoverSigner(expectedHash, sig)
 	if err != nil {
-		return common.Address{}, nil, err
+		return nil, nil, err
 	}
 
-	return crypto.PubkeyToAddress(*signer), sig, nil
+	return signer, sig, nil
 }

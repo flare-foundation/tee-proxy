@@ -41,7 +41,6 @@ func New(ws *wallets.Storage) Meta {
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
 	cosigners := make(map[common.Address]bool)
 
-	//  todo add reissue and other commands
 	if data.OPType == constants.XRP.Hash() && (data.OPCommand == constants.Pay.Hash() || data.OPCommand == constants.Reissue.Hash()) { // OPType=="XRP", OPCommand == "PAY" or "REISSUE"
 		originalMessage, err := types.ParseSignPaymentRequest(data)
 		if err != nil {
@@ -64,16 +63,16 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 		return cosigners, cosignerThreshold, nil
 	}
 	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
-		fdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		for _, cs := range fdcReq.Header.Cosigners {
+		for _, cs := range ftdcReq.Header.Cosigners {
 			cosigners[cs] = true
 		}
 
-		return cosigners, fdcReq.Header.CosignersThreshold, nil
+		return cosigners, ftdcReq.Header.CosignersThreshold, nil
 	}
 
 	return cosigners, 0, nil
@@ -106,17 +105,17 @@ func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) e
 
 func (m *meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
 	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
-		fdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err
 		}
 
-		tBIPS := int(fdcReq.Header.ThresholdBIPS)
+		tBIPS := int(ftdcReq.Header.ThresholdBIPS)
 		if tBIPS == 0 {
 			return -1, nil
 		}
 
-		return int(fdcReq.Header.ThresholdBIPS), nil
+		return int(ftdcReq.Header.ThresholdBIPS), nil
 	}
 
 	return -1, nil
