@@ -9,9 +9,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/stretchr/testify/require"
+
+	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 )
 
 type testMeta struct{}
@@ -20,13 +23,21 @@ func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, u
 	return map[common.Address]bool{}, 0, nil
 }
 
+func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
+	return nil
+}
+
 func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 	return -1, nil
 }
 
+func MakeChannel(size int) chan *VoteBox {
+	return make(chan *VoteBox, size)
+}
+
 func TestStorage(t *testing.T) {
-	out := make(chan *voteBox, 3)
-	outEnd := make(chan *voteBox, 3)
+	out := make(chan *VoteBox, 3)
+	outEnd := make(chan *VoteBox, 3)
 
 	s := NewStorage(3, &testMeta{}, out, outEnd)
 
@@ -92,7 +103,205 @@ func TestStorage(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, a.Data.ID, i.InstructionID)
+
+	require.Len(t, a.Signatures, 2)
+
+	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
+	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
 }
+
+func TestFTDCMessageValidity(t *testing.T) {
+	out := make(chan *VoteBox, 3)
+	outEnd := make(chan *VoteBox, 3)
+
+	s := NewStorage(3, &testMeta{}, out, outEnd)
+
+	s.CreateRound(testutil.TestSigningPolicy)
+
+	_, ok := s.Get(1)
+	require.True(t, ok)
+
+	fdcReq := connector.IFtdcHubFtdcAttestationRequest{
+		Header: connector.IFtdcHubFtdcRequestHeader{
+			Cosigners:          []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)},
+			ThresholdBIPS:      5000,
+			SourceId:           crypto.Keccak256Hash([]byte("todo")),
+			AttestationType:    crypto.Keccak256Hash([]byte("todo")),
+			CosignersThreshold: 1,
+		},
+		RequestBody: []byte("TODO"),
+	}
+	ftdcReqBytes, err := types.EncodeFTDCRequest(fdcReq)
+	require.NoError(t, err)
+
+	responseBody := crypto.Keccak256Hash([]byte("todo"))
+	msgHash, _, err := types.HashFTDCMessage(fdcReq, responseBody[:], uint64(0))
+	require.NoError(t, err)
+
+	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
+	require.NoError(t, err)
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              0,
+			RewardEpochID:          big.NewInt(1),
+			OPType:                 constants.FTDC.Hash(),
+			OPCommand:              constants.Prove.Hash(),
+			OriginalMessage:        ftdcReqBytes,
+			AdditionalFixedMessage: responseBody[:],
+		},
+		AdditionalVariableMessage: signature,
+	}
+
+	err = s.meta.CheckConsistency(i, fdcReq.Header.Cosigners[0])
+	require.NoError(t, err)
+}
+
+func TestFTDCMessage(t *testing.T) {
+	out := make(chan *VoteBox, 3)
+	outEnd := make(chan *VoteBox, 3)
+
+	s := NewStorage(3, &testMeta{}, out, outEnd)
+
+	s.CreateRound(testutil.TestSigningPolicy)
+
+	_, ok := s.Get(1)
+	require.True(t, ok)
+
+	fdcReq := connector.IFtdcHubFtdcAttestationRequest{
+		Header: connector.IFtdcHubFtdcRequestHeader{
+			Cosigners:          []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)},
+			ThresholdBIPS:      5000,
+			SourceId:           crypto.Keccak256Hash([]byte("todo")),
+			AttestationType:    crypto.Keccak256Hash([]byte("todo")),
+			CosignersThreshold: 1,
+		},
+		RequestBody: []byte("TODO"),
+	}
+	fdcReqBytes, err := types.EncodeFTDCRequest(fdcReq)
+	require.NoError(t, err)
+
+	responseBody := crypto.Keccak256Hash([]byte("todo"))
+	msgHash, _, err := types.HashFTDCMessage(fdcReq, responseBody[:], uint64(0))
+	require.NoError(t, err)
+
+	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
+	require.NoError(t, err)
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              0,
+			RewardEpochID:          big.NewInt(1),
+			OPType:                 constants.FTDC.Hash(),
+			OPCommand:              constants.Prove.Hash(),
+			OriginalMessage:        fdcReqBytes,
+			AdditionalFixedMessage: responseBody[:],
+		},
+		AdditionalVariableMessage: signature,
+	}
+
+	rec, err := s.AddVote(i, fdcReq.Header.Cosigners[0], signature)
+	require.NoError(t, err)
+
+	hash, err := i.HashFixed()
+	require.NoError(t, err)
+
+	require.Equal(t, rec.InstructionHash, hash)
+	require.Equal(t, rec.AdditionalVariableMessageHash, crypto.Keccak256Hash(i.AdditionalVariableMessage))
+}
+
+func TestStorageConcurrent(t *testing.T) {
+	out := make(chan *VoteBox, 3)
+	outEnd := make(chan *VoteBox, 3)
+
+	s := NewStorage(3, &testMeta{}, out, outEnd)
+
+	s.CreateRound(testutil.TestSigningPolicy)
+
+	_, ok := s.Get(1)
+	require.True(t, ok)
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              0,
+			RewardEpochID:          big.NewInt(1),
+			OPType:                 constants.Wallet.Hash(),
+			OPCommand:              constants.KeyGenerate.Hash(),
+			OriginalMessage:        []byte("TODO"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	h, err := i.HashForSigning()
+	require.NoError(t, err)
+
+	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
+	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	a2 := crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey)
+	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
+	require.NoError(t, err)
+
+	pk, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	af := crypto.PubkeyToAddress(pk.PublicKey)
+	sf, err := instruction.SignInstructionHash(h, pk)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		var _, err1 = s.AddVote(i, a1, s1)
+		require.NoError(t, err1)
+		done <- struct{}{}
+	}()
+	go func() {
+		var _, err2 = s.AddVote(i, a2, s2)
+		require.NoError(t, err2)
+		done <- struct{}{}
+	}()
+	go func() {
+		var _, err3 = s.AddVote(i, af, sf)
+		require.Error(t, err3)
+		done <- struct{}{}
+	}()
+
+	for j := 0; j < 3; j++ {
+		<-done
+	}
+
+	box := <-out
+
+	require.True(t, box.finalized)
+	require.False(t, box.deleted)
+	require.Equal(t, uint16(5), box.weight)
+	require.Equal(t, uint16(0), box.cosignerWeight)
+
+	a, err := box.Action(types.Threshold)
+	require.NoError(t, err)
+
+	require.Equal(t, a.Data.ID, i.InstructionID)
+
+	require.Len(t, a.Signatures, 2)
+	signatureStrings := make([]string, len(a.Signatures))
+	for i, sig := range a.Signatures {
+		signatureStrings[i] = string(sig)
+	}
+	require.Contains(t, signatureStrings, string(s1[:]))
+	require.Contains(t, signatureStrings, string(s2[:]))
+}
+
+// TODO
+// 1) adding vote after expiration should fail
+// After expiry it should be checked that voting box was "deleted"
+// 2) probably we should test that the limiter has been decreased
 
 func TestComputeThresholdSigningPolicy(t *testing.T) {
 	tests := []struct {

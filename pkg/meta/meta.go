@@ -4,12 +4,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/utils"
 )
 
 // Todo join into one function to avoid double lookup
@@ -20,8 +19,13 @@ type Meta interface {
 	//
 	// If no cosigners are set, empty list and threshold zero is returned.
 	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64, error)
-	// ThresholdBIPS returns custom thresholdBIPS for the instruction.
+
+	// CheckConsistency validates specific OPCommands with additional logic as needed.
 	//
+	// For example, for the FTDC Prove OPCommand, it verifies the internal signature of the FTDC message.
+	CheckConsistency(*instruction.Data, common.Address) error
+
+	// ThresholdBIPS returns custom thresholdBIPS for the instruction.
 	// If no specific threshold is set -1 is returned.
 	ThresholdBIPS(*instruction.DataFixed) (int, error)
 }
@@ -60,36 +64,59 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 		return cosigners, cosignerThreshold, nil
 	}
 	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
-		var message = new(connector.IFtdcHubFtdcProve)
-		err := structs.DecodeTo(connector.MessageArguments[constants.Prove], data.OriginalMessage, message)
+		fdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		for _, cs := range message.Cosigners {
+		for _, cs := range fdcReq.Header.Cosigners {
 			cosigners[cs] = true
 		}
 
-		return cosigners, message.CosignersThreshold, nil
+		return cosigners, fdcReq.Header.CosignersThreshold, nil
 	}
 
 	return cosigners, 0, nil
 }
 
+func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
+	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() {
+		fdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+		if err != nil {
+			return err
+		}
+
+		resBody := data.AdditionalFixedMessage
+		h, _, err := types.HashFTDCMessage(fdcReq, resBody, uint64(data.Timestamp))
+		if err != nil {
+			return err
+		}
+
+		sig := data.AdditionalVariableMessage
+		err = utils.VerifySignature(h[:], sig, signer)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	return nil
+}
+
 func (m *meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
 	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
-		var message = new(connector.IFtdcHubFtdcProve)
-		err := structs.DecodeTo(connector.MessageArguments[constants.Prove], data.OriginalMessage, message)
+		fdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err
 		}
 
-		tBIPS := int(message.ThresholdBIPS)
+		tBIPS := int(fdcReq.Header.ThresholdBIPS)
 		if tBIPS == 0 {
 			return -1, nil
 		}
 
-		return int(message.ThresholdBIPS), nil // todo: is this always set??
+		return int(fdcReq.Header.ThresholdBIPS), nil
 	}
 
 	return -1, nil

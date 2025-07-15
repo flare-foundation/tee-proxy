@@ -53,13 +53,13 @@ func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
 }
 
-func (m *Service) Forward(ctx context.Context) error {
+func (s *Service) Forward(ctx context.Context) error {
 	// this can be done directly
 	for {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("forwarding context stopped %v", ctx.Err())
-		case box := <-m.vs.OutThreshold:
+		case box := <-s.vs.OutThreshold:
 			box.RLock()
 			a, err := box.Action(types.Threshold)
 			box.RUnlock()
@@ -67,12 +67,12 @@ func (m *Service) Forward(ctx context.Context) error {
 				continue
 			}
 
-			err = m.as.Enqueue(ctx, a, queue.Main)
+			err = s.as.Enqueue(ctx, a, queue.Main)
 			if err != nil {
 				continue
 			}
 
-		case box := <-m.vs.OutEnd:
+		case box := <-s.vs.OutEnd:
 			box.RLock()
 			a, err := box.Action(types.End)
 			box.RUnlock()
@@ -80,7 +80,7 @@ func (m *Service) Forward(ctx context.Context) error {
 				continue
 			}
 
-			err = m.as.Enqueue(ctx, a, queue.Main)
+			err = s.as.Enqueue(ctx, a, queue.Main)
 			if err != nil {
 				continue
 			}
