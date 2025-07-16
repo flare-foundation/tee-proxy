@@ -121,7 +121,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
-	fdcReq := connector.IFtdcHubFtdcAttestationRequest{
+	ftdcReq := connector.IFtdcHubFtdcAttestationRequest{
 		Header: connector.IFtdcHubFtdcRequestHeader{
 			Cosigners:          []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)},
 			ThresholdBIPS:      5000,
@@ -131,11 +131,11 @@ func TestFTDCMessageValidity(t *testing.T) {
 		},
 		RequestBody: []byte("TODO"),
 	}
-	ftdcReqBytes, err := types.EncodeFTDCRequest(fdcReq)
+	ftdcReqBytes, err := types.EncodeFTDCRequest(ftdcReq)
 	require.NoError(t, err)
 
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, err := types.HashFTDCMessage(fdcReq, responseBody[:], uint64(0))
+	msgHash, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -155,7 +155,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 		AdditionalVariableMessage: signature,
 	}
 
-	err = s.meta.CheckConsistency(i, fdcReq.Header.Cosigners[0])
+	err = s.meta.CheckConsistency(i, ftdcReq.Header.Cosigners[0])
 	require.NoError(t, err)
 }
 
@@ -170,7 +170,7 @@ func TestFTDCMessage(t *testing.T) {
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
-	fdcReq := connector.IFtdcHubFtdcAttestationRequest{
+	ftdcReq := connector.IFtdcHubFtdcAttestationRequest{
 		Header: connector.IFtdcHubFtdcRequestHeader{
 			Cosigners:          []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)},
 			ThresholdBIPS:      5000,
@@ -180,11 +180,11 @@ func TestFTDCMessage(t *testing.T) {
 		},
 		RequestBody: []byte("TODO"),
 	}
-	fdcReqBytes, err := types.EncodeFTDCRequest(fdcReq)
+	ftdcReqBytes, err := types.EncodeFTDCRequest(ftdcReq)
 	require.NoError(t, err)
 
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, err := types.HashFTDCMessage(fdcReq, responseBody[:], uint64(0))
+	msgHash, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -198,13 +198,13 @@ func TestFTDCMessage(t *testing.T) {
 			RewardEpochID:          big.NewInt(1),
 			OPType:                 constants.FTDC.Hash(),
 			OPCommand:              constants.Prove.Hash(),
-			OriginalMessage:        fdcReqBytes,
+			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 		},
 		AdditionalVariableMessage: signature,
 	}
 
-	rec, err := s.AddVote(i, fdcReq.Header.Cosigners[0], signature)
+	rec, err := s.AddVote(i, ftdcReq.Header.Cosigners[0], signature)
 	require.NoError(t, err)
 
 	hash, err := i.HashFixed()
