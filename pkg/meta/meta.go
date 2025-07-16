@@ -39,65 +39,81 @@ func New(ws *wallets.Storage) Meta {
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	switch data.OPCommand {
+	case constants.Pay.Hash(), constants.Reissue.Hash():
+		return xrpCosigners(data, m.ws)
+
+	case constants.Prove.Hash():
+		return ftdcCosigners(data)
+	}
+
+	return make(map[common.Address]bool), 0, nil
+}
+
+func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.Address]bool, uint64, error) {
 	cosigners := make(map[common.Address]bool)
 
-	if data.OPType == constants.XRP.Hash() && (data.OPCommand == constants.Pay.Hash() || data.OPCommand == constants.Reissue.Hash()) { // OPType=="XRP", OPCommand == "PAY" or "REISSUE"
-		originalMessage, err := types.ParseSignPaymentRequest(data)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		wID := originalMessage.WalletId
-
-		wi, err := m.ws.WalletInfo(wID)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		for _, cs := range wi.ConfigConstants.Cosigners {
-			cosigners[cs] = true
-		}
-
-		cosignerThreshold := wi.ConfigConstants.CosignersThreshold
-
-		return cosigners, cosignerThreshold, nil
-	}
-	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
-		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		for _, cs := range ftdcReq.Header.Cosigners {
-			cosigners[cs] = true
-		}
-
-		return cosigners, ftdcReq.Header.CosignersThreshold, nil
+	originalMessage, err := types.ParseSignPaymentRequest(data)
+	if err != nil {
+		return nil, 0, err
 	}
 
-	return cosigners, 0, nil
+	wID := originalMessage.WalletId
+
+	wi, err := ws.WalletInfo(wID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for _, cs := range wi.ConfigConstants.Cosigners {
+		cosigners[cs] = true
+	}
+
+	cosignerThreshold := wi.ConfigConstants.CosignersThreshold
+
+	return cosigners, cosignerThreshold, nil
+}
+
+func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	cosigners := make(map[common.Address]bool)
+
+	ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for _, cs := range ftdcReq.Header.Cosigners {
+		cosigners[cs] = true
+	}
+
+	return cosigners, ftdcReq.Header.CosignersThreshold, nil
 }
 
 func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
-	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() {
-		fdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
-		if err != nil {
-			return err
-		}
+	switch data.OPCommand {
+	case constants.Prove.Hash():
+		return ftdcCheckConsistency(data, signer)
+	}
 
-		resBody := data.AdditionalFixedMessage
-		h, _, err := types.HashFTDCMessage(fdcReq, resBody, uint64(data.Timestamp))
-		if err != nil {
-			return err
-		}
+	return nil
+}
 
-		sig := data.AdditionalVariableMessage
-		err = utils.VerifySignature(h[:], sig, signer)
-		if err != nil {
-			return err
-		}
+func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
+	ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+	if err != nil {
+		return err
+	}
 
-		return nil
+	resBody := data.AdditionalFixedMessage
+	h, _, err := types.HashFTDCMessage(ftdcReq, resBody, uint64(data.Timestamp))
+	if err != nil {
+		return err
+	}
+
+	sig := data.AdditionalVariableMessage
+	err = utils.VerifySignature(h[:], sig, signer)
+	if err != nil {
+		return err
 	}
 
 	return nil
