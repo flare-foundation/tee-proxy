@@ -36,13 +36,15 @@ func Initialize(cfgPath string) {
 	actionQueues := queue.NewActionQueues(redisClient)
 	responseStorage := queue.NewResponseStorage(redisClient)
 
-	walletStorage := wallets.NewStorage()
+	walletStorage := wallets.NewStorage(actionQueues, responseStorage)
 	actionService := action.NewService(actionQueues)
 	resultService := result.NewService(responseStorage)
 
 	internalServer := server.NewInternal(cfg.Ports.Internal, &actionService, &resultService, &walletStorage)
 
 	go internalServer.Serve() //nolint:errcheck // todo
+
+	go walletStorage.RunInfo(ctx, resultService.WalletSyncTrigger)
 
 	infoStorage := info.NewStorage(db, actionQueues, responseStorage)
 

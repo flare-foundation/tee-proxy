@@ -52,7 +52,7 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	err = s.as.Enqueue(ctx, action, queue.Read)
+	err = s.aq.Enqueue(ctx, action, queue.Read)
 	if err != nil {
 		return err
 	}

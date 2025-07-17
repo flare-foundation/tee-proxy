@@ -39,7 +39,7 @@ func (vg voterGroup) isCosigner() bool {
 //
 // Meta provides the meta data for voting processes.
 type Storage struct {
-	*storage.Cyclic[uint64, *Round]
+	*storage.Cyclic[uint32, *Round]
 
 	// Metadata for the voting process.
 	meta meta.Meta
@@ -54,7 +54,7 @@ func NewStorage(size int, meta meta.Meta, outSize int) *Storage {
 	outThreshold := make(chan *voteBox, outSize)
 	outEnd := make(chan *voteBox, outSize)
 
-	return &Storage{storage.New[uint64, *Round](size), meta, outThreshold, outEnd}
+	return &Storage{storage.New[uint32, *Round](size), meta, outThreshold, outEnd}
 }
 
 type Round struct {
@@ -80,7 +80,7 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 		limiter:     limiter,
 	}
 
-	vs.Store(uint64(policy.RewardEpochID), r)
+	vs.Store(uint32(policy.RewardEpochID), r)
 }
 
 // AddVote adds vote to a correct vote box in a correct round and returns a receipt.
@@ -95,14 +95,9 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		return nil, err
 	}
 
-	if !data.RewardEpochID.IsUint64() {
-		return nil, fmt.Errorf("%w, reward epoch overflow", status.HTTP[400])
-	}
-	reID := data.RewardEpochID.Uint64()
-
-	round, exists := s.Get(reID)
+	round, exists := s.Get(data.RewardEpochID)
 	if !exists {
-		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], reID)
+		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], data.RewardEpochID)
 	}
 
 	err = s.meta.CheckConsistency(data, signer)

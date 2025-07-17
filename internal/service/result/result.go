@@ -3,6 +3,7 @@ package result
 import (
 	"context"
 
+	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -11,14 +12,23 @@ import (
 
 type Service struct {
 	rs *queue.ResponseStorage
+
+	WalletSyncTrigger chan bool
 }
 
 func NewService(rs *queue.ResponseStorage) Service {
-	return Service{rs: rs}
+	wst := make(chan bool, 1)
+
+	return Service{rs: rs, WalletSyncTrigger: wst}
 }
 
 // Serve returns response for actionID with tag "threshold" if present.
 func (s *Service) Store(ctx context.Context, result *types.ActionResponse) error {
+	switch result.Result.OPCommand {
+	case constants.KeyGenerate.Hash(), constants.KeyDataProviderRestore.Hash():
+		s.WalletSyncTrigger <- true
+	}
+
 	return s.rs.StoreResponse(ctx, result)
 }
 

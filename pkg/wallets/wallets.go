@@ -32,23 +32,47 @@ type Storage struct {
 	Keys          map[IDPair]*KeyData
 	Backups       map[IDPair]*types.WalletGetBackupResponse // todo align this with docs
 
-	as *queue.ActionQueues
+	aq *queue.ActionQueues
 	rs *queue.ResponseStorage
 
 	sync.RWMutex
 }
 
-func NewStorage() Storage {
-	return Storage{} // todo
+func NewStorage(aq *queue.ActionQueues, rs *queue.ResponseStorage) Storage {
+	kfw := make(map[common.Hash][]uint64)
+	k := make(map[IDPair]*KeyData)
+	b := make(map[IDPair]*types.WalletGetBackupResponse)
+
+	return Storage{
+		KeysForWallet: kfw,
+		Keys:          k,
+		Backups:       b,
+		aq:            aq,
+		rs:            rs,
+	}
 }
 
-func (s *Storage) Sync(ctx context.Context) error {
+func (s *Storage) RunInfo(ctx context.Context, trigger chan bool) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-trigger:
+			err := s.sync(ctx)
+			if err != nil {
+				continue
+			}
+		}
+	}
+}
+
+func (s *Storage) sync(ctx context.Context) error {
 	action, err := teeWalletAction()
 	if err != nil {
 		return err
 	}
 
-	err = s.as.Enqueue(ctx, action, queue.Read)
+	err = s.aq.Enqueue(ctx, action, queue.Read)
 	if err != nil {
 		return err
 	}

@@ -1,7 +1,6 @@
 package instruction
 
 import (
-	"math/big"
 	"testing"
 	"time"
 
@@ -73,7 +72,7 @@ func TestVoting(t *testing.T) {
 			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
 			TeeID:                  teeId,
 			Timestamp:              0,
-			RewardEpochID:          big.NewInt(1),
+			RewardEpochID:          1,
 			OPType:                 constants.Wallet.Hash(),
 			OPCommand:              constants.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),

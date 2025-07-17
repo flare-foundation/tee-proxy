@@ -163,14 +163,20 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		return receipt, false, fmt.Errorf("%w: signature already stored", status.HTTP[403])
 	}
 
+	sequence := uint64(len(vb.votes))
 	vote := &vote{
-		Sequence:                  uint64(len(vb.votes)),
+		Sequence:                  sequence,
 		Time:                      now,
 		Signature:                 signature,
 		AdditionalVariableMessage: additionalVariableMessage,
 	}
 
-	vb.VoteHash = instruction.NextVoteHash(vb.VoteHash, signer, signature, additionalVariableMessage, uint64(now.Unix()))
+	var err error
+	vb.VoteHash, err = instruction.NextVoteHash(vb.VoteHash, sequence, signature, additionalVariableMessage, uint64(now.Unix()))
+	if err != nil {
+		return receipt, false, fmt.Errorf("%w: vote hash %w", status.HTTP[500], err)
+	}
+
 	vb.votes[signer] = vote
 
 	vb.weight += weight
@@ -182,6 +188,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	receipt = Receipt{
 		InstructionHash:               common.Hash{}, // to be added in the calling function
 		Sequence:                      vote.Sequence,
+		Signature:                     signature,
 		AdditionalVariableMessageHash: crypto.Keccak256Hash(additionalVariableMessage),
 		Timestamp:                     uint64(now.Unix()),
 		VoteHash:                      vb.VoteHash,

@@ -1,7 +1,6 @@
 package voting
 
 import (
-	"math/big"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -44,7 +43,7 @@ func TestStorage(t *testing.T) {
 			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
-			RewardEpochID:          big.NewInt(1),
+			RewardEpochID:          1,
 			OPType:                 constants.Wallet.Hash(),
 			OPCommand:              constants.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
@@ -136,7 +135,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
-			RewardEpochID:          big.NewInt(1),
+			RewardEpochID:          1,
 			OPType:                 constants.FTDC.Hash(),
 			OPCommand:              constants.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
@@ -182,7 +181,7 @@ func TestFTDCMessage(t *testing.T) {
 			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
-			RewardEpochID:          big.NewInt(1),
+			RewardEpochID:          1,
 			OPType:                 constants.FTDC.Hash(),
 			OPCommand:              constants.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
@@ -214,7 +213,7 @@ func TestStorageConcurrent(t *testing.T) {
 			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
-			RewardEpochID:          big.NewInt(1),
+			RewardEpochID:          1,
 			OPType:                 constants.Wallet.Hash(),
 			OPCommand:              constants.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
@@ -352,4 +351,18 @@ func TestComputeThresholdCustom(t *testing.T) {
 	for j, test := range tests {
 		require.Equal(t, test.threshold, computeThreshold(test.totalWeight, test.bips), j)
 	}
+}
+
+func TestReceipt(t *testing.T) {
+	r := Receipt{
+		InstructionHash:               common.Hash{},
+		Sequence:                      0,
+		Signature:                     []byte{},
+		AdditionalVariableMessageHash: common.Hash{},
+		Timestamp:                     0,
+		VoteHash:                      common.Hash{},
+	}
+
+	_, err := r.Hash()
+	require.NoError(t, err)
 }
