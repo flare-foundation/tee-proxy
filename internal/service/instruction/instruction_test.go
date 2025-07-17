@@ -42,10 +42,7 @@ func TestVoting(t *testing.T) {
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
-	thresholdCh := make(chan *voting.VoteBox, 3)
-	endCh := make(chan *voting.VoteBox, 3)
-
-	vs := voting.NewStorage(3, &testMeta{}, thresholdCh, endCh)
+	vs := voting.NewStorage(3, &testMeta{}, 3)
 	vs.CreateRound(testutil.TestSigningPolicy)
 
 	var teeId = common.HexToAddress("dead")
@@ -60,7 +57,7 @@ func TestVoting(t *testing.T) {
 		teeID:    teeId,
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
-		as:       as,
+		aq:       as,
 		pk:       PrivKey4,
 	}
 
@@ -122,7 +119,7 @@ func TestVoting(t *testing.T) {
 	require.True(t, pubKey2.Equal(&PrivKey4.PublicKey))
 
 	time.Sleep(500 * time.Millisecond)
-	a, err := s.as.GetAction(t.Context(), iData.InstructionID, types.Threshold)
+	a, err := s.aq.GetAction(t.Context(), iData.InstructionID, types.Threshold)
 	require.NoError(t, err)
 	require.Equal(t, a.Data.ID, iData.InstructionID)
 

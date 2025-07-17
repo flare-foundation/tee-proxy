@@ -95,9 +95,13 @@ func collectSignatures(
 	flareSystemsManagerAddress common.Address,
 	startBlock int64,
 	deadline uint64,
-	newPolicy policy.SigningPolicy,
-	activePolicy policy.SigningPolicy,
+	newPolicy *policy.SigningPolicy,
+	activePolicy *policy.SigningPolicy,
 ) ([]*registry.Signature, []*ecdsa.PublicKey, error) {
+	if newPolicy.RewardEpochID != activePolicy.RewardEpochID+1 {
+		return nil, nil, errors.New("not consecutive policies")
+	}
+
 	from := startBlock
 
 	expectedHash := common.BytesToHash(newPolicy.Hash())
@@ -177,68 +181,6 @@ mainLoop:
 		from = to
 		errCount = 0
 		time.Sleep(5 * time.Second)
-	}
-
-	return sigs, keys, nil
-}
-
-// fetchSignatures fetches providers' signatures for signing policy according to the previous signing policy.
-// Signatures are extracted from the transactions to FlareSystemsManager calling signNewSigningPolicy method from block range [fromBlock, toBlock).
-//
-// The function can be used when enough signatures is already published on chain.
-// Range should be set according to the signing policy - from block in which the signingPolicyInitialized is emitted to start of the signing policy.
-func fetchSignatures(
-	ctx context.Context,
-	db *gorm.DB,
-	flareSystemsManagerAddress common.Address,
-	fromBlock int64,
-	toBlock int64,
-	sPolicy *policy.SigningPolicy,
-	previousSPolicy *policy.SigningPolicy,
-) ([]*registry.Signature, []*ecdsa.PublicKey, error) {
-	params := database.TxParams{
-		ToAddress:   flareSystemsManagerAddress,
-		FunctionSel: signNewSigningPolicySel,
-		From:        fromBlock,
-		To:          toBlock,
-	}
-
-	expectedHash := common.BytesToHash(sPolicy.Hash())
-	weightCollected := uint16(0)
-
-	sigs := make([]*registry.Signature, 0, 100)
-	keys := make([]*ecdsa.PublicKey, 0, 100)
-
-	voted := make(map[common.Address]bool, 100)
-
-	txs, err := database.FetchTransactionsByAddressAndSelectorBlockNumber(ctx, db, params)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for j := range txs {
-		signer, sig, err := checkAndExtract(txs[j].Input, expectedHash, sPolicy.RewardEpochID)
-		if err != nil {
-			continue
-		}
-
-		addr := crypto.PubkeyToAddress(*signer)
-		weight := previousSPolicy.Voters.VoterWeightForAddress(addr)
-
-		if weight > 0 && !voted[addr] {
-			sigs = append(sigs, sig)
-			keys = append(keys, signer)
-			voted[addr] = true
-			weightCollected += weight
-
-			if weightCollected > previousSPolicy.Threshold {
-				break
-			}
-		}
-	}
-
-	if weightCollected <= previousSPolicy.Threshold {
-		return nil, nil, ErrThresholdNotReached
 	}
 
 	return sigs, keys, nil

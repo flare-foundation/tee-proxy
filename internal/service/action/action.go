@@ -9,11 +9,15 @@ import (
 )
 
 type Service struct {
-	*queue.ActionQueues
+	aq *queue.ActionQueues
+}
+
+func NewService(aq *queue.ActionQueues) Service {
+	return Service{aq}
 }
 
 func (s *Service) DequeueAction(ctx context.Context, id queue.QueueID) (*types.Action, error) {
-	action, err := s.Pop(ctx, id)
+	action, err := s.aq.Pop(ctx, id)
 	if err != nil {
 		return nil, err
 	}

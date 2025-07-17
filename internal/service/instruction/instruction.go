@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-proxy/pkg/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
@@ -20,10 +21,22 @@ type Service struct {
 	teeID common.Address
 
 	vs       *voting.Storage
-	policies chan policy.SigningPolicy
+	policies <-chan policy.SigningPolicy
 
-	as *queue.ActionQueues
+	aq *queue.ActionQueues
 	pk *ecdsa.PrivateKey
+}
+
+func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
+	vs := voting.NewStorage(3, meta, 10) //todo size
+
+	return Service{
+		teeID:    teeID,
+		vs:       vs,
+		policies: policiesChan,
+		aq:       aq,
+		pk:       pk,
+	}
 }
 
 func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.SignedReceipt, error) {
@@ -67,7 +80,7 @@ func (s *Service) Forward(ctx context.Context) error {
 				continue
 			}
 
-			err = s.as.Enqueue(ctx, a, queue.Main)
+			err = s.aq.Enqueue(ctx, a, queue.Main)
 			if err != nil {
 				continue
 			}
@@ -80,7 +93,7 @@ func (s *Service) Forward(ctx context.Context) error {
 				continue
 			}
 
-			err = s.as.Enqueue(ctx, a, queue.Main)
+			err = s.aq.Enqueue(ctx, a, queue.Main)
 			if err != nil {
 				continue
 			}

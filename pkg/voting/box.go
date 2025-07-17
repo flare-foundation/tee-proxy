@@ -51,8 +51,8 @@ type vote struct {
 	AdditionalVariableMessage []byte
 }
 
-// VoteBox holds one voting process.
-type VoteBox struct {
+// voteBox holds one voting process.
+type voteBox struct {
 	Proposer common.Address
 
 	proposal *proposal
@@ -73,7 +73,7 @@ type VoteBox struct {
 }
 
 // newVoteBox assembles new VoteBox.
-func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) (*VoteBox, error) {
+func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) (*voteBox, error) {
 	proposal := newProposal(data, threshold, cosigners, cosignerThreshold)
 
 	now := time.Now()
@@ -84,7 +84,7 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 		return nil, fmt.Errorf("computing initial hash %v", err)
 	}
 
-	vb := &VoteBox{
+	vb := &voteBox{
 		Proposer:       proposer,
 		proposal:       proposal,
 		votes:          map[common.Address]*vote{},
@@ -101,7 +101,7 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 }
 
 // delete clears VoteBox and sets it's deleted status to true.
-func (vb *VoteBox) Delete() {
+func (vb *voteBox) Delete() {
 	vb.proposal = nil
 	vb.votes = nil
 
@@ -109,7 +109,7 @@ func (vb *VoteBox) Delete() {
 }
 
 // Action creates Action with provided tag from a finalized VoteBox.
-func (vb *VoteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
+func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	if vb.deleted {
 		return nil, errors.New("already deleted")
 	}
@@ -147,7 +147,7 @@ func (vb *VoteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 // that is true only the first time the conditions for finalization are fulfilled.
 //
 // The returned receipt has zero valued Instruction Hash that has to be filled in the calling function.
-func (vb *VoteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (Receipt, bool, error) {
+func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (Receipt, bool, error) {
 	var receipt Receipt
 
 	if voterGroup == invalidVoter {
@@ -195,7 +195,7 @@ func (vb *VoteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
-func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round, id common.Hash) (*VoteBox, error) {
+func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round, id common.Hash) (*voteBox, error) {
 	t, err := s.meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get threshold for %v", id)
@@ -243,7 +243,7 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 // signersData returns slices of signatures, additionalVariableMessages, and timestamps.
 // signature, additionalVariableMessages, and timestamps in slot j come from the same vote.
 // Slices are sorted according to the arrival of votes.
-func (vb *VoteBox) signersData() (signatures []hexutil.Bytes, additionalVariableMessages []hexutil.Bytes, timestamps []uint64) {
+func (vb *voteBox) signersData() (signatures []hexutil.Bytes, additionalVariableMessages []hexutil.Bytes, timestamps []uint64) {
 	signatures = make([]hexutil.Bytes, len(vb.votes))
 	additionalVariableMessages = make([]hexutil.Bytes, len(vb.votes))
 	timestamps = make([]uint64, len(vb.votes))

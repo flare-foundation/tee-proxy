@@ -53,14 +53,14 @@ func (i *Internal) Serve() error {
 func (i *Internal) resultHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	result := new(types.ActionResponse)
-	err := json.NewDecoder(r.Body).Decode(&result) // todo limit the size of the body
+	response := new(types.ActionResponse)
+	err := json.NewDecoder(r.Body).Decode(&response) // todo limit the size of the body
 	if err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest) // handle error
 		return
 	}
 
-	err = i.resultService.StoreResponse(ctx, result)
+	err = i.resultService.Store(ctx, response)
 	if err != nil {
 		http.Error(w, "todo", http.StatusBadRequest) // handle error
 		return
@@ -74,7 +74,7 @@ func (i *Internal) dequeueHandler(w http.ResponseWriter, r *http.Request) {
 
 	switch queueID {
 	case queue.Main, queue.Read:
-		value, err := i.actionService.Pop(ctx, queueID)
+		value, err := i.actionService.DequeueAction(ctx, queueID)
 		if err != nil {
 			http.Error(w, "todo", http.StatusInternalServerError) //handle empty queue
 		}

@@ -24,54 +24,21 @@ type Storage struct {
 
 	db *gorm.DB
 
-	actionStorage *queue.ActionQueues
+	actionQueues  *queue.ActionQueues
 	resultStorage *queue.ResponseStorage
 
 	sync.RWMutex
 }
 
-func teeInfoAction(challenge common.Hash) (*types.Action, error) {
-	m := types.TeeInfoRequest{
-		Challenge: challenge,
+func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage) Storage {
+	return Storage{
+		db:            db,
+		actionQueues:  aq,
+		resultStorage: rs,
 	}
-
-	mm, err := json.Marshal(m)
-	if err != nil {
-		return nil, err
-	}
-
-	di := types.DirectInstruction{
-		Data: types.DirectInstructionData{
-			OPType:    constants.Get.Hash(),
-			OPCommand: constants.TEEInfo.Hash(),
-			Message:   mm,
-		},
-		Signatures: nil,
-	}
-
-	dim, err := json.Marshal(di)
-	if err != nil {
-		return nil, err
-	}
-
-	ad := types.ActionData{
-		ID:   challenge,
-		Type: types.Direct,
-
-		SubmissionTag: types.Submit,
-		Message:       dim,
-	}
-
-	return &types.Action{
-		Data:                       ad,
-		Signatures:                 nil,
-		AdditionalVariableMessages: nil,
-		Timestamps:                 nil,
-		AdditionalActionData:       nil,
-	}, nil
 }
 
-func (is *Storage) Run(ctx context.Context) error {
+func (s *Storage) Run(ctx context.Context) error {
 	errCount := 0
 
 	ticker := time.NewTicker(time.Minute)
@@ -79,7 +46,7 @@ func (is *Storage) Run(ctx context.Context) error {
 	for {
 		<-ticker.C
 
-		err := is.oneCycle(ctx)
+		err := s.oneCycle(ctx)
 		if err != nil {
 			errCount++
 		} else {
@@ -92,8 +59,30 @@ func (is *Storage) Run(ctx context.Context) error {
 	}
 }
 
-func (is *Storage) oneCycle(ctx context.Context) error {
-	block, err := database.FetchLatestBlock(ctx, is.db, nil)
+func (s *Storage) InitialInfo(ctx context.Context) (*types.TeeInfoResponse, error) {
+	err := s.oneCycle(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.Latest, nil
+}
+
+func teeInfoAction(challenge common.Hash) (*types.Action, error) {
+	m := types.TeeInfoRequest{
+		Challenge: challenge,
+	}
+
+	msg, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+
+	return queue.PrepareDirectAction(constants.Get, constants.TEEInfo, msg)
+}
+
+func (s *Storage) oneCycle(ctx context.Context) error {
+	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
 		return err
 	}
@@ -104,28 +93,28 @@ func (is *Storage) oneCycle(ctx context.Context) error {
 		return err
 	}
 
-	err = is.actionStorage.Enqueue(ctx, action, queue.Read)
+	err = s.actionQueues.Enqueue(ctx, action, queue.Read)
 	if err != nil {
 		return err
 	}
 
 	time.Sleep(10 * time.Second)
 
-	result, err := is.waitOnResponse(ctx, 30*time.Second, action) // todo retry
+	result, err := s.waitOnResponse(ctx, 30*time.Second, action) // todo retry
 	if err != nil {
 		return err
 	}
 
-	is.Lock()
-	defer is.Unlock()
+	s.Lock()
+	defer s.Unlock()
 
-	is.Latest = result
+	s.Latest = result
 
 	return nil
 }
 
 // move this to tools
-func (is *Storage) waitOnResponse(ctx context.Context, timeout time.Duration, action *types.Action) (*types.TeeInfoResponse, error) {
+func (s *Storage) waitOnResponse(ctx context.Context, timeout time.Duration, action *types.Action) (*types.TeeInfoResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -137,7 +126,7 @@ func (is *Storage) waitOnResponse(ctx context.Context, timeout time.Duration, ac
 			return nil, err
 		}
 
-		response, err = is.resultStorage.GetResponse(ctx, action.Data.ID, action.Data.SubmissionTag) // todo retry
+		response, err = s.resultStorage.GetResponse(ctx, action.Data.ID, action.Data.SubmissionTag) // todo retry
 		if err == nil {
 			break
 		}

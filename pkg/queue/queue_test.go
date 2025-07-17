@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -42,4 +43,11 @@ func TestActionQueues(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, *action, *retrievedAction)
+}
+
+func TestRandID(t *testing.T) {
+	x, err := randID()
+	require.NoError(t, err)
+
+	require.NotEqual(t, common.Hash{}, x)
 }

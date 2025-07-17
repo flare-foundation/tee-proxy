@@ -2,10 +2,8 @@ package wallets
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
-	"io"
 	"sync"
 	"time"
 
@@ -40,14 +38,12 @@ type Storage struct {
 	sync.RWMutex
 }
 
-func (s *Storage) Sync(ctx context.Context) error {
-	actionID := common.Hash{}
-	_, err := io.ReadFull(rand.Reader, actionID[:])
-	if err != nil {
-		return err
-	}
+func NewStorage() Storage {
+	return Storage{} // todo
+}
 
-	action, err := teeWalletAction(actionID)
+func (s *Storage) Sync(ctx context.Context) error {
+	action, err := teeWalletAction()
 	if err != nil {
 		return err
 	}
@@ -147,35 +143,8 @@ func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManager
 	return s.KeyInfo(walletID, keys[0])
 }
 
-func teeWalletAction(id common.Hash) (*types.Action, error) {
-	msg := types.DirectInstruction{
-		Data: types.DirectInstructionData{
-			OPType:    constants.Get.Hash(),
-			OPCommand: constants.KeyInfo.Hash(),
-			Message:   nil,
-		},
-		Signatures: nil,
-	}
-
-	m, err := json.Marshal(msg)
-	if err != nil {
-		return nil, err
-	}
-
-	ad := types.ActionData{
-		ID:            id,
-		Type:          types.Direct,
-		SubmissionTag: types.Submit,
-		Message:       m,
-	}
-
-	return &types.Action{
-		Data:                       ad,
-		Signatures:                 nil,
-		AdditionalVariableMessages: nil,
-		Timestamps:                 nil,
-		AdditionalActionData:       []byte{},
-	}, nil
+func teeWalletAction() (*types.Action, error) {
+	return queue.PrepareDirectAction(constants.Get, constants.KeyInfo, nil)
 }
 
 // move this to result storage

@@ -5,22 +5,17 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/flare-foundation/go-flare-common/pkg/contracts/entitymanager"
-	"github.com/flare-foundation/go-flare-common/pkg/contracts/preregistry"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/system"
 )
 
 var (
-	signingPolicyAddressRegistrationConfirmedEventSel common.Hash
-	signingPolicyInitializedEventSel                  common.Hash
-	voterPreRegisteredEventSel                        common.Hash
-	voterRegisteredEventSel                           common.Hash
+	signingPolicyInitializedEventSel common.Hash
+	voterRegisteredEventSel          common.Hash
 
 	signNewSigningPolicySel [4]byte // len = 4
 
-	registerVoterArgs        abi.Arguments // VoterRegistry registerVoter, same arguments as VoterPreRegistry preRegisterVoter.
 	signNewSigningPolicyArgs abi.Arguments // FlareSystemsManager signNewSigningPolicy.
 
 	msgArgs abi.Arguments // (uint32, address) (on contract it is (uint24, address) but the encoding is the same), see variable messageHash in registerVoter method.
@@ -63,36 +58,6 @@ func init() {
 		panic(fmt.Errorf("cannot get VoterRegistered event: %w", err))
 	}
 	voterRegisteredEventSel = voterRegisteredEvent.ID
-
-	registerVoterMethod, ok := voterRegistryABI.Methods["registerVoter"]
-	if !ok {
-		panic(fmt.Errorf("cannot get registerVoter method: %w", err))
-	}
-	registerVoterArgs = registerVoterMethod.Inputs
-
-	// voter pre registry
-	voterPreRegistryABI, err := preregistry.PreregistryMetaData.GetAbi()
-	if err != nil {
-		panic(fmt.Errorf("cannot get voterPreRegistryABI: %w", err))
-	}
-
-	voterPreRegisteredEvent, ok := voterPreRegistryABI.Events["VoterPreRegistered"]
-	if !ok {
-		panic(fmt.Errorf("cannot get VoterPreRegistered event: %w", err))
-	}
-	voterPreRegisteredEventSel = voterPreRegisteredEvent.ID
-
-	// entity manager
-	entityManagerABI, err := entitymanager.EntityManagerMetaData.GetAbi()
-	if err != nil {
-		panic(fmt.Errorf("cannot get entityManagerABI: %w", err))
-	}
-
-	signingPolicyAddressRegistrationConfirmedEvent, ok := entityManagerABI.Events["SigningPolicyAddressRegistrationConfirmed"]
-	if !ok {
-		panic(fmt.Errorf("cannot get SigningPolicyAddressRegistrationConfirmed event: %w", err))
-	}
-	signingPolicyAddressRegistrationConfirmedEventSel = signingPolicyAddressRegistrationConfirmedEvent.ID
 
 	// registration message to sign abi
 	addressTy, err := abi.NewType("address", "address", nil)

@@ -45,18 +45,21 @@ type Storage struct {
 	meta meta.Meta
 
 	// Channel for boxes that reach threshold.
-	OutThreshold chan *VoteBox
+	OutThreshold chan *voteBox
 	// Channel for boxes that reach the end of voting.
-	OutEnd chan *VoteBox
+	OutEnd chan *voteBox
 }
 
-func NewStorage(size int, meta meta.Meta, outThreshold, outEnd chan *VoteBox) *Storage {
+func NewStorage(size int, meta meta.Meta, outSize int) *Storage {
+	outThreshold := make(chan *voteBox, outSize)
+	outEnd := make(chan *voteBox, outSize)
+
 	return &Storage{storage.New[uint64, *Round](size), meta, outThreshold, outEnd}
 }
 
 type Round struct {
 	policy      *policy.SigningPolicy
-	VotingBoxes map[common.Hash](map[common.Hash]*VoteBox) // instructionID -> instructionHash -> VoteBox
+	VotingBoxes map[common.Hash](map[common.Hash]*voteBox) // instructionID -> instructionHash -> VoteBox
 
 	limiter *limiter.Limiter
 }
@@ -73,7 +76,7 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 
 	r := &Round{
 		policy:      policy,
-		VotingBoxes: map[common.Hash]map[common.Hash]*VoteBox{},
+		VotingBoxes: map[common.Hash]map[common.Hash]*voteBox{},
 		limiter:     limiter,
 	}
 
@@ -109,7 +112,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	boxes, exist := round.VotingBoxes[id]
 	if !exist {
-		boxes = make(map[common.Hash]*VoteBox)
+		boxes = make(map[common.Hash]*voteBox)
 		// we only save it at the end if no errors are returned
 	}
 

@@ -31,15 +31,8 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 	return -1, nil
 }
 
-func MakeChannel(size int) chan *VoteBox {
-	return make(chan *VoteBox, size)
-}
-
 func TestStorage(t *testing.T) {
-	out := make(chan *VoteBox, 3)
-	outEnd := make(chan *VoteBox, 3)
-
-	s := NewStorage(3, &testMeta{}, out, outEnd)
+	s := NewStorage(3, &testMeta{}, 3)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 
@@ -92,7 +85,7 @@ func TestStorage(t *testing.T) {
 	_, err = s.AddVote(i, af, sf)
 	require.Error(t, err)
 
-	box := <-out
+	box := <-s.OutThreshold
 
 	require.True(t, box.finalized)
 	require.False(t, box.deleted)
@@ -111,10 +104,7 @@ func TestStorage(t *testing.T) {
 }
 
 func TestFTDCMessageValidity(t *testing.T) {
-	out := make(chan *VoteBox, 3)
-	outEnd := make(chan *VoteBox, 3)
-
-	s := NewStorage(3, &testMeta{}, out, outEnd)
+	s := NewStorage(3, &testMeta{}, 3)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 
@@ -160,10 +150,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 }
 
 func TestFTDCMessage(t *testing.T) {
-	out := make(chan *VoteBox, 3)
-	outEnd := make(chan *VoteBox, 3)
-
-	s := NewStorage(3, &testMeta{}, out, outEnd)
+	s := NewStorage(3, &testMeta{}, 3)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 
@@ -215,10 +202,7 @@ func TestFTDCMessage(t *testing.T) {
 }
 
 func TestStorageConcurrent(t *testing.T) {
-	out := make(chan *VoteBox, 3)
-	outEnd := make(chan *VoteBox, 3)
-
-	s := NewStorage(3, &testMeta{}, out, outEnd)
+	s := NewStorage(3, &testMeta{}, 3)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 
@@ -277,7 +261,7 @@ func TestStorageConcurrent(t *testing.T) {
 		<-done
 	}
 
-	box := <-out
+	box := <-s.OutEnd
 
 	require.True(t, box.finalized)
 	require.False(t, box.deleted)
@@ -290,12 +274,9 @@ func TestStorageConcurrent(t *testing.T) {
 	require.Equal(t, a.Data.ID, i.InstructionID)
 
 	require.Len(t, a.Signatures, 2)
-	signatureStrings := make([]string, len(a.Signatures))
-	for i, sig := range a.Signatures {
-		signatureStrings[i] = string(sig)
-	}
-	require.Contains(t, signatureStrings, string(s1[:]))
-	require.Contains(t, signatureStrings, string(s2[:]))
+
+	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
+	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
 }
 
 // TODO
