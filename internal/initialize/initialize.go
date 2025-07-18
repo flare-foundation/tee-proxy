@@ -3,6 +3,7 @@ package initialize
 import (
 	"context"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -69,9 +70,13 @@ func Initialize(cfgPath string) {
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 
-	err = policyService.Initialize(ctx, db)
-	if err != nil {
-		panic(err)
+	if initialInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) == 0 {
+		policyService.SetInitialPolicy(ctx, db, initialInfo.LastSigningPolicyId)
+	} else {
+		err = policyService.Initialize(ctx, db)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	policyChan, err := policyService.Run(ctx, db)

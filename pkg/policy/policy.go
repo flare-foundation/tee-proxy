@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -105,6 +106,34 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 	}
 
 	return encoded, nil
+}
+
+func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, error) {
+	topics := [4]common.Hash{}
+	topics[0] = signingPolicyInitializedEventSel
+	topics[1] = Uint32ToHash(signingPolicyID)
+
+	params := database.LogsFullParams{
+		Address: relayAddress,
+		Topics:  topics,
+		Number:  1,
+	}
+
+	logs, err := database.FetchLogsFull(ctx, db, params)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(logs) != 1 {
+		return nil, errors.New("invalid number of logs")
+	}
+
+	event, err := policy.ParseSigningPolicyInitializedEvent(logs[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return policy.NewSigningPolicy(event, nil), nil
 }
 
 func SigningPolicyInitializedEventsListener(

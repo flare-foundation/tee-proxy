@@ -54,6 +54,20 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB) (<-chan cpolicy.SigningP
 	return pChan, nil
 }
 
+func (s *Service) SetInitialPolicy(ctx context.Context, db *gorm.DB, signingPolicyID uint32) error {
+	if s.activePolicy != nil {
+		return errors.New("initial policy already set")
+	}
+
+	p, err := policy.FetchSigningPolicy(ctx, db, s.addresses.Relay, signingPolicyID)
+	if err != nil {
+		return err
+	}
+
+	s.activePolicy = p
+	return nil
+}
+
 func (s *Service) update(ctx context.Context, db *gorm.DB, logsC <-chan []database.Log) <-chan cpolicy.SigningPolicy {
 	out := make(chan cpolicy.SigningPolicy, 1)
 
