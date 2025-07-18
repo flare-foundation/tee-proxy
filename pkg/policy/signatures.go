@@ -188,7 +188,7 @@ mainLoop:
 
 // checkAndExtract recovers data (signingPolicyID, signingPolicyHash and signature) from the input and checks that they match the expectations.
 // The function returns the address of the signer and the signature if the expectations are met.
-func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID int64) (*ecdsa.PublicKey, *registry.Signature, error) {
+func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID uint32) (*ecdsa.PublicKey, *registry.Signature, error) {
 	inputB, err := hex.DecodeString(input)
 	if err != nil {
 		return nil, nil, err
@@ -197,7 +197,7 @@ func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpoch
 	if err != nil {
 		return nil, nil, err
 	}
-	if int64(spID) != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
+	if spID != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
 		return nil, nil, fmt.Errorf("invalid data provided")
 	}
 

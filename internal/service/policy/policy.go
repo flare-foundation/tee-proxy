@@ -42,7 +42,7 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB) (<-chan cpolicy.SigningP
 		return nil, errors.New("not initialized yet")
 	}
 
-	startID := uint32(s.activePolicy.RewardEpochID) + 1
+	startID := s.activePolicy.RewardEpochID + 1
 
 	logChan, err := policy.SigningPolicyInitializedEventsListener(ctx, db, s.addresses.Relay, startID)
 	if err != nil {

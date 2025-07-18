@@ -16,7 +16,7 @@ import (
 
 const maxBIPS = 10000
 
-const proposalExpiration = 120 * time.Second // MORE??
+const proposalExpiration = 15 * time.Second // in production 120 , make this configurable
 
 const maxPendingRequests = 100 // MORE??
 
@@ -80,7 +80,7 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 		limiter:     limiter,
 	}
 
-	vs.Store(uint32(policy.RewardEpochID), r)
+	vs.Store(policy.RewardEpochID, r)
 }
 
 // AddVote adds vote to a correct vote box in a correct round and returns a receipt.

@@ -87,7 +87,7 @@ func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
 func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy) ([]byte, error) {
 	pubKeys := make([]types.ECDSAPublicKey, len(signingPolicy.Voters.Voters()))
 	for j, address := range signingPolicy.Voters.Voters() {
-		pk, err := recoverPubKey(ctx, db, address, uint32(signingPolicy.RewardEpochID), voterRegistryAddress)
+		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +233,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 	pubKeys := make([]types.ECDSAPublicKey, len(nextPolicy.Voters.Voters()))
 
 	for j, address := range nextPolicy.Voters.Voters() {
-		pk, err := recoverPubKey(ctx, db, address, uint32(nextPolicy.RewardEpochID), voterRegistryAddress)
+		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, voterRegistryAddress)
 		if err != nil {
 			return nil, err
 		}
