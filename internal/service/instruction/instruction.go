@@ -114,3 +114,32 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 		}
 	}
 }
+
+func (s *Service) Status(instructionID common.Hash, rewardEpochID uint32) (*VoteStatus, error) {
+	r, exists := s.vs.Get(rewardEpochID)
+	if !exists {
+		return nil, fmt.Errorf("%w: round not stored", status.HTTP[404])
+	}
+
+	boxes, exists := r.VotingBoxes[instructionID]
+	if !exists {
+		return nil, fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
+	}
+
+	status := make([]voting.Status, 0, len(boxes))
+	for hash := range boxes {
+		s := boxes[hash].Status(hash)
+
+		status = append(status, s)
+	}
+
+	return &VoteStatus{
+		InstructionID: instructionID,
+		Status:        status,
+	}, nil
+}
+
+type VoteStatus struct {
+	InstructionID common.Hash     `json:"instructionId"`
+	Status        []voting.Status `json:"status"`
+}

@@ -132,7 +132,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		weight = vd.Weight
 	}
 
-	if box.proposal.Cosigners[signer] {
+	if box.proposal.cosigners[signer] {
 		vg |= 0b10
 	}
 

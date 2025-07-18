@@ -10,24 +10,31 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
+type Status struct {
+	InstructionHash    common.Hash `json:"instructionHash"`
+	Finalized          bool        `json:"finalized"`
+	Deleted            bool        `json:"deleted"`
+	Start              uint64      `json:"start"`
+	End                uint64      `json:"end"`
+	Weight             uint16      `json:"weight"`
+	Threshold          uint16      `json:"threshold"`
+	Cosigners          uint16      `json:"cosigners"`
+	CosignersThreshold uint16      `json:"cosignersThreshold"`
+}
+
 type proposal struct {
-	Instruction *instruction.DataFixed
+	instruction *instruction.DataFixed
 
-	Threshold uint16
+	threshold uint16
 
-	Cosigners         map[common.Address]bool // list of cosigners extracted in the first vote from key metadata or from attestation request (FTDC).
-	CosignerThreshold uint16                  // cosigner threshold, extracted on the vote, like cosigners.
-
-	// additional data
-	RequestPolicy *policy.SigningPolicy
-	Result        []byte
+	cosigners         map[common.Address]bool // list of cosigners extracted in the first vote from key metadata or from attestation request (FTDC).
+	cosignerThreshold uint16                  // cosigner threshold, extracted on the vote, like cosigners.
 
 	sync.Mutex
 }
@@ -35,12 +42,12 @@ type proposal struct {
 // newProposal assembles a new proposal.
 func newProposal(data *instruction.DataFixed, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) *proposal {
 	return &proposal{
-		Instruction: data,
+		instruction: data,
 
-		Threshold: threshold,
+		threshold: threshold,
 
-		Cosigners:         cosigners,
-		CosignerThreshold: uint16(cosignerThreshold),
+		cosigners:         cosigners,
+		cosignerThreshold: uint16(cosignerThreshold),
 	}
 }
 
@@ -100,14 +107,6 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 	return vb, nil
 }
 
-// delete clears VoteBox and sets it's deleted status to true.
-func (vb *voteBox) Delete() {
-	vb.proposal = nil
-	vb.votes = nil
-
-	vb.deleted = true
-}
-
 // Action creates Action with provided tag from a finalized VoteBox.
 func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	if vb.deleted {
@@ -118,13 +117,13 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 		return nil, errors.New("not yet finalized")
 	}
 
-	m, err := json.Marshal(vb.proposal.Instruction)
+	m, err := json.Marshal(vb.proposal.instruction)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling action data, %v", err)
 	}
 
 	ad := types.ActionData{
-		ID:            vb.proposal.Instruction.InstructionID,
+		ID:            vb.proposal.instruction.InstructionID,
 		Type:          types.Instruction,
 		SubmissionTag: tag,
 		Message:       m,
@@ -141,6 +140,37 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	}
 
 	return a, nil
+}
+
+// delete clears VoteBox and sets it's deleted status to true.
+func (vb *voteBox) Delete() {
+	vb.proposal.cosigners = nil
+	vb.proposal.instruction = nil
+
+	vb.votes = nil
+
+	vb.deleted = true
+}
+
+// delete clears VoteBox and sets it's deleted status to true.
+func (vb *voteBox) Status(hash common.Hash) Status {
+	var threshold, cosignersThreshold uint16 = 0, 0
+	if vb.proposal != nil {
+		threshold = vb.proposal.threshold
+		cosignersThreshold = vb.proposal.cosignerThreshold
+	}
+
+	return Status{
+		InstructionHash:    hash,
+		Finalized:          vb.finalized,
+		Deleted:            vb.deleted,
+		Start:              uint64(vb.StartTime.Unix()),
+		End:                uint64(vb.EndTime.Unix()),
+		Weight:             vb.weight,
+		Threshold:          threshold,
+		Cosigners:          vb.cosignerWeight,
+		CosignersThreshold: cosignersThreshold,
+	}
 }
 
 // addVote adds vote to a VoteBox and returns a Receipt and a boolean indicator of finalization,
@@ -194,7 +224,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		VoteHash:                      vb.VoteHash,
 	}
 
-	if !vb.finalized && vb.weight > vb.proposal.Threshold && vb.cosignerWeight >= vb.proposal.CosignerThreshold {
+	if !vb.finalized && vb.weight > vb.proposal.threshold && vb.cosignerWeight >= vb.proposal.cosignerThreshold {
 		vb.finalized = true
 		return receipt, true, nil
 	}

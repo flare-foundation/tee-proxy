@@ -16,6 +16,14 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
+const (
+	actionID      = "actionID"
+	instructionID = "instructionID"
+	keyID         = "keyID"
+	rewardEpochID = "rewardEpochID"
+	walletID      = "walletID"
+)
+
 type External struct {
 	instructionService *instruction.Service
 	actionService      *action.Service
@@ -139,6 +147,41 @@ func (e *External) rewardingHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (e *External) statusHandler(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue(instructionID)
+	idB, err := hex.DecodeString(idStr)
+	if err != nil {
+		http.Error(w, "malformed actionID", http.StatusBadRequest)
+		return
+	}
+	if len(idB) != 32 {
+		http.Error(w, "invalid actionID length", http.StatusBadRequest)
+		return
+	}
+	id := common.BytesToHash(idB)
+
+	reIDStr := r.PathValue(rewardEpochID)
+
+	reIDUint64, err := strconv.ParseUint(reIDStr, 10, 32)
+	if err != nil {
+		http.Error(w, "malformed rewardEpochID", http.StatusBadRequest)
+		return
+	}
+
+	reID := uint32(reIDUint64)
+
+	result, err := e.instructionService.Status(id, reID)
+	if err != nil {
+		http.Error(w, "todo", http.StatusInternalServerError)
+		return
+	}
+
+	err = json.NewEncoder(w).Encode(result)
+	if err != nil {
+		http.Error(w, "todo", http.StatusInternalServerError) //handle
+	}
+}
+
 // decide on the response type
 func (e *External) infoHandler(w http.ResponseWriter, r *http.Request) {
 	e.info.RLock()
@@ -198,6 +241,7 @@ func (e *External) registerRoutes() {
 	mux.HandleFunc("POST /instruction", e.instructionHandler)
 	mux.HandleFunc("GET /action/result/{actionID}", e.resultHandler)
 	mux.HandleFunc("GET /action/rewarding-data/{actionID}", e.rewardingHandler)
+	mux.HandleFunc("GET /action/status/{rewardEpochID}/{instructionID}", e.statusHandler)
 	mux.HandleFunc("GET /info", e.infoHandler)
 	mux.HandleFunc("GET /wallet/{walletID}/{keyID}", e.walletHandler)
 }

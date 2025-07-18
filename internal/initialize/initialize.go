@@ -71,7 +71,10 @@ func Initialize(cfgPath string) {
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 
 	if initialInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) == 0 {
-		policyService.SetInitialPolicy(ctx, db, initialInfo.LastSigningPolicyId)
+		err = policyService.SetInitialPolicy(ctx, db, initialInfo.LastSigningPolicyId)
+		if err != nil {
+			panic(err)
+		}
 	} else {
 		err = policyService.Initialize(ctx, db)
 		if err != nil {
