@@ -75,6 +75,7 @@ func Initialize(cfgPath string) {
 		if err != nil {
 			panic(err)
 		}
+		resultService.WalletSyncTrigger <- true
 	} else {
 		err = policyService.Initialize(ctx, db)
 		if err != nil {
