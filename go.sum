@@ -42,8 +42,8 @@ github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 h1:zuQyyAK
 github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06/go.mod h1:7nc4anLGjupUW/PeY5qiNYsdNXj7zopG+eqsS7To5IQ=
 github.com/consensys/gnark-crypto v0.18.0 h1:vIye/FqI50VeAr0B3dx+YjeIvmc3LWz4yEfbWBpTUf0=
 github.com/consensys/gnark-crypto v0.18.0/go.mod h1:L3mXGFTe1ZN+RSJ+CLjUt9x7PNdx8ubaYfDROyp2Z8c=
-github.com/cpuguy83/go-md2man/v2 v2.0.5 h1:ZtcqGrnekaHpVLArFSe4HK5DoKx1T0rq2DwVB0alcyc=
-github.com/cpuguy83/go-md2man/v2 v2.0.5/go.mod h1:tgQtvFlXSQOSOSIRvRPT7W67SCa46tRHOmNcaadrF8o=
+github.com/cpuguy83/go-md2man/v2 v2.0.6 h1:XJtiaUW6dEEqVuZiMTn1ldk455QWwEIsMIJlo5vtkx0=
+github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/crate-crypto/go-eth-kzg v1.3.0 h1:05GrhASN9kDAidaFJOda6A4BEvgvuXbazXg/0E3OOdI=
 github.com/crate-crypto/go-eth-kzg v1.3.0/go.mod h1:J9/u5sWfznSObptgfa92Jq8rTswn6ahQWEuiLHOjCUI=
 github.com/crate-crypto/go-ipa v0.0.0-20240724233137-53bbb0ceb27a h1:W8mUrRp6NOVl3J+MYp5kPMoUZPp7aOYHtaua31lwRHg=
@@ -68,12 +68,10 @@ github.com/ethereum/go-verkle v0.2.2 h1:I2W0WjnrFUIzzVPwm8ykY+7pL2d4VhlsePn4j7cn
 github.com/ethereum/go-verkle v0.2.2/go.mod h1:M3b90YRnzqKyyzBEWJGqj8Qff4IDeXnzFw0P9bFw3uk=
 github.com/ferranbt/fastssz v0.1.2 h1:Dky6dXlngF6Qjc+EfDipAkE83N5I5DE68bY6O0VLNPk=
 github.com/ferranbt/fastssz v0.1.2/go.mod h1:X5UPrE2u1UJjxHA8X54u04SBwdAQjG2sFtWs39YxyWs=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20250715142955-ac986b005351 h1:wQf296jmSPz0DMhJjhQjoNOL6nGUHnc+i7PZYUWY/Fo=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20250715142955-ac986b005351/go.mod h1:I0YDOnjp6zc/surFb5Z1XrohykefkI/EMgqJ1YJyk4M=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20250717153256-39491093c1ab h1:aWJbV8SQVKk3YbJ+mGTff/ALfMCWHj4VCn7w/D0PKmI=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20250717153256-39491093c1ab/go.mod h1:K2iYZL3lobfsJ10m1ddsaim3qDbNwQaMHZu8vHMEYF4=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20250718113110-52b2596639eb h1:CvQbulbC0lt5/Qz3PlIzLJ31VzZcBKgo0T6WiXfcjvs=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20250718113110-52b2596639eb/go.mod h1:K2iYZL3lobfsJ10m1ddsaim3qDbNwQaMHZu8vHMEYF4=
+github.com/flare-foundation/go-flare-common v1.2.1-0.20250721091257-506006894820 h1:jP/g+K9vFxSe9lpl0fy6MGV9ozTmEAoTM6TIUF3dxPM=
+github.com/flare-foundation/go-flare-common v1.2.1-0.20250721091257-506006894820/go.mod h1:K2iYZL3lobfsJ10m1ddsaim3qDbNwQaMHZu8vHMEYF4=
+github.com/flare-foundation/go-flare-common v1.2.1-0.20250721142942-a91862d90a6c h1:mkWlOkH4YJEkvFRyIkLGyNSN2wMvj92mC6PN9qiSams=
+github.com/flare-foundation/go-flare-common v1.2.1-0.20250721142942-a91862d90a6c/go.mod h1:K2iYZL3lobfsJ10m1ddsaim3qDbNwQaMHZu8vHMEYF4=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/gballet/go-libpcsclite v0.0.0-20190607065134-2772fd86a8ff h1:tY80oXqGNY4FhTFhk+o9oFHGINQ/+vhlm8HFzi6znCI=

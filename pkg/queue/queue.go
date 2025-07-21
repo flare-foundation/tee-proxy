@@ -141,7 +141,7 @@ func NewResponseStorage(client *redis.Client) *ResponseStorage {
 }
 
 func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.ActionResponse) error {
-	id := StoringID{ActionID: result.ID, SubmissionTag: result.SubmissionTag}
+	id := StoringID{ActionID: result.Result.ID, SubmissionTag: result.Result.SubmissionTag}
 
 	err := rs.s.Set(ctx, id.String(), result)
 	if err != nil {

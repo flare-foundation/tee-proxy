@@ -123,7 +123,7 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	}
 
 	ad := types.ActionData{
-		ID:            vb.proposal.instruction.InstructionID,
+		ID:            vb.proposal.instruction.InstructionId,
 		Type:          types.Instruction,
 		SubmissionTag: tag,
 		Message:       m,
@@ -233,6 +233,14 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 }
 
 func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round, id common.Hash) (*voteBox, error) {
+	eventTime := time.Unix(int64(data.Timestamp), 0)
+
+	allowedTime := eventTime.Add(-15 * time.Second) // confirm this number
+
+	if time.Now().Before(allowedTime) {
+		return nil, fmt.Errorf("%w: voting started before the event", status.HTTP[403])
+	}
+
 	t, err := s.meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get threshold for %v", id)

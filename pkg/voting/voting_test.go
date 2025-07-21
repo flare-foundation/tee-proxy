@@ -2,6 +2,7 @@ package voting
 
 import (
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -40,12 +41,12 @@ func TestStorage(t *testing.T) {
 
 	i := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 constants.Wallet.Hash(),
-			OPCommand:              constants.KeyGenerate.Hash(),
+			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			TeeId:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochId:          1,
+			OpType:                 constants.Wallet.Hash(),
+			OpCommand:              constants.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -94,7 +95,7 @@ func TestStorage(t *testing.T) {
 	a, err := box.Action(types.Threshold)
 	require.NoError(t, err)
 
-	require.Equal(t, a.Data.ID, i.InstructionID)
+	require.Equal(t, a.Data.ID, common.Hash(i.InstructionId))
 
 	require.Len(t, a.Signatures, 2)
 
@@ -132,12 +133,12 @@ func TestFTDCMessageValidity(t *testing.T) {
 
 	i := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
+			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			TeeId:                  common.HexToAddress("dead"),
 			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			RewardEpochId:          1,
+			OpType:                 constants.FTDC.Hash(),
+			OpCommand:              constants.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 		},
@@ -178,12 +179,12 @@ func TestFTDCMessage(t *testing.T) {
 
 	i := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			TeeId:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochId:          1,
+			OpType:                 constants.FTDC.Hash(),
+			OpCommand:              constants.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 		},
@@ -210,12 +211,12 @@ func TestStorageConcurrent(t *testing.T) {
 
 	i := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 constants.Wallet.Hash(),
-			OPCommand:              constants.KeyGenerate.Hash(),
+			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			TeeId:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochId:          1,
+			OpType:                 constants.Wallet.Hash(),
+			OpCommand:              constants.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -270,7 +271,7 @@ func TestStorageConcurrent(t *testing.T) {
 	a, err := box.Action(types.Threshold)
 	require.NoError(t, err)
 
-	require.Equal(t, a.Data.ID, i.InstructionID)
+	require.Equal(t, a.Data.ID, common.Hash(i.InstructionId))
 
 	require.Len(t, a.Signatures, 2)
 

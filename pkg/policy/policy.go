@@ -19,14 +19,11 @@ import (
 	"gorm.io/gorm"
 )
 
-func blockToVotingRoundID(database.Block) uint32 {
-	return 0 // todo
-}
-
 func InitializePolicyAction(
 	ctx context.Context,
 	db *gorm.DB,
 	addresses config.Addresses,
+	timing config.Timing,
 ) (*types.Action, *policy.SigningPolicy, error) {
 	logs, err := fetchLastTwoSigningPolicyInitializedEvents(ctx, db, addresses.Relay)
 	if err != nil {
@@ -43,7 +40,11 @@ func InitializePolicyAction(
 		return nil, nil, err
 	}
 
-	if blockToVotingRoundID(latestBlock) < event.StartVotingRoundId {
+	if timing.BlockToVotingRoundID(latestBlock) < event.StartVotingRoundId {
+		if len(logs) < 2 {
+			return nil, nil, errors.New("active signing policy not in db")
+		}
+
 		event, err = policy.ParseSigningPolicyInitializedEvent(logs[1])
 		if err != nil {
 			return nil, nil, err

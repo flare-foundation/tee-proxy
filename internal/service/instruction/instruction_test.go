@@ -69,12 +69,12 @@ func TestVoting(t *testing.T) {
 
 	iData := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  teeId,
-			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 constants.Wallet.Hash(),
-			OPCommand:              constants.KeyGenerate.Hash(),
+			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			TeeId:                  teeId,
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochId:          1,
+			OpType:                 constants.Wallet.Hash(),
+			OpCommand:              constants.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -118,9 +118,9 @@ func TestVoting(t *testing.T) {
 	require.True(t, pubKey2.Equal(&PrivKey4.PublicKey))
 
 	time.Sleep(500 * time.Millisecond)
-	a, err := s.aq.GetAction(t.Context(), iData.InstructionID, types.Threshold)
+	a, err := s.aq.GetAction(t.Context(), iData.InstructionId, types.Threshold)
 	require.NoError(t, err)
-	require.Equal(t, a.Data.ID, iData.InstructionID)
+	require.Equal(t, a.Data.ID, common.Hash(iData.InstructionId))
 
 	require.Len(t, a.Signatures, 2)
 	require.Contains(t, a.Signatures, hexutil.Bytes(s1))

@@ -39,7 +39,7 @@ func New(ws *wallets.Storage) Meta {
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	switch data.OPCommand {
+	switch common.Hash(data.OpCommand) {
 	case constants.Pay.Hash(), constants.Reissue.Hash():
 		return xrpCosigners(data, m.ws)
 
@@ -90,7 +90,7 @@ func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64
 }
 
 func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
-	switch data.OPCommand {
+	switch common.Hash(data.OpCommand) {
 	case constants.Prove.Hash():
 		return ftdcCheckConsistency(data, signer)
 	}
@@ -105,7 +105,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, err := types.HashFTDCMessage(ftdcReq, resBody, uint64(data.Timestamp))
+	h, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Timestamp)
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 }
 
 func (m *meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
-	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
+	if common.Hash(data.OpType) == constants.FTDC.Hash() && common.Hash(data.OpCommand) == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
 		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err

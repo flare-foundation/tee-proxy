@@ -26,8 +26,8 @@ func NewService(aq *queue.ActionQueues, addresses config.Addresses) *Service {
 	}
 }
 
-func (s *Service) Initialize(ctx context.Context, db *gorm.DB) error {
-	action, p, err := policy.InitializePolicyAction(ctx, db, s.addresses)
+func (s *Service) Initialize(ctx context.Context, db *gorm.DB, timing config.Timing) error {
+	action, p, err := policy.InitializePolicyAction(ctx, db, s.addresses, timing)
 	if err != nil {
 		return err
 	}

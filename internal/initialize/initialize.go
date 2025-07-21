@@ -56,7 +56,7 @@ func Initialize(cfgPath string) {
 
 	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
-	teePub, err := types.ParsePubKey(initialInfo.PublicKey)
+	teePub, err := types.ParsePubKey(types.ECDSAPublicKey(initialInfo.TeeInfo.PublicKey))
 	if err != nil {
 		panic(err)
 	}
@@ -70,14 +70,14 @@ func Initialize(cfgPath string) {
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 
-	if initialInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) == 0 {
-		err = policyService.SetInitialPolicy(ctx, db, initialInfo.LastSigningPolicyId)
+	if (common.Hash{}).Cmp(initialInfo.TeeInfo.InitialSigningPolicyHash) == 0 {
+		err = policyService.SetInitialPolicy(ctx, db, initialInfo.TeeInfo.LastSigningPolicyId)
 		if err != nil {
 			panic(err)
 		}
 		resultService.WalletSyncTrigger <- true
 	} else {
-		err = policyService.Initialize(ctx, db)
+		err = policyService.Initialize(ctx, db, cfg.Timing)
 		if err != nil {
 			panic(err)
 		}

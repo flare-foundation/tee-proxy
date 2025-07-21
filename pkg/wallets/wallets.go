@@ -198,7 +198,7 @@ func (is *Storage) waitOnResult(ctx context.Context, timeout time.Duration, acti
 // todo: more checks needed?
 // checks signatures
 func parseActionResponse(r *types.ActionResponse) ([]*types.WalletSignedKeyExistenceProof, error) {
-	resB := r.Result.ResultData.Message
+	resB := r.Result.Data
 
 	var res = make([]*types.WalletSignedKeyExistenceProof, 0)
 

@@ -108,7 +108,7 @@ func teeBackupAction(actionID common.Hash, idPair IDPair) (*types.Action, error)
 
 func (s *Storage) createNewBackup(r *types.ActionResponse) error {
 	var b *types.WalletGetBackupResponse
-	err := json.Unmarshal(r.Result.ResultData.Message, &b)
+	err := json.Unmarshal(r.Result.Data, &b)
 	if err != nil {
 		return err
 	}

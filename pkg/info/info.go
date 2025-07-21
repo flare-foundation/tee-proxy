@@ -134,13 +134,13 @@ func (s *Storage) waitOnResponse(ctx context.Context, timeout time.Duration, act
 		time.Sleep(time.Second)
 	}
 
-	if !response.Status {
+	if !response.Result.Status {
 		return nil, errors.New("action failed")
 	}
 
 	result := new(types.TeeInfoResponse)
 
-	err = json.Unmarshal(response.Result.ResultData.Message, result)
+	err = json.Unmarshal(response.Result.Data, result)
 	if err != nil {
 		return nil, err
 	}

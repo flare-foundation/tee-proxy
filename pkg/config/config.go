@@ -13,6 +13,7 @@ type Proxy struct {
 	RedisPort string
 	Addresses Addresses
 	Ports     Ports
+	Timing    Timing
 	PrivKey   []byte // todo make this safe
 }
 
@@ -42,6 +43,11 @@ func Read(path string) (Proxy, error) {
 	}
 
 	err = c.Ports.validate()
+	if err != nil {
+		return c, err
+	}
+
+	err = c.Timing.validate()
 	if err != nil {
 		return c, err
 	}

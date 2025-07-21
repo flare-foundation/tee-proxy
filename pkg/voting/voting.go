@@ -88,16 +88,16 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 // If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
 
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*Receipt, error) {
-	id := data.InstructionID
+	id := data.InstructionId
 
 	hash, err := data.HashFixed()
 	if err != nil {
 		return nil, err
 	}
 
-	round, exists := s.Get(data.RewardEpochID)
+	round, exists := s.Get(data.RewardEpochId)
 	if !exists {
-		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], data.RewardEpochID)
+		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], data.RewardEpochId)
 	}
 
 	err = s.meta.CheckConsistency(data, signer)
