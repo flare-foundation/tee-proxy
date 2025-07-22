@@ -1,18 +1,16 @@
 package server
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 
-	"github.com/ethereum/go-ethereum/common"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/info"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -69,179 +67,144 @@ func (e *External) Serve() error {
 	return e.server.ListenAndServe()
 }
 
-func (e *External) instructionHandler(w http.ResponseWriter, r *http.Request) {
+func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
 	i := new(cinstruction.Instruction)
 	err := json.NewDecoder(r.Body).Decode(&i)
 	if err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest) // handle error
-		return
+		return ErrInvalidBody
 	}
 
-	receipt, err := e.instructionService.ServeInstruction(ctx, i) //  todo return signed receipt
+	receipt, err := e.instructionService.ServeInstruction(ctx, i)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) // handle error
-		return
+		return err
 	}
 
 	err = json.NewEncoder(w).Encode(receipt)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle empty queue
+		return err
 	}
+
+	return nil
 }
 
-func (e *External) resultHandler(w http.ResponseWriter, r *http.Request) {
+func (e *External) resH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
-	idStr := r.PathValue("actionID")
-	idB, err := hex.DecodeString(idStr)
+	id, err := hashParam(r, actionID)
 	if err != nil {
-		http.Error(w, "malformed actionID", http.StatusBadRequest)
-		return
+		return err
 	}
-
-	if len(idB) != 32 {
-		http.Error(w, "invalid actionID length", http.StatusBadRequest)
-		return
-	}
-	id := common.BytesToHash(idB)
 
 	result, err := e.resultService.Serve(ctx, id)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) // handle error
-		return
+		return err
 	}
 
 	err = json.NewEncoder(w).Encode(result)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle empty queue
+		return err
 	}
+
+	return nil
 }
 
-func (e *External) rewardingHandler(w http.ResponseWriter, r *http.Request) {
+func (e *External) rewH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
-	idStr := r.PathValue("actionID")
-	idB, err := hex.DecodeString(idStr)
+	id, err := hashParam(r, actionID)
 	if err != nil {
-		http.Error(w, "malformed actionID", http.StatusBadRequest)
-		return
+		return err
 	}
-	if len(idB) != 32 {
-		http.Error(w, "invalid actionID length", http.StatusBadRequest)
-		return
-	}
-
-	id := common.BytesToHash(idB)
-
 	result, err := e.resultService.ServeRewards(ctx, id)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) // handle error
-		return
+		return err
 	}
 
 	err = json.NewEncoder(w).Encode(result)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle
+		return err
 	}
+
+	return nil
 }
 
-func (e *External) statusHandler(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue(instructionID)
-	idB, err := hex.DecodeString(idStr)
+func (e *External) statH(w http.ResponseWriter, r *http.Request) error {
+	id, err := hashParam(r, instructionID)
 	if err != nil {
-		http.Error(w, "malformed actionID", http.StatusBadRequest)
-		return
+		return err
 	}
-	if len(idB) != 32 {
-		http.Error(w, "invalid actionID length", http.StatusBadRequest)
-		return
-	}
-	id := common.BytesToHash(idB)
 
-	reIDStr := r.PathValue(rewardEpochID)
-
-	reIDUint64, err := strconv.ParseUint(reIDStr, 10, 32)
+	reID, err := uint32Param(r, rewardEpochID)
 	if err != nil {
-		http.Error(w, "malformed rewardEpochID", http.StatusBadRequest)
-		return
+		return err
 	}
-
-	reID := uint32(reIDUint64)
 
 	result, err := e.instructionService.Status(id, reID)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError)
-		return
+		return err
 	}
 
 	err = json.NewEncoder(w).Encode(result)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle
+		return err
 	}
+
+	return nil
 }
 
 // decide on the response type
-func (e *External) infoHandler(w http.ResponseWriter, r *http.Request) {
+func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	e.info.RLock()
 	defer e.info.RUnlock()
 
 	result := e.info.Latest
 
 	if result == nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle empty queue
-		return
+		return fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
 	}
 
 	err := json.NewEncoder(w).Encode(result)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle
+		return err
 	}
+
+	return nil
 }
 
 // decide on the response type
-func (e *External) walletHandler(w http.ResponseWriter, r *http.Request) {
-	wIDStr := r.PathValue("walletID")
-	wIDB, err := hex.DecodeString(wIDStr)
+func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
+	wID, err := hashParam(r, walletID)
 	if err != nil {
-		http.Error(w, "malformed walletID", http.StatusBadRequest)
-		return
+		return err
 	}
-	if len(wIDB) != 32 {
-		http.Error(w, "invalid walletID length", http.StatusBadRequest)
-		return
-	}
-	wID := common.BytesToHash(wIDB)
 
-	kIDStr := r.PathValue("keyID")
-
-	kID, err := strconv.ParseUint(kIDStr, 10, 64)
+	kID, err := uint64Param(r, keyID)
 	if err != nil {
-		http.Error(w, "malformed keyID", http.StatusBadRequest)
-		return
+		return err
 	}
 
 	walletInfo, err := e.wallet.KeyInfo(wID, kID) //todo format this
 	if err != nil {
-		http.Error(w, "TODO", http.StatusBadRequest)
-		return
+		return err
 	}
 
 	err = json.NewEncoder(w).Encode(walletInfo)
 	if err != nil {
-		http.Error(w, "todo", http.StatusInternalServerError) //handle
+		return err
 	}
+	return nil
 }
 
 func (e *External) registerRoutes() {
 	mux := http.NewServeMux()
 	e.server.Handler = mux
 
-	mux.HandleFunc("POST /instruction", e.instructionHandler)
-	mux.HandleFunc("GET /action/result/{actionID}", e.resultHandler)
-	mux.HandleFunc("GET /action/rewarding-data/{actionID}", e.rewardingHandler)
-	mux.HandleFunc("GET /action/status/{rewardEpochID}/{instructionID}", e.statusHandler)
-	mux.HandleFunc("GET /info", e.infoHandler)
-	mux.HandleFunc("GET /wallet/{walletID}/{keyID}", e.walletHandler)
+	mux.HandleFunc("POST /instruction", prepareHandler(e.instH))
+	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resH))
+	mux.HandleFunc(fmt.Sprintf("GET /action/rewarding-data/{%s}", actionID), prepareHandler(e.rewH))
+	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statH))
+	mux.HandleFunc("GET /info", prepareHandler(e.infoH))
+	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walH))
 }

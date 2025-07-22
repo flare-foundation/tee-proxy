@@ -11,6 +11,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -50,24 +51,31 @@ func (i *Internal) Serve() error {
 	return i.server.ListenAndServe()
 }
 
-func (i *Internal) resultHandler(w http.ResponseWriter, r *http.Request) {
+func (i *Internal) registerRoutes() {
+	mux := http.NewServeMux()
+	i.server.Handler = mux
+
+	mux.HandleFunc("POST /result", prepareHandler(i.resH))
+	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(i.deqH))
+}
+
+func (i *Internal) resH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
 	response := new(types.ActionResponse)
 	err := json.NewDecoder(r.Body).Decode(&response) // todo limit the size of the body
 	if err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest) // handle error
-		return
+		return ErrInvalidBody
 	}
 
 	err = i.resultService.Store(ctx, response)
 	if err != nil {
-		http.Error(w, "todo", http.StatusBadRequest) // handle error
-		return
+		return err
 	}
+	return nil
 }
 
-func (i *Internal) dequeueHandler(w http.ResponseWriter, r *http.Request) {
+func (i *Internal) deqH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
 	queueID := queue.QueueID(r.PathValue("queueID"))
@@ -76,24 +84,17 @@ func (i *Internal) dequeueHandler(w http.ResponseWriter, r *http.Request) {
 	case queue.Main, queue.Read:
 		value, err := i.actionService.DequeueAction(ctx, queueID)
 		if err != nil {
-			http.Error(w, "todo", http.StatusInternalServerError) //handle empty queue
+			return err
 		}
 
 		err = json.NewEncoder(w).Encode(value)
 		if err != nil {
-			http.Error(w, "todo", http.StatusInternalServerError)
+			return err
 		}
 
 	default:
-		http.Error(w, "invalid queue ID", http.StatusBadRequest)
-		return
+		return fmt.Errorf("%w: invalid queueID", status.HTTP[400])
 	}
-}
 
-func (i *Internal) registerRoutes() {
-	mux := http.NewServeMux()
-	i.server.Handler = mux
-
-	mux.HandleFunc("POST /queue/{queueID}", i.dequeueHandler)
-	mux.HandleFunc("POST /result", i.resultHandler)
+	return nil
 }

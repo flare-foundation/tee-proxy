@@ -68,7 +68,7 @@ func Initialize(cfgPath string) {
 
 	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
-	pk, err := crypto.ToECDSA(cfg.PrivKey)
+	pk, err := crypto.ToECDSA(cfg.PrivateKey)
 	if err != nil {
 		panic(err)
 	}

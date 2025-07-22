@@ -9,12 +9,12 @@ import (
 )
 
 type Proxy struct {
-	DB        database.Config
-	RedisPort string
-	Addresses Addresses
-	Ports     Ports
-	Timing    Timing
-	PrivKey   []byte // todo make this safe
+	DB         database.Config `toml:"db"`
+	RedisPort  string          `toml:"redis_port"`
+	Addresses  Addresses       `toml:"addresses"`
+	Ports      Ports           `toml:"ports"`
+	Timing     Timing          `toml:"timing"`
+	PrivateKey []byte          `toml:"private_key"` // todo make this safe
 }
 
 type Addresses struct {
@@ -24,8 +24,8 @@ type Addresses struct {
 }
 
 type Ports struct {
-	Internal string
-	External string
+	Internal string `toml:"internal"`
+	External string `toml:"external"`
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
