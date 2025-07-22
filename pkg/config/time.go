@@ -7,8 +7,8 @@ import (
 )
 
 type Timing struct {
-	T0        uint64
-	VoteEpoch uint64 // duration of a VoteEpoch in seconds
+	T0        uint64 `toml:"t0"`
+	VoteEpoch uint64 `toml:"voteEpoch"` // duration of a VoteEpoch in seconds
 }
 
 // BlockToVotingEpochID returns voting epoch id for a block.

@@ -1,0 +1,25 @@
+redis_port = ":6379"
+
+[db]
+host = "localhost"
+port = 3306
+database = "flare_ftso_indexer"
+username = "root"
+password = "root"
+log_queries = false
+
+
+[addresses]
+flare_systems_manager = "0x0000000000000000000000000000000000000000"
+relay = "0x0000000000000000000000000000000000000000"
+voter_registry = "0x0000000000000000000000000000000000000000"
+
+
+[ports]
+internal = ":6661"
+external = ":6662"
+
+
+[timing]
+t0 = 1658429955
+vote_epoch = 90

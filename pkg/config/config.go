@@ -9,9 +9,9 @@ import (
 )
 
 type Proxy struct {
-	DB         database.Config `toml:"db"`
-	RedisPort  string          `toml:"redis_port"`
-	Addresses  Addresses       `toml:"addresses"`
+	DB         database.Config `toml:"db"`         // c-chain indexer database config
+	RedisPort  string          `toml:"redis_port"` // redis database port
+	Addresses  Addresses       `toml:"addresses"`  // smart contract addresses
 	Ports      Ports           `toml:"ports"`
 	Timing     Timing          `toml:"timing"`
 	PrivateKey []byte          `toml:"private_key"` // todo make this safe
