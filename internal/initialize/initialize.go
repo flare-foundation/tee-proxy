@@ -49,7 +49,7 @@ func Initialize(cfgPath string) {
 
 	infoStorage := info.NewStorage(db, actionQueues, responseStorage)
 
-	initialInfo, err := infoStorage.InitialInfo(ctx)
+	initialInfo, err := infoStorage.FetchInfo(ctx)
 	if err != nil {
 		panic(err)
 	}

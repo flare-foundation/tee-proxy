@@ -57,7 +57,7 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	result, err := s.waitOnResult(ctx, time.Minute, action)
+	result, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, time.Minute)
 	if err != nil {
 		return err
 	}

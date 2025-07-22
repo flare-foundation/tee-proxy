@@ -8,13 +8,15 @@ import (
 
 type Timing struct {
 	T0        uint64
-	VoteEpoch uint64
+	VoteEpoch uint64 // duration of a VoteEpoch in seconds
 }
 
-func (t *Timing) BlockToVotingRoundID(b database.Block) uint32 {
+// BlockToVotingEpochID returns voting epoch id for a block.
+func (t *Timing) BlockToVotingEpochID(b database.Block) uint32 {
 	return uint32(b.Timestamp - t.T0/t.VoteEpoch)
 }
 
+// validate checks that vote epoch has a positive duration.
 func (a Timing) validate() error {
 	if a.VoteEpoch < 1 {
 		return errors.New("invalid vote epoch duration")

@@ -46,7 +46,7 @@ func (s *Storage) Run(ctx context.Context) error {
 	for {
 		<-ticker.C
 
-		err := s.oneCycle(ctx)
+		err := s.updateInfo(ctx)
 		if err != nil {
 			errCount++
 		} else {
@@ -59,8 +59,9 @@ func (s *Storage) Run(ctx context.Context) error {
 	}
 }
 
-func (s *Storage) InitialInfo(ctx context.Context) (*types.TeeInfoResponse, error) {
-	err := s.oneCycle(ctx)
+// FetchInfo info updates info and returns the update.
+func (s *Storage) FetchInfo(ctx context.Context) (*types.TeeInfoResponse, error) {
+	err := s.updateInfo(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +69,9 @@ func (s *Storage) InitialInfo(ctx context.Context) (*types.TeeInfoResponse, erro
 	return s.Latest, nil
 }
 
-func teeInfoAction(challenge common.Hash) (*types.Action, error) {
+// action returns an action with opType GET, opCommand TEE_INFO,
+// and challenge in tee info request.
+func action(challenge common.Hash) (*types.Action, error) {
 	m := types.TeeInfoRequest{
 		Challenge: challenge,
 	}
@@ -81,14 +84,13 @@ func teeInfoAction(challenge common.Hash) (*types.Action, error) {
 	return queue.PrepareDirectAction(constants.Get, constants.TEEInfo, msg)
 }
 
-func (s *Storage) oneCycle(ctx context.Context) error {
+func (s *Storage) updateInfo(ctx context.Context) error {
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
 		return err
 	}
 
-	hash := common.HexToHash(block.Hash)
-	action, err := teeInfoAction(hash)
+	action, err := action(common.HexToHash(block.Hash))
 	if err != nil {
 		return err
 	}
@@ -100,7 +102,17 @@ func (s *Storage) oneCycle(ctx context.Context) error {
 
 	time.Sleep(10 * time.Second)
 
-	result, err := s.waitOnResponse(ctx, 30*time.Second, action) // todo retry
+	response, err := s.resultStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 30*time.Second) // todo retry
+	if err != nil {
+		return err
+	}
+	if !response.Result.Status {
+		return errors.New("action failed")
+	}
+
+	result := new(types.TeeInfoResponse)
+
+	err = json.Unmarshal(response.Result.Data, result)
 	if err != nil {
 		return err
 	}
@@ -111,39 +123,4 @@ func (s *Storage) oneCycle(ctx context.Context) error {
 	s.Latest = result
 
 	return nil
-}
-
-// move this to tools
-func (s *Storage) waitOnResponse(ctx context.Context, timeout time.Duration, action *types.Action) (*types.TeeInfoResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	var response *types.ActionResponse
-	var err error
-	for {
-		if err := ctx.Err(); err != nil {
-			cancel()
-			return nil, err
-		}
-
-		response, err = s.resultStorage.GetResponse(ctx, action.Data.ID, action.Data.SubmissionTag) // todo retry
-		if err == nil {
-			break
-		}
-
-		time.Sleep(time.Second)
-	}
-
-	if !response.Result.Status {
-		return nil, errors.New("action failed")
-	}
-
-	result := new(types.TeeInfoResponse)
-
-	err = json.Unmarshal(response.Result.Data, result)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, err
 }

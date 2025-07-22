@@ -12,11 +12,11 @@ import (
 
 var TestSigningPolicy *policy.SigningPolicy
 
-var PrivKey1 *ecdsa.PrivateKey
-
-var PrivKey2 *ecdsa.PrivateKey
-
-var PrivKey3 *ecdsa.PrivateKey
+var (
+	PrivKey1 *ecdsa.PrivateKey
+	PrivKey2 *ecdsa.PrivateKey
+	PrivKey3 *ecdsa.PrivateKey
+)
 
 func init() {
 	var err error

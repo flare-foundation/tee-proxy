@@ -20,7 +20,7 @@ type Meta interface {
 	// If no cosigners are set, empty list and threshold zero is returned.
 	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64, error)
 
-	// CheckConsistency validates specific OPCommands with additional logic as needed.
+	// CheckConsistency validates validates instruction according to its opType.
 	//
 	// For example, for the FTDC Prove OPCommand, it verifies the internal signature of the FTDC message.
 	CheckConsistency(*instruction.Data, common.Address) error
@@ -50,6 +50,7 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 	return make(map[common.Address]bool), 0, nil
 }
 
+// xrpCosigners retrieves cosigners for payment instruction from wallets configurations.
 func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.Address]bool, uint64, error) {
 	cosigners := make(map[common.Address]bool)
 
@@ -74,6 +75,7 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.
 	return cosigners, cosignerThreshold, nil
 }
 
+// ftdcCosigners retrieves cosigners and threshold from the header of the FTDC request.
 func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
 	cosigners := make(map[common.Address]bool)
 
@@ -98,6 +100,7 @@ func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) e
 	return nil
 }
 
+// ftdcCheckConsistency checks that signer of the ftdc message is the same as the signer of the whole instruction.
 func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 	if err != nil {

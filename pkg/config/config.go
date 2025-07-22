@@ -28,7 +28,7 @@ type Ports struct {
 	External string
 }
 
-// Read reads Proxy configurations from toml file at path.
+// Read reads Proxy configurations from toml file at path and validates them.
 func Read(path string) (Proxy, error) {
 	c := Proxy{}
 

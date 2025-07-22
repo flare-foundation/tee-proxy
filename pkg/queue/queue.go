@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/redis/go-redis/v9"
@@ -18,6 +19,8 @@ const (
 	Read QueueID = "read"
 	Main QueueID = "main"
 )
+
+var ErrInvalidQueueID = fmt.Errorf("%w: invalid queue id", status.HTTP[400])
 
 type StoringID struct {
 	ActionID      common.Hash
@@ -60,8 +63,6 @@ func NewActionQueues(client *redis.Client) *ActionQueues {
 // ! 6. StoreQueuedActionResult
 
 // ! 8. ReadQueuedActionResult
-
-var ErrInvalidQueueID = fmt.Errorf("%w: invalid queue id", status.HTTP[400])
 
 func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID QueueID) error {
 	id := StoringID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
@@ -140,10 +141,11 @@ func NewResponseStorage(client *redis.Client) *ResponseStorage {
 	}
 }
 
-func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.ActionResponse) error {
-	id := StoringID{ActionID: result.Result.ID, SubmissionTag: result.Result.SubmissionTag}
+// StoreResponse stores response to storage.
+func (rs *ResponseStorage) StoreResponse(ctx context.Context, response *types.ActionResponse) error {
+	id := StoringID{ActionID: response.Result.ID, SubmissionTag: response.Result.SubmissionTag}
 
-	err := rs.s.Set(ctx, id.String(), result)
+	err := rs.s.Set(ctx, id.String(), response)
 	if err != nil {
 		return fmt.Errorf("storing result %s: %v", id.String(), err)
 	}
@@ -151,6 +153,7 @@ func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.Acti
 	return nil
 }
 
+// GetResponse returns response to action with ID and submission tag if it is in the storage.
 func (rs *ResponseStorage) GetResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
 	id := StoringID{ActionID: actionID, SubmissionTag: submissionTag}
 
@@ -160,4 +163,31 @@ func (rs *ResponseStorage) GetResponse(ctx context.Context, actionID common.Hash
 	}
 
 	return result, nil
+}
+
+// WaitOnResponse waits on the response for the actionID with submissionTag until timeout runs out.
+//
+// If timeout is not positive, it waits until the response arrives.
+// Should only be used if an action with such ID and submission tag has been put into action queue.
+func (rs *ResponseStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	var response *types.ActionResponse
+	var err error
+
+	for {
+		if err = ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		response, err = rs.GetResponse(ctx, actionID, submissionTag) // todo retry
+		if err != nil {
+			return response, nil
+		}
+
+		time.Sleep(time.Second)
+	}
 }

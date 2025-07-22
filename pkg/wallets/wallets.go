@@ -77,7 +77,7 @@ func (s *Storage) sync(ctx context.Context) error {
 		return err
 	}
 
-	result, err := s.waitOnResult(ctx, time.Minute, action)
+	result, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, time.Minute)
 	if err != nil {
 		return err
 	}
@@ -169,30 +169,6 @@ func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManager
 
 func teeWalletAction() (*types.Action, error) {
 	return queue.PrepareDirectAction(constants.Get, constants.KeyInfo, nil)
-}
-
-// move this to result storage
-func (is *Storage) waitOnResult(ctx context.Context, timeout time.Duration, action *types.Action) (*types.ActionResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	var result *types.ActionResponse
-	var err error
-	for {
-		if err := ctx.Err(); err != nil {
-			cancel()
-			return nil, err
-		}
-
-		result, err = is.rs.GetResponse(ctx, action.Data.ID, action.Data.SubmissionTag) // todo retry
-		if err == nil {
-			break
-		}
-
-		time.Sleep(time.Second)
-	}
-
-	return result, err
 }
 
 // todo: more checks needed?
