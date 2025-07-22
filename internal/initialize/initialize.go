@@ -54,14 +54,16 @@ func Initialize(cfgPath string) {
 		panic(err)
 	}
 
-	go infoStorage.Run(ctx) //nolint:errcheck // todo
-
 	teePub, err := types.ParsePubKey(types.ECDSAPublicKey(initialInfo.TeeInfo.PublicKey))
 	if err != nil {
 		panic(err)
 	}
 
 	teeID := crypto.PubkeyToAddress(*teePub)
+
+	resultService.SetIdentity(teeID)
+
+	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
 	pk, err := crypto.ToECDSA(cfg.PrivKey)
 	if err != nil {
