@@ -28,8 +28,13 @@ func NewService(rs *queue.ResponseStorage) Service {
 	return Service{rs: rs, WalletSyncTrigger: wst}
 }
 
-func (s *Service) SetIdentity(teeID common.Address) {
+func (s *Service) SetIdentity(teeID common.Address) error {
+	if s.teeID.Cmp(common.Address{}) != 0 {
+		return errors.New("address already set")
+	}
+
 	s.teeID = teeID
+	return nil
 }
 
 // Serve returns response for actionID with tag "threshold" if present.

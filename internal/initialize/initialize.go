@@ -61,7 +61,10 @@ func Initialize(cfgPath string) {
 
 	teeID := crypto.PubkeyToAddress(*teePub)
 
-	resultService.SetIdentity(teeID)
+	err = resultService.SetIdentity(teeID)
+	if err != nil {
+		panic(err)
+	}
 
 	go infoStorage.Run(ctx) //nolint:errcheck // todo
 

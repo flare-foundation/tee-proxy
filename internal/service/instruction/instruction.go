@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -51,6 +52,11 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
 	if i.Data.TeeId != s.teeID {
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
+	}
+
+	ok := constants.IsValid(i.Data.OpType, i.Data.OpCommand)
+	if !ok {
+		return nil, fmt.Errorf("%w, invalid pair opType, opCommand ", status.HTTP[400])
 	}
 
 	hash, err := i.Data.HashForSigning()
