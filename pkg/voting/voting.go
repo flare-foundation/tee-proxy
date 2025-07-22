@@ -2,6 +2,7 @@ package voting
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
@@ -16,7 +17,7 @@ import (
 
 const maxBIPS = 10000
 
-const proposalExpiration = 15 * time.Second // in production 120 , make this configurable
+const proposalExpiration = 5 * time.Second // in production 120 , make this configurable
 
 const maxPendingRequests = 100 // MORE??
 
@@ -58,10 +59,36 @@ func NewStorage(size int, meta meta.Meta, outSize int) *Storage {
 }
 
 type Round struct {
-	policy      *policy.SigningPolicy
-	VotingBoxes map[common.Hash](map[common.Hash]*voteBox) // instructionID -> instructionHash -> VoteBox
+	policy *policy.SigningPolicy
+	Voting voting // instructionID -> instructionHash -> VoteBox
 
 	limiter *limiter.Limiter
+
+	sync.Mutex
+}
+
+type voting struct {
+	M map[common.Hash]*voteBoxes
+
+	sync.RWMutex
+}
+
+func newVoting() voting {
+	return voting{
+		M: map[common.Hash]*voteBoxes{},
+	}
+}
+
+type voteBoxes struct {
+	M map[common.Hash]*voteBox
+
+	sync.RWMutex
+}
+
+func newVotBoxes() *voteBoxes {
+	return &voteBoxes{
+		M: map[common.Hash]*voteBox{},
+	}
 }
 
 // CreateRound creates round for signing policy and stores it.
@@ -75,9 +102,9 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 	limiter := limiter.New(voters, maxPendingRequests)
 
 	r := &Round{
-		policy:      policy,
-		VotingBoxes: map[common.Hash]map[common.Hash]*voteBox{},
-		limiter:     limiter,
+		policy:  policy,
+		Voting:  newVoting(),
+		limiter: limiter,
 	}
 
 	vs.Store(policy.RewardEpochID, r)
@@ -105,18 +132,29 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		return nil, fmt.Errorf("verifying message validity: %w", err)
 	}
 
-	boxes, exist := round.VotingBoxes[id]
+	// Do not allow creating two sets boxes at once. Release lock if set of boxes exists.
+	round.Lock()
+	boxes, exist := round.Voting.M[id]
 	if !exist {
-		boxes = make(map[common.Hash]*voteBox)
+		boxes = newVotBoxes()
+		defer round.Unlock()
 		// we only save it at the end if no errors are returned
+	} else {
+		round.Unlock()
 	}
 
-	box, exist := boxes[hash]
+	// Do not allow creating two boxes at once. Release lock if box exist.
+	boxes.Lock()
+	box, exist := boxes.M[hash]
 	if !exist {
 		box, err = s.startVoteBox(data, signer, round, id)
+		defer boxes.Unlock()
 		if err != nil {
 			return nil, err
 		}
+		// we only save it at the end if no errors are returned
+	} else {
+		boxes.Unlock()
 	}
 
 	if box.deleted {
@@ -147,8 +185,8 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	receipt.InstructionHash = hash
 
 	// save (only needed if new are made otherwise ineffective)
-	boxes[hash] = box
-	round.VotingBoxes[id] = boxes
+	boxes.M[hash] = box
+	round.Voting.M[id] = boxes
 
 	if finished {
 		round.limiter.Decrement(box.Proposer)

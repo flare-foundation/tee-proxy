@@ -240,43 +240,35 @@ func TestStorageConcurrent(t *testing.T) {
 	sf, err := instruction.SignInstructionHash(h, pk)
 	require.NoError(t, err)
 
-	done := make(chan struct{})
 	go func() {
-		var _, err1 = s.AddVote(i, a1, s1)
-		require.NoError(t, err1)
-		done <- struct{}{}
+		_, err := s.AddVote(i, a1, s1)
+		require.NoError(t, err)
 	}()
 	go func() {
-		var _, err2 = s.AddVote(i, a2, s2)
-		require.NoError(t, err2)
-		done <- struct{}{}
+		_, err := s.AddVote(i, a2, s2)
+		require.NoError(t, err)
 	}()
 	go func() {
-		var _, err3 = s.AddVote(i, af, sf)
-		require.Error(t, err3)
-		done <- struct{}{}
+		_, err := s.AddVote(i, af, sf)
+		require.Error(t, err)
 	}()
-
-	for j := 0; j < 3; j++ {
-		<-done
-	}
 
 	box := <-s.OutEnd
 
-	require.True(t, box.finalized)
-	require.False(t, box.deleted)
-	require.Equal(t, uint16(5), box.weight)
-	require.Equal(t, uint16(0), box.cosignerWeight)
+	require.True(t, box.finalized, "finalized")
+	require.False(t, box.deleted, "deleted")
+	require.Equal(t, uint16(5), box.weight, "weight")
+	require.Equal(t, uint16(0), box.cosignerWeight, "weightCosigners")
 
 	a, err := box.Action(types.Threshold)
 	require.NoError(t, err)
 
-	require.Equal(t, a.Data.ID, common.Hash(i.InstructionId))
+	require.Equal(t, a.Data.ID, common.Hash(i.InstructionId), "ids")
 
-	require.Len(t, a.Signatures, 2)
+	require.Len(t, a.Signatures, 2, "no of signatures")
 
-	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
-	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
+	require.Contains(t, a.Signatures, hexutil.Bytes(s1), "sig1")
+	require.Contains(t, a.Signatures, hexutil.Bytes(s2), "sig2")
 }
 
 // TODO

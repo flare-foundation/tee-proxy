@@ -127,14 +127,17 @@ func (s *Service) Status(instructionID common.Hash, rewardEpochID uint32) (*Vote
 		return nil, fmt.Errorf("%w: round not stored", status.HTTP[404])
 	}
 
-	boxes, exists := r.VotingBoxes[instructionID]
+	boxes, exists := r.Voting.M[instructionID]
 	if !exists {
 		return nil, fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
 	}
 
-	status := make([]voting.Status, 0, len(boxes))
-	for hash := range boxes {
-		s := boxes[hash].Status(hash)
+	boxes.RLock()
+	defer boxes.RUnlock()
+
+	status := make([]voting.Status, 0, len(boxes.M))
+	for hash := range boxes.M {
+		s := boxes.M[hash].Status(hash)
 
 		status = append(status, s)
 	}
