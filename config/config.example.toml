@@ -1,5 +1,7 @@
 redis_port = ":6379"
 
+private_key_variable = "PRIVATE_KEY"
+
 [db]
 host = "localhost"
 port = 3306
@@ -23,3 +25,8 @@ external = ":6662"
 [timing]
 t0 = 1658429955
 vote_epoch = 90
+
+
+[voting]
+proposal_expiration = "120s"
+max_pending_request = 100

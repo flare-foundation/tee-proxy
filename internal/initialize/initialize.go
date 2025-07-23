@@ -30,6 +30,11 @@ func Initialize(ctx context.Context, cfgPath string) {
 		panic(err)
 	}
 
+	pk, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)
+	if err != nil {
+		panic(err)
+	}
+
 	redisClient := queue.NewClient(cfg.RedisPort)
 
 	actionQueues := queue.NewActionQueues(redisClient)
@@ -65,11 +70,6 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	go infoStorage.Run(ctx) //nolint:errcheck // todo
-
-	pk, err := crypto.ToECDSA(cfg.PrivateKey)
-	if err != nil {
-		panic(err)
-	}
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 

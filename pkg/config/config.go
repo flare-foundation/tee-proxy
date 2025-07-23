@@ -1,22 +1,29 @@
 package config
 
 import (
+	"crypto/ecdsa"
+	"encoding/hex"
 	"errors"
+	"os"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/toml"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 )
 
+const defaultPrivateKeyVariable = "PRIVATE_KEY"
+
 type Proxy struct {
-	DB         database.Config `toml:"db"`         // c-chain indexer database config
-	RedisPort  string          `toml:"redis_port"` // redis database port
-	Addresses  Addresses       `toml:"addresses"`  // smart contract addresses
-	Ports      Ports           `toml:"ports"`
-	Timing     Timing          `toml:"timing"`
-	Voting     voting.Config   `toml:"voting"`
-	PrivateKey []byte          `toml:"private_key"` // todo make this safe
+	DB                 database.Config `toml:"db"`                   // C-chain indexer database config.
+	RedisPort          string          `toml:"redis_port"`           // Redis database port.
+	Addresses          Addresses       `toml:"addresses"`            // Smart contract addresses.
+	Ports              Ports           `toml:"ports"`                // Servers ports.
+	Timing             Timing          `toml:"timing"`               // Chain timing.
+	Voting             voting.Config   `toml:"voting"`               // Instruction voting configurations.
+	PrivateKeyVariable string          `toml:"private_key_variable"` // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 }
 
 type Addresses struct {
@@ -79,4 +86,25 @@ func (a Addresses) validate() error {
 func (a Ports) validate() error {
 	// todo
 	return nil
+}
+
+func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
+	if len(variableName) == 0 {
+		variableName = defaultPrivateKeyVariable
+	}
+	pkStr := os.Getenv(variableName)
+
+	if len(pkStr) == 0 {
+		return nil, errors.New("private key not set")
+	}
+
+	pkStr, _ = strings.CutPrefix(pkStr, "0x")
+	pkStr, _ = strings.CutPrefix(pkStr, "0X")
+
+	pkB, err := hex.DecodeString(pkStr)
+	if err != nil {
+		return nil, errors.New("invalid string for private key")
+	}
+
+	return crypto.ToECDSA(pkB)
 }

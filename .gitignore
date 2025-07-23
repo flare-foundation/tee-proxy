@@ -1,2 +1,6 @@
 .env
 .vscode
+
+
+/config/*
+!config/config.example.toml
