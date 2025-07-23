@@ -19,7 +19,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
-func Initialize(cfgPath string) {
+func Initialize(ctx context.Context, cfgPath string) {
 	cfg, err := config.Read(cfgPath)
 	if err != nil {
 		panic(err)
@@ -29,8 +29,6 @@ func Initialize(cfgPath string) {
 	if err != nil {
 		panic(err)
 	}
-
-	ctx := context.TODO()
 
 	redisClient := queue.NewClient(cfg.RedisPort)
 

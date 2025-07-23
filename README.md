@@ -3,3 +3,19 @@
 </p>
 
 # Flare TEE proxy
+
+## Running
+
+Copy config.example.toml to config.toml
+
+```bash
+cp ./config/config.example.toml ./config/config.toml
+```
+
+and set the configurations.
+
+Start the proxy
+
+```bash
+go run ./...
+```
