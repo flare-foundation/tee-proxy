@@ -41,7 +41,12 @@ func TestVoting(t *testing.T) {
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
-	vs := voting.NewStorage(3, &testMeta{}, 3)
+	vCfg := &voting.Config{
+		ProposalExpiration: 0,
+		MaxPendingRequests: 0,
+	}
+
+	vs := voting.NewStorage(vCfg, 3, &testMeta{}, 3)
 	vs.CreateRound(testutil.TestSigningPolicy)
 
 	var teeId = common.HexToAddress("dead")

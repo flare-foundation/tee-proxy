@@ -6,6 +6,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/toml"
+	"github.com/flare-foundation/tee-proxy/pkg/voting"
 )
 
 type Proxy struct {
@@ -14,6 +15,7 @@ type Proxy struct {
 	Addresses  Addresses       `toml:"addresses"`  // smart contract addresses
 	Ports      Ports           `toml:"ports"`
 	Timing     Timing          `toml:"timing"`
+	Voting     voting.Config   `toml:"voting"`
 	PrivateKey []byte          `toml:"private_key"` // todo make this safe
 }
 

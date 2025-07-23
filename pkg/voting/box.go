@@ -80,11 +80,10 @@ type voteBox struct {
 }
 
 // newVoteBox assembles new VoteBox.
+//
+// StartTime and EndTime should be set by the calling function.
 func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold uint16, cosigners map[common.Address]bool, cosignerThreshold uint64) (*voteBox, error) {
 	proposal := newProposal(data, threshold, cosigners, cosignerThreshold)
-
-	now := time.Now()
-	end := now.Add(proposalExpiration)
 
 	hash, err := data.InitialVoteHash()
 	if err != nil {
@@ -96,8 +95,6 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 		proposal:       proposal,
 		votes:          map[common.Address]*vote{},
 		VoteHash:       hash,
-		StartTime:      now,
-		EndTime:        end,
 		weight:         0,
 		cosignerWeight: 0,
 		finalized:      false,
@@ -275,6 +272,9 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 	if err != nil {
 		return nil, fmt.Errorf("cannot create new vote box %w", err)
 	}
+
+	box.StartTime = time.Now()
+	box.EndTime = box.StartTime.Add(s.config.ProposalExpiration)
 
 	go func() {
 		time.Sleep(time.Until(box.EndTime))

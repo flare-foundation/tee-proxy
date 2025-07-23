@@ -95,7 +95,7 @@ func Initialize(cfgPath string) {
 
 	meta := meta.New(&walletStorage)
 
-	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, meta)
+	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, &cfg.Voting, meta)
 
 	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage)
 

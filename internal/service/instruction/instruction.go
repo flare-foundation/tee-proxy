@@ -28,8 +28,8 @@ type Service struct {
 	pk *ecdsa.PrivateKey
 }
 
-func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
-	vs := voting.NewStorage(3, meta, 10) //todo size
+func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, cfg *voting.Config, meta meta.Meta) Service {
+	vs := voting.NewStorage(cfg, 3, meta, 10) //todo size
 
 	return Service{
 		teeID:    teeID,

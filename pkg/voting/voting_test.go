@@ -32,7 +32,10 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 }
 
 func TestStorage(t *testing.T) {
-	s := NewStorage(3, &testMeta{}, 3)
+	s := NewStorage(&Config{
+		ProposalExpiration: 2 * time.Second,
+		MaxPendingRequests: 10,
+	}, 3, &testMeta{}, 3)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 
@@ -104,8 +107,10 @@ func TestStorage(t *testing.T) {
 }
 
 func TestFTDCMessageValidity(t *testing.T) {
-	s := NewStorage(3, &testMeta{}, 3)
-
+	s := NewStorage(&Config{
+		ProposalExpiration: 2 * time.Second,
+		MaxPendingRequests: 10,
+	}, 3, &testMeta{}, 3)
 	s.CreateRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -150,8 +155,10 @@ func TestFTDCMessageValidity(t *testing.T) {
 }
 
 func TestFTDCMessage(t *testing.T) {
-	s := NewStorage(3, &testMeta{}, 3)
-
+	s := NewStorage(&Config{
+		ProposalExpiration: 2 * time.Second,
+		MaxPendingRequests: 10,
+	}, 3, &testMeta{}, 3)
 	s.CreateRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -202,7 +209,10 @@ func TestFTDCMessage(t *testing.T) {
 }
 
 func TestStorageConcurrent(t *testing.T) {
-	s := NewStorage(3, &testMeta{}, 3)
+	s := NewStorage(&Config{
+		ProposalExpiration: 2 * time.Second,
+		MaxPendingRequests: 10,
+	}, 3, &testMeta{}, 3)
 
 	s.CreateRound(testutil.TestSigningPolicy)
 

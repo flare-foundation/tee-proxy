@@ -17,10 +17,6 @@ import (
 
 const maxBIPS = 10000
 
-const proposalExpiration = 5 * time.Second // in production 120 , make this configurable
-
-const maxPendingRequests = 100 // MORE??
-
 type voterGroup uint8
 
 const (
@@ -35,12 +31,35 @@ func (vg voterGroup) isCosigner() bool {
 	return vg&cosigner != 0
 }
 
+type Config struct {
+	ProposalExpiration time.Duration `toml:"proposal_expiration"` // if not positive, it defaults to 120s
+	MaxPendingRequests uint          `toml:"max_pending_request"` // if not positive, it defaults to 100.
+}
+
+// setDefault sets default values if applicable.
+func (v *Config) setDefault() *Config {
+	if v == nil {
+		v = new(Config)
+	}
+
+	if v.MaxPendingRequests < 1 {
+		v.MaxPendingRequests = 100
+	}
+	if v.ProposalExpiration < 1 {
+		v.ProposalExpiration = 120 * time.Second
+	}
+
+	return v
+}
+
 // Storage uses a cyclic storage that host voting processes in rounds - one round for each signingPolicy.
 // Round for signing policy ID is stored at ID%size. When a new round is created, the old one at its place is overwritten.
 //
 // Meta provides the meta data for voting processes.
 type Storage struct {
 	*storage.Cyclic[uint32, *Round]
+
+	config Config
 
 	// Metadata for the voting process.
 	meta meta.Meta
@@ -51,11 +70,19 @@ type Storage struct {
 	OutEnd chan *voteBox
 }
 
-func NewStorage(size int, meta meta.Meta, outSize int) *Storage {
+func NewStorage(config *Config, size int, meta meta.Meta, outSize int) *Storage {
 	outThreshold := make(chan *voteBox, outSize)
 	outEnd := make(chan *voteBox, outSize)
 
-	return &Storage{storage.New[uint32, *Round](size), meta, outThreshold, outEnd}
+	config = config.setDefault()
+
+	return &Storage{
+		Cyclic:       storage.New[uint32, *Round](size),
+		config:       *config,
+		meta:         meta,
+		OutThreshold: outThreshold,
+		OutEnd:       outEnd,
+	}
 }
 
 type Round struct {
@@ -99,7 +126,7 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 		voters = append(voters, voter)
 	}
 
-	limiter := limiter.New(voters, maxPendingRequests)
+	limiter := limiter.New(voters, vs.config.MaxPendingRequests)
 
 	r := &Round{
 		policy:  policy,
