@@ -97,9 +97,9 @@ func collectSignatures(
 	deadline uint64,
 	newPolicy *policy.SigningPolicy,
 	activePolicy *policy.SigningPolicy,
-) ([]*registry.Signature, []*ecdsa.PublicKey, error) {
+) ([]*registry.Signature, error) {
 	if newPolicy.RewardEpochID != activePolicy.RewardEpochID+1 {
-		return nil, nil, errors.New("not consecutive policies")
+		return nil, errors.New("not consecutive policies")
 	}
 
 	from := startBlock
@@ -107,7 +107,6 @@ func collectSignatures(
 	expectedHash := common.BytesToHash(newPolicy.Hash())
 	weightCollected := uint16(0)
 	sigs := make([]*registry.Signature, 0, 100)
-	keys := make([]*ecdsa.PublicKey, 0, 100)
 
 	voted := make(map[common.Address]bool, 100)
 
@@ -116,7 +115,7 @@ func collectSignatures(
 mainLoop:
 	for {
 		if ctx.Err() != nil {
-			return nil, nil, ctx.Err()
+			return nil, ctx.Err()
 		}
 
 		state, err := database.FetchState(ctx, db, nil)
@@ -127,11 +126,11 @@ mainLoop:
 				continue
 			}
 
-			return nil, nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
+			return nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
 		}
 
 		if state.BlockTimestamp > deadline {
-			return nil, nil, ErrDeadlineExceeded
+			return nil, ErrDeadlineExceeded
 		}
 
 		to := int64(state.Index)
@@ -151,7 +150,7 @@ mainLoop:
 				continue
 			}
 
-			return nil, nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
+			return nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
 		}
 
 		if len(txs) > 0 {
@@ -167,7 +166,6 @@ mainLoop:
 
 				if weight > 0 && !voted[addr] {
 					sigs = append(sigs, sig)
-					keys = append(keys, signer)
 					voted[addr] = true
 					weightCollected += weight
 
@@ -183,7 +181,7 @@ mainLoop:
 		time.Sleep(5 * time.Second)
 	}
 
-	return sigs, keys, nil
+	return sigs, nil
 }
 
 // checkAndExtract recovers data (signingPolicyID, signingPolicyHash and signature) from the input and checks that they match the expectations.

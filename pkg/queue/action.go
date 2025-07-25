@@ -20,7 +20,7 @@ func PrepareDirectAction(opType constants.OPType, opCommand constants.OPCommand,
 		return nil, err
 	}
 
-	di := types.DirectInstructionData{
+	di := types.DirectInstruction{
 		OPType:    opType.Hash(),
 		OPCommand: opCommand.Hash(),
 		Message:   msg,

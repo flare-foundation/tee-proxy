@@ -17,10 +17,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
 
-type IDPair struct {
-	WalletID common.Hash
-	KeyID    uint64
-}
+type IDPair = types.WalletKeyIdPair
 
 type KeyData struct {
 	Info  *wallet.ITeeWalletKeyManagerKeyExistence
@@ -106,8 +103,8 @@ func (s *Storage) update(walletInfo *types.WalletSignedKeyExistenceProof) error 
 	s.KeysForWallet[info.WalletId] = append(keys, info.KeyId)
 
 	id := IDPair{
-		WalletID: info.WalletId,
-		KeyID:    info.KeyId,
+		WalletId: info.WalletId,
+		KeyId:    info.KeyId,
 	}
 
 	keyData, exists := s.Keys[id]
@@ -139,7 +136,7 @@ func (s *Storage) storeWallets(result *types.ActionResult) error {
 }
 
 func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSignedKeyExistenceProof, error) {
-	id := IDPair{WalletID: walletID, KeyID: keyID}
+	id := IDPair{WalletId: walletID, KeyId: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
 		return nil, errors.New("wallet not found")
@@ -149,7 +146,7 @@ func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSig
 }
 
 func (s *Storage) KeyInfo(walletID common.Hash, keyID uint64) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
-	id := IDPair{WalletID: walletID, KeyID: keyID}
+	id := IDPair{WalletId: walletID, KeyId: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
 		return nil, errors.New("wallet not found")

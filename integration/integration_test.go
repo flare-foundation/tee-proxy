@@ -338,7 +338,7 @@ func getTeeInfo(t *testing.T, pc *proxyConfig, actionId common.Hash) (common.Add
 	err = json.Unmarshal(res.Result.Data, &teeInfoResponse)
 	require.NoError(t, err)
 
-	teePubKey, err := types.ParsePubKey(types.ECDSAPublicKey(teeInfoResponse.TeeInfo.PublicKey))
+	teePubKey, err := types.ParsePubKey(teeInfoResponse.TeeInfo.PublicKey)
 	require.NoError(t, err)
 
 	teeId := crypto.PubkeyToAddress(*teePubKey)

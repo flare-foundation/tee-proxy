@@ -84,7 +84,7 @@ func TestInsertBlock(t *testing.T) {
 	require.Equal(t, types.Submit, a.Data.SubmissionTag)
 	require.Equal(t, types.Direct, a.Data.Type)
 
-	var instruction types.DirectInstructionData
+	var instruction types.DirectInstruction
 	err = json.Unmarshal(a.Data.Message, &instruction)
 	require.NoError(t, err)
 	require.Equal(t, constants.Get.Hash(), instruction.OPType)

@@ -2,7 +2,6 @@ package policy
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"time"
@@ -180,19 +179,12 @@ func SigningPolicyInitializedEventsListener(
 	return out, nil
 }
 
-// joinSigsAndKeys joins slices of signatures and public keys into slice of SignatureMessages.
-//
-// It is assumed that signs and keys have the same length.
-func joinSigsAndKeys(sigs []*registry.Signature, keys []*ecdsa.PublicKey) []*types.SignatureMessage {
-	msgs := make([]*types.SignatureMessage, len(sigs))
+// prepareSignatures transforms a slice of Signatures to a slice SignatureMessage.
+func prepareSignatures(sigs []*registry.Signature) [][]byte {
+	msgs := make([][]byte, len(sigs))
 
 	for k := range sigs {
-		sm := types.SignatureMessage{
-			Signature: serializeSig(sigs[k]),
-			PublicKey: types.PubKeyToStruct(keys[k]),
-		}
-
-		msgs[k] = &sm
+		msgs[k] = serializeSig(sigs[k])
 	}
 
 	return msgs
@@ -226,7 +218,7 @@ func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
 func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64) ([]byte, error) {
 	deadline := time.Now().Add(3 * time.Hour) // todo
 
-	sigs, keys, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy)
+	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy)
 	if err != nil {
 		return nil, err
 	}
@@ -245,8 +237,9 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 	req := types.UpdatePolicyRequest{
 		NewPolicy: types.MultiSignedPolicy{
 			PolicyBytes: nextPolicy.RawBytes(),
-			Signatures:  joinSigsAndKeys(sigs, keys),
+			Signatures:  prepareSignatures(sigs),
 		},
+		PublicKeys: pubKeys,
 	}
 
 	msg, err := json.Marshal(req)

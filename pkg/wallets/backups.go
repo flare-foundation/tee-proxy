@@ -2,16 +2,12 @@ package wallets
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
-	"io"
 
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"time"
-
-	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
@@ -41,13 +37,7 @@ func (s *Storage) shouldCreateNewBackup(id IDPair, activeEpochID uint32) bool {
 }
 
 func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
-	actionID := common.Hash{}
-	_, err := io.ReadFull(rand.Reader, actionID[:])
-	if err != nil {
-		return err
-	}
-
-	action, err := teeBackupAction(actionID, id)
+	action, err := teeBackupAction(id)
 	if err != nil {
 		return err
 	}
@@ -70,37 +60,13 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 	return nil
 }
 
-func teeBackupAction(actionID common.Hash, idPair IDPair) (*types.Action, error) {
+func teeBackupAction(idPair IDPair) (*types.Action, error) {
 	msg, err := json.Marshal(idPair)
 	if err != nil {
 		return nil, err
 	}
 
-	di := types.DirectInstructionData{
-		OPType:    constants.Get.Hash(),
-		OPCommand: constants.TEEBackup.Hash(),
-		Message:   msg,
-	}
-
-	dmsg, err := json.Marshal(di)
-	if err != nil {
-		return nil, err
-	}
-
-	ad := types.ActionData{
-		ID:            actionID,
-		Type:          types.Direct,
-		SubmissionTag: types.Submit,
-		Message:       dmsg,
-	}
-
-	return &types.Action{
-		Data:                       ad,
-		Signatures:                 nil,
-		AdditionalVariableMessages: nil,
-		Timestamps:                 nil,
-		AdditionalActionData:       []byte{},
-	}, nil
+	return queue.PrepareDirectAction(constants.Get, constants.TEEBackup, msg)
 }
 
 func (s *Storage) createNewBackup(r *types.ActionResult) error {
@@ -110,7 +76,7 @@ func (s *Storage) createNewBackup(r *types.ActionResult) error {
 		return err
 	}
 
-	idPair := IDPair{WalletID: b.BackupId.WalletId, KeyID: b.BackupId.KeyId}
+	idPair := IDPair{WalletId: b.BackupId.WalletId, KeyId: b.BackupId.KeyId}
 
 	s.Backups[idPair] = b
 

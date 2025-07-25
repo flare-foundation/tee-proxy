@@ -61,7 +61,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
-	teePub, err := types.ParsePubKey(types.ECDSAPublicKey(initialInfo.TeeInfo.PublicKey))
+	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
 	if err != nil {
 		panic(err)
 	}
