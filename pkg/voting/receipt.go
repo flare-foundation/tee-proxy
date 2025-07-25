@@ -7,51 +7,30 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 )
 
-// Receipt as used for voting transparency.
-type Receipt struct {
-	InstructionHash               common.Hash `json:"instructionHash"`
-	Sequence                      uint64      `json:"sequence"`
-	Signature                     []byte      `json:"signature"`
-	AdditionalVariableMessageHash common.Hash `json:"additionalVariableMessageHash"`
-	Timestamp                     uint64      `json:"timestamp"`
-	VoteHash                      common.Hash `json:"voteHash"`
-}
-
 // SignedReceipt combines Receipt and its signature.
 type SignedReceipt struct {
-	Receipt   Receipt       `json:"receipt"`
-	Signature hexutil.Bytes `json:"signature"`
+	Receipt   tee.TeeStructsVoteReceipt `json:"receipt"`
+	Signature hexutil.Bytes             `json:"signature"`
 }
 
-// Hash returns the hash of the receipt.
-func (r *Receipt) Hash() (common.Hash, error) {
-	s := tee.TeeStructsVoteReceipt{
-		InstructionHash:               r.InstructionHash,
-		Sequence:                      r.Sequence,
-		Signature:                     r.Signature,
-		AdditionalVariableMessageHash: r.AdditionalVariableMessageHash,
-		Timestamp:                     r.Timestamp,
-		VoteHash:                      r.VoteHash,
-	}
-
-	e, err := structs.Encode(tee.StructArg[tee.VoteReceipt], s)
+// Todo: Should we just move this to go flare common?
+func HashReceipt(r *tee.TeeStructsVoteReceipt) common.Hash {
+	e, err := structs.Encode(tee.StructArg[tee.VoteReceipt], r)
 	if err != nil {
-		return common.Hash{}, err
+		return common.Hash{}
 	}
 
-	return crypto.Keccak256Hash(e), nil
+	return crypto.Keccak256Hash(e)
 }
 
 // Sign signs the receipt with the private key and returns signed receipt.
-func (r *Receipt) Sign(pk *ecdsa.PrivateKey) (*SignedReceipt, error) {
-	h, err := r.Hash()
-	if err != nil {
-		return nil, err
-	}
+func SignReceipt(pk *ecdsa.PrivateKey, r *tee.TeeStructsVoteReceipt) (*SignedReceipt, error) {
+	h := HashReceipt(r)
 
 	sig, err := crypto.Sign(accounts.TextHash(h[:]), pk)
 	if err != nil {
@@ -68,12 +47,7 @@ func (r *Receipt) Sign(pk *ecdsa.PrivateKey) (*SignedReceipt, error) {
 
 // RecoverPubKey recovers signer of the signed receipt.
 func (r *SignedReceipt) RecoverPubKey() (*ecdsa.PublicKey, error) {
-	h, err := r.Receipt.Hash()
-	if err != nil {
-		return nil, err
-	}
-
-	msg := accounts.TextHash(h.Bytes())
+	msg := accounts.TextHash(HashReceipt(&r.Receipt).Bytes())
 
 	return crypto.SigToPub(msg, r.Signature)
 }

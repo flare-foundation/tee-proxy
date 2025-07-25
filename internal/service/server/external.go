@@ -71,7 +71,9 @@ func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
 	i := new(cinstruction.Instruction)
-	err := json.NewDecoder(r.Body).Decode(&i)
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&i)
 	if err != nil {
 		return ErrInvalidBody
 	}

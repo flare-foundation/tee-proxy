@@ -46,7 +46,7 @@ func init() {
 		Threshold:          3,
 		Seed:               big.NewInt(2),
 		Voters:             voters,
-		Weights:            []uint16{3, 2, 1},
+		Weights:            []uint16{1, 3, 3},
 		SigningPolicyBytes: []byte{},
 		Timestamp:          0,
 	}

@@ -36,7 +36,6 @@ func TestStorage(t *testing.T) {
 		ProposalExpiration: 2 * time.Second,
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
-
 	s.CreateRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -79,7 +78,7 @@ func TestStorage(t *testing.T) {
 
 	hf, err := i.HashFixed()
 	require.NoError(t, err)
-	require.Equal(t, hf, r1.InstructionHash)
+	require.Equal(t, hf, common.Hash(r1.InstructionHash))
 
 	r2, err := s.AddVote(i, a2, s2)
 	require.NoError(t, err)
@@ -92,7 +91,7 @@ func TestStorage(t *testing.T) {
 
 	require.True(t, box.finalized)
 	require.False(t, box.deleted)
-	require.Equal(t, uint16(5), box.weight)
+	require.Equal(t, uint16(4), box.weight)
 	require.Equal(t, uint16(0), box.cosignerWeight)
 
 	a, err := box.Action(types.Threshold)
@@ -204,8 +203,8 @@ func TestFTDCMessage(t *testing.T) {
 	hash, err := i.HashFixed()
 	require.NoError(t, err)
 
-	require.Equal(t, rec.InstructionHash, hash)
-	require.Equal(t, rec.AdditionalVariableMessageHash, crypto.Keccak256Hash(i.AdditionalVariableMessage))
+	require.Equal(t, common.Hash(rec.InstructionHash), hash)
+	require.Equal(t, common.Hash(rec.AdditionalVariableMessageHash), crypto.Keccak256Hash(i.AdditionalVariableMessage))
 }
 
 func TestStorageConcurrent(t *testing.T) {
@@ -214,6 +213,78 @@ func TestStorageConcurrent(t *testing.T) {
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
 
+	s.CreateRound(testutil.TestSigningPolicy)
+
+	_, ok := s.Get(1)
+	require.True(t, ok)
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			TeeId:                  common.HexToAddress("dead"),
+			Timestamp:              0,
+			RewardEpochId:          1,
+			OpType:                 constants.Wallet.Hash(),
+			OpCommand:              constants.KeyGenerate.Hash(),
+			OriginalMessage:        []byte("TODO"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	h, err := i.HashForSigning()
+	require.NoError(t, err)
+
+	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
+	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	a2 := crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey)
+	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
+	require.NoError(t, err)
+
+	pk, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	af := crypto.PubkeyToAddress(pk.PublicKey)
+	sf, err := instruction.SignInstructionHash(h, pk)
+	require.NoError(t, err)
+
+	go func() {
+		var _, err1 = s.AddVote(i, a1, s1)
+		require.NoError(t, err1)
+	}()
+	go func() {
+		var _, err2 = s.AddVote(i, a2, s2)
+		require.NoError(t, err2)
+	}()
+	go func() {
+		var _, err3 = s.AddVote(i, af, sf)
+		require.Error(t, err3)
+	}()
+
+	box := <-s.OutThreshold
+
+	require.True(t, box.finalized, "finalized")
+	require.False(t, box.deleted, "deleted")
+	require.Equal(t, uint16(4), box.weight, "weight")
+	require.Equal(t, uint16(0), box.cosignerWeight, "weightCosigners")
+
+	a, err := box.Action(types.Threshold)
+	require.NoError(t, err)
+
+	require.Equal(t, a.Data.ID, common.Hash(i.InstructionId), "ids")
+
+	require.Len(t, a.Signatures, 2, "no of signatures")
+
+	require.Contains(t, a.Signatures, hexutil.Bytes(s1), "sig1")
+	require.Contains(t, a.Signatures, hexutil.Bytes(s2), "sig2")
+}
+
+func TestAddingVoteAfterExpiry(t *testing.T) {
+	s := NewStorage(&Config{
+		ProposalExpiration: 100 * time.Millisecond,
+		MaxPendingRequests: 10,
+	}, 3, &testMeta{}, 3)
 	s.CreateRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -244,47 +315,19 @@ func TestStorageConcurrent(t *testing.T) {
 	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
 	require.NoError(t, err)
 
-	pk, err := crypto.GenerateKey()
+	r1, err := s.AddVote(i, a1, s1)
 	require.NoError(t, err)
-	af := crypto.PubkeyToAddress(pk.PublicKey)
-	sf, err := instruction.SignInstructionHash(h, pk)
-	require.NoError(t, err)
+	require.Equal(t, uint64(0), r1.Sequence)
 
-	go func() {
-		_, err := s.AddVote(i, a1, s1)
-		require.NoError(t, err)
-	}()
-	go func() {
-		_, err := s.AddVote(i, a2, s2)
-		require.NoError(t, err)
-	}()
-	go func() {
-		_, err := s.AddVote(i, af, sf)
-		require.Error(t, err)
-	}()
+	time.Sleep(100 * time.Millisecond)
+
+	_, err = s.AddVote(i, a2, s2)
+	require.Error(t, err)
 
 	box := <-s.OutEnd
-
-	require.True(t, box.finalized, "finalized")
-	require.False(t, box.deleted, "deleted")
-	require.Equal(t, uint16(5), box.weight, "weight")
-	require.Equal(t, uint16(0), box.cosignerWeight, "weightCosigners")
-
-	a, err := box.Action(types.Threshold)
-	require.NoError(t, err)
-
-	require.Equal(t, a.Data.ID, common.Hash(i.InstructionId), "ids")
-
-	require.Len(t, a.Signatures, 2, "no of signatures")
-
-	require.Contains(t, a.Signatures, hexutil.Bytes(s1), "sig1")
-	require.Contains(t, a.Signatures, hexutil.Bytes(s2), "sig2")
+	require.False(t, box.finalized)
+	require.Equal(t, 1, len(box.votes))
 }
-
-// TODO
-// 1) adding vote after expiration should fail
-// After expiry it should be checked that voting box was "deleted"
-// 2) probably we should test that the limiter has been decreased
 
 func TestComputeThresholdSigningPolicy(t *testing.T) {
 	tests := []struct {
@@ -354,18 +397,4 @@ func TestComputeThresholdCustom(t *testing.T) {
 	for j, test := range tests {
 		require.Equal(t, test.threshold, computeThreshold(test.totalWeight, test.bips), j)
 	}
-}
-
-func TestReceipt(t *testing.T) {
-	r := Receipt{
-		InstructionHash:               common.Hash{},
-		Sequence:                      0,
-		Signature:                     []byte{},
-		AdditionalVariableMessageHash: common.Hash{},
-		Timestamp:                     0,
-		VoteHash:                      common.Hash{},
-	}
-
-	_, err := r.Hash()
-	require.NoError(t, err)
 }

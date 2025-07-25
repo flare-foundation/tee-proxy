@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/flare-foundation/tee-proxy/pkg/config"
+
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -24,24 +26,27 @@ type Storage struct {
 
 	db *gorm.DB
 
-	actionQueues  *queue.ActionQueues
-	resultStorage *queue.ResponseStorage
+	actionQueues    *queue.ActionQueues
+	responseStorage *queue.ResponseStorage
+
+	timingConfig config.StorageTiming
 
 	sync.RWMutex
 }
 
-func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage) Storage {
+func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage, tc config.StorageTiming) Storage {
 	return Storage{
-		db:            db,
-		actionQueues:  aq,
-		resultStorage: rs,
+		db:              db,
+		actionQueues:    aq,
+		responseStorage: rs,
+		timingConfig:    tc,
 	}
 }
 
 func (s *Storage) Run(ctx context.Context) error {
 	errCount := 0
 
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(s.timingConfig.CycleInternal)
 
 	for {
 		<-ticker.C
@@ -100,9 +105,9 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 		return err
 	}
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(s.timingConfig.CycleQueueResponseWait)
 
-	response, err := s.resultStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 30*time.Second) // todo retry
+	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 30*time.Second) // todo retry
 	if err != nil {
 		return err
 	}

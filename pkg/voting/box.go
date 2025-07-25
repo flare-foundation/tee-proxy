@@ -13,6 +13,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
@@ -174,8 +175,8 @@ func (vb *voteBox) Status(hash common.Hash) Status {
 // that is true only the first time the conditions for finalization are fulfilled.
 //
 // The returned receipt has zero valued Instruction Hash that has to be filled in the calling function.
-func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (Receipt, bool, error) {
-	var receipt Receipt
+func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (tee.TeeStructsVoteReceipt, bool, error) {
+	var receipt tee.TeeStructsVoteReceipt
 
 	if voterGroup == invalidVoter {
 		return receipt, false, fmt.Errorf("%w: invalid voter", status.HTTP[403])
@@ -190,20 +191,19 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		return receipt, false, fmt.Errorf("%w: signature already stored", status.HTTP[403])
 	}
 
-	sequence := uint64(len(vb.votes))
+	seq := uint64(len(vb.votes))
 	vote := &vote{
-		Sequence:                  sequence,
+		Sequence:                  seq,
 		Time:                      now,
 		Signature:                 signature,
 		AdditionalVariableMessage: additionalVariableMessage,
 	}
 
 	var err error
-	vb.VoteHash, err = instruction.NextVoteHash(vb.VoteHash, sequence, signature, additionalVariableMessage, uint64(now.Unix()))
+	vb.VoteHash, err = instruction.NextVoteHash(vb.VoteHash, seq, signature, additionalVariableMessage, uint64(now.Unix()))
 	if err != nil {
-		return receipt, false, fmt.Errorf("%w: vote hash %w", status.HTTP[500], err)
+		return receipt, false, fmt.Errorf("computing next vote hash: %w", err)
 	}
-
 	vb.votes[signer] = vote
 
 	vb.weight += weight
@@ -212,7 +212,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		vb.cosignerWeight++
 	}
 
-	receipt = Receipt{
+	receipt = tee.TeeStructsVoteReceipt{
 		InstructionHash:               common.Hash{}, // to be added in the calling function
 		Sequence:                      vote.Sequence,
 		Signature:                     signature,

@@ -62,8 +62,11 @@ func (i *Internal) registerRoutes() {
 func (i *Internal) resH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
+	// todo: Limit the size of the body
 	response := new(types.ActionResponse)
-	err := json.NewDecoder(r.Body).Decode(&response) // todo limit the size of the body
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	err := dec.Decode(&response)
 	if err != nil {
 		return ErrInvalidBody
 	}

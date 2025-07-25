@@ -20,13 +20,10 @@ func PrepareDirectAction(opType constants.OPType, opCommand constants.OPCommand,
 		return nil, err
 	}
 
-	di := types.DirectInstruction{
-		Data: types.DirectInstructionData{
-			OPType:    opType.Hash(),
-			OPCommand: opCommand.Hash(),
-			Message:   msg,
-		},
-		Signatures: nil,
+	di := types.DirectInstructionData{
+		OPType:    opType.Hash(),
+		OPCommand: opCommand.Hash(),
+		Message:   msg,
 	}
 
 	dim, err := json.Marshal(di)
@@ -44,10 +41,10 @@ func PrepareDirectAction(opType constants.OPType, opCommand constants.OPCommand,
 
 	return &types.Action{
 		Data:                       ad,
-		Signatures:                 nil,
 		AdditionalVariableMessages: nil,
-		Timestamps:                 nil,
 		AdditionalActionData:       nil,
+		Signatures:                 nil,
+		Timestamps:                 nil,
 	}, nil
 }
 

@@ -3,7 +3,6 @@ package policy
 import (
 	"context"
 	"errors"
-
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-proxy/pkg/config"

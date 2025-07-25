@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 )
 
 const maxBIPS = 10000
@@ -120,13 +121,13 @@ func newVotBoxes() *voteBoxes {
 
 // CreateRound creates round for signing policy and stores it.
 // This in process overwrites an old round.
-func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
+func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 	voters := make([]common.Address, 0, len(policy.Voters.VoterDataMap)) // todo: make this nicer
 	for voter := range policy.Voters.VoterDataMap {
 		voters = append(voters, voter)
 	}
 
-	limiter := limiter.New(voters, vs.config.MaxPendingRequests)
+	limiter := limiter.New(voters, s.config.MaxPendingRequests)
 
 	r := &Round{
 		policy:  policy,
@@ -134,14 +135,14 @@ func (vs *Storage) CreateRound(policy *policy.SigningPolicy) {
 		limiter: limiter,
 	}
 
-	vs.Store(policy.RewardEpochID, r)
+	s.Store(policy.RewardEpochID, r)
 }
 
 // AddVote adds vote to a correct vote box in a correct round and returns a receipt.
 // If a round does not exits an error is returned.
 // If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
 
-func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*Receipt, error) {
+func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*tee.TeeStructsVoteReceipt, error) {
 	id := data.InstructionId
 
 	hash, err := data.HashFixed()
