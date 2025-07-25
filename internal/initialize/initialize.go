@@ -2,6 +2,7 @@ package initialize
 
 import (
 	"context"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -16,6 +17,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/info"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -38,7 +40,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	redisClient := queue.NewClient(cfg.RedisPort)
 
 	actionQueues := queue.NewActionQueues(redisClient)
-	responseStorage := queue.NewResponseStorage(redisClient)
+	responseStorage := queue.NewResultStorage(redisClient)
 
 	walletStorage := wallets.NewStorage(actionQueues, responseStorage)
 	actionService := action.NewService(actionQueues)
@@ -50,12 +52,14 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	go walletStorage.RunInfo(ctx, resultService.WalletSyncTrigger)
 
-	infoStorage := info.NewStorage(db, actionQueues, responseStorage)
+	infoStorage := info.NewStorage(db, actionQueues, responseStorage, cfg.StorageTiming)
 
 	initialInfo, err := infoStorage.FetchInfo(ctx)
 	if err != nil {
 		panic(err)
 	}
+
+	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
 	teePub, err := types.ParsePubKey(types.ECDSAPublicKey(initialInfo.TeeInfo.PublicKey))
 	if err != nil {
@@ -73,7 +77,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 
-	if (common.Hash{}).Cmp(initialInfo.TeeInfo.InitialSigningPolicyHash) == 0 {
+	if (common.Hash{}).Cmp(initialInfo.TeeInfo.InitialSigningPolicyHash) != 0 {
 		err = policyService.SetInitialPolicy(ctx, db, initialInfo.TeeInfo.LastSigningPolicyId)
 		if err != nil {
 			panic(err)
@@ -93,7 +97,13 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	meta := meta.New(&walletStorage)
 
-	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, &cfg.Voting, meta)
+	vc := &voting.Config{
+		ProposalExpiration: 2 * time.Second,
+		MaxPendingRequests: 100,
+	}
+
+	vs := voting.NewStorage(vc, 3, meta, 10) //todo size
+	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, vs)
 
 	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage)
 

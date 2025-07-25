@@ -9,7 +9,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/tee-proxy/pkg/meta"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
@@ -28,9 +28,7 @@ type Service struct {
 	pk *ecdsa.PrivateKey
 }
 
-func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, cfg *voting.Config, meta meta.Meta) Service {
-	vs := voting.NewStorage(cfg, 3, meta, 10) //todo size
-
+func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, vs *voting.Storage) Service {
 	return Service{
 		teeID:    teeID,
 		vs:       vs,
@@ -40,16 +38,21 @@ func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan 
 	}
 }
 
+// remove if possible
+func (s *Service) SetTeeID(teeID common.Address) {
+	s.teeID = teeID
+}
+
 func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.SignedReceipt, error) {
 	r, err := s.process(i)
 	if err != nil {
 		return nil, err
 	}
 
-	return r.Sign(s.pk)
+	return voting.SignReceipt(s.pk, r)
 }
 
-func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
+func (s *Service) process(i *instruction.Instruction) (*tee.TeeStructsVoteReceipt, error) {
 	if i.Data.TeeId != s.teeID {
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}

@@ -4,20 +4,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flare-foundation/tee-node/pkg/types"
-
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-	"github.com/flare-foundation/tee-proxy/internal/testutil"
 )
 
 type testMeta struct{}
@@ -56,12 +54,12 @@ func TestVoting(t *testing.T) {
 		panic("cannot generate key")
 	}
 
-	as := queue.NewActionQueues(c)
+	aq := queue.NewActionQueues(c)
 	s := &Service{
 		teeID:    teeId,
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
-		aq:       as,
+		aq:       aq,
 		pk:       PrivKey4,
 	}
 
@@ -89,7 +87,6 @@ func TestVoting(t *testing.T) {
 	h, err := iData.HashForSigning()
 	require.NoError(t, err)
 
-	//
 	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
 	require.NoError(t, err)
 
@@ -116,14 +113,14 @@ func TestVoting(t *testing.T) {
 
 	pubKey1, err := sr1.RecoverPubKey()
 	require.NoError(t, err)
-	require.True(t, pubKey1.Equal(&PrivKey4.PublicKey))
+	require.True(t, pubKey1.X.Cmp(PrivKey4.X) == 0 && pubKey1.Y.Cmp(PrivKey4.Y) == 0)
 
 	pubKey2, err := sr2.RecoverPubKey()
 	require.NoError(t, err)
-	require.True(t, pubKey2.Equal(&PrivKey4.PublicKey))
+	require.True(t, pubKey2.X.Cmp(PrivKey4.X) == 0 && pubKey2.Y.Cmp(PrivKey4.Y) == 0)
 
-	time.Sleep(500 * time.Millisecond)
-	a, err := s.aq.GetAction(t.Context(), iData.InstructionId, types.Threshold)
+	time.Sleep(2000 * time.Millisecond)
+	a, err := s.aq.Pop(t.Context(), queue.Main)
 	require.NoError(t, err)
 	require.Equal(t, a.Data.ID, common.Hash(iData.InstructionId))
 

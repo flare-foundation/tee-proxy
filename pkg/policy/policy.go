@@ -247,7 +247,6 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 			PolicyBytes: nextPolicy.RawBytes(),
 			Signatures:  joinSigsAndKeys(sigs, keys),
 		},
-		PublicKeys: pubKeys,
 	}
 
 	msg, err := json.Marshal(req)

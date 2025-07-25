@@ -3,6 +3,7 @@ package result
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -11,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
 type Service struct {
@@ -44,27 +46,28 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 		s.WalletSyncTrigger <- true
 	}
 
-	if s.teeID.Cmp(common.Address{}) != 0 || len(r.Signature) > 0 {
+	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r)
 		if err != nil {
 			return err
 		}
+
 		if signer.Cmp(s.teeID) != 0 {
-			return errors.New("unknown tee id")
+			return fmt.Errorf("%w, invalid teeID", status.HTTP[403])
 		}
 	}
 
-	return s.rs.StoreResponse(ctx, r)
+	return s.rs.StoreResult(ctx, r)
 }
 
 // Serve returns response for actionID with tag "threshold" if present.
 func (s *Service) Serve(ctx context.Context, actionID common.Hash) (*types.ActionResponse, error) {
-	return s.rs.GetResponse(ctx, actionID, types.Threshold)
+	return s.rs.GetResult(ctx, actionID, types.Threshold)
 }
 
 // Serve returns response for actionID with tag "end" if present.
 func (s *Service) ServeRewards(ctx context.Context, actionID common.Hash) (*types.ActionResponse, error) {
-	return s.rs.GetResponse(ctx, actionID, types.End)
+	return s.rs.GetResult(ctx, actionID, types.End)
 }
 
 func recoverSigner(ar *types.ActionResponse) (common.Address, error) {

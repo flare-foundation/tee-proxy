@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -22,6 +23,7 @@ type Proxy struct {
 	Addresses          Addresses       `toml:"addresses"`            // Smart contract addresses.
 	Ports              Ports           `toml:"ports"`                // Servers ports.
 	Timing             Timing          `toml:"timing"`               // Chain timing.
+	StorageTiming      StorageTiming   `toml:"storage_timing"`       // Storage timing
 	Voting             voting.Config   `toml:"voting"`               // Instruction voting configurations.
 	PrivateKeyVariable string          `toml:"private_key_variable"` // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 }
@@ -60,6 +62,16 @@ func Read(path string) (Proxy, error) {
 	if err != nil {
 		return c, err
 	}
+
+	err = c.StorageTiming.validate()
+	if err != nil {
+		return c, err
+	}
+
+	c.StorageTiming.CycleInternal = c.StorageTiming.CycleInternal * time.Second
+	c.StorageTiming.CycleQueueResponseWait = c.StorageTiming.CycleQueueResponseWait * time.Second
+
+	c.Voting.ProposalExpiration = c.Voting.ProposalExpiration * time.Second
 
 	return c, err
 }

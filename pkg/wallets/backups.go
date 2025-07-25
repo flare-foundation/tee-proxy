@@ -62,7 +62,7 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	err = s.createNewBackup(result)
+	err = s.createNewBackup(&result.Result)
 	if err != nil {
 		return err
 	}
@@ -76,13 +76,10 @@ func teeBackupAction(actionID common.Hash, idPair IDPair) (*types.Action, error)
 		return nil, err
 	}
 
-	di := types.DirectInstruction{
-		Data: types.DirectInstructionData{
-			OPType:    constants.Get.Hash(),
-			OPCommand: constants.TEEBackup.Hash(),
-			Message:   msg,
-		},
-		Signatures: nil,
+	di := types.DirectInstructionData{
+		OPType:    constants.Get.Hash(),
+		OPCommand: constants.TEEBackup.Hash(),
+		Message:   msg,
 	}
 
 	dmsg, err := json.Marshal(di)
@@ -106,9 +103,9 @@ func teeBackupAction(actionID common.Hash, idPair IDPair) (*types.Action, error)
 	}, nil
 }
 
-func (s *Storage) createNewBackup(r *types.ActionResponse) error {
+func (s *Storage) createNewBackup(r *types.ActionResult) error {
 	var b *types.WalletGetBackupResponse
-	err := json.Unmarshal(r.Result.Data, &b)
+	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
 		return err
 	}

@@ -77,14 +77,14 @@ func (s *Storage) sync(ctx context.Context) error {
 		return err
 	}
 
-	result, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, time.Minute)
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, time.Minute)
 	if err != nil {
 		return err
 	}
 
 	s.Lock()
 	defer s.Unlock()
-	err = s.storeWallets(result)
+	err = s.storeWallets(&response.Result)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,7 @@ func (s *Storage) update(walletInfo *types.WalletSignedKeyExistenceProof) error 
 	return nil
 }
 
-func (s *Storage) storeWallets(result *types.ActionResponse) error {
+func (s *Storage) storeWallets(result *types.ActionResult) error {
 	// todo clear old storages
 
 	data, err := parseActionResponse(result)
@@ -173,12 +173,9 @@ func teeWalletAction() (*types.Action, error) {
 
 // todo: more checks needed?
 // checks signatures
-func parseActionResponse(r *types.ActionResponse) ([]*types.WalletSignedKeyExistenceProof, error) {
-	resB := r.Result.Data
-
+func parseActionResponse(r *types.ActionResult) ([]*types.WalletSignedKeyExistenceProof, error) {
 	var res = make([]*types.WalletSignedKeyExistenceProof, 0)
-
-	err := json.Unmarshal(resB, &res)
+	err := json.Unmarshal(r.Data, &res)
 	if err != nil {
 		return nil, err
 	}

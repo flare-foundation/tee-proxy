@@ -45,6 +45,10 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 
 	case constants.Prove.Hash():
 		return ftdcCosigners(data)
+
+	case constants.KeyDataProviderRestore.Hash():
+		//Todo
+		_ = data
 	}
 
 	return make(map[common.Address]bool), 0, nil
