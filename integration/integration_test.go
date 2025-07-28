@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
 	"github.com/flare-foundation/tee-node/pkg/backup"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -192,8 +194,8 @@ func TestInitializeSigningPolicy(t *testing.T) {
 
 	defer redisCleanup()
 
-	go teeServer.StartServer(fmt.Sprintf("http://localhost:%d", intPort))
-
+	go teeServer.StartServer()
+	setProxyUrl(t, intPort)
 	// End of setup
 
 	actionId, err := utils.GenerateRandom()
@@ -265,6 +267,22 @@ func TestInitializeSigningPolicy(t *testing.T) {
 		getTeeAttestation(t, cfg, teeId, providerPrivKeys, uint32(policy.RewardEpochID))*/
 }
 
+func setProxyUrl(t *testing.T, proxyPort int) {
+	request := types.ConfigureProxyUrlRequest{
+		Url: fmt.Sprintf("http://localhost:%d", proxyPort),
+	}
+
+	client := http.Client{
+		Timeout: time.Second,
+	}
+	requestBody, err := json.Marshal(request)
+	require.NoError(t, err)
+
+	r, err := client.Post(fmt.Sprintf("http://localhost:%d/configure", 5500), "application/json", bytes.NewBuffer(requestBody))
+	require.NoError(t, err)
+	require.Equal(t, r.StatusCode, http.StatusOK)
+}
+
 func initializePolicy(t *testing.T, pc *proxyConfig, actionId common.Hash, epochId uint32) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {
 	t.Helper()
 
@@ -276,7 +294,7 @@ func initializePolicy(t *testing.T, pc *proxyConfig, actionId common.Hash, epoch
 
 	initialPolicy := GenerateRandomPolicyData(epochId, voters, randSeed)
 
-	pubKeys := make([]types.ECDSAPublicKey, len(voters))
+	pubKeys := make([]tee.PublicKey, len(voters))
 	for i, voter := range voters {
 		pubKeys[i] = types.PubKeyToStruct(pubKeysMap[voter])
 	}

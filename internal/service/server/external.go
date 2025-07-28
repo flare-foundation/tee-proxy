@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
@@ -79,6 +80,7 @@ func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	receipt, err := e.instructionService.ServeInstruction(ctx, i)
+	fmt.Println(utils.OpHashToString(i.Data.OpType), utils.OpHashToString(i.Data.OpCommand), receipt, err)
 	if err != nil {
 		return err
 	}

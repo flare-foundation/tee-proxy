@@ -90,6 +90,8 @@ func (i *Internal) deqH(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
+		// fmt.Println("action", value.Data)
+
 		err = json.NewEncoder(w).Encode(value)
 		if err != nil {
 			return err

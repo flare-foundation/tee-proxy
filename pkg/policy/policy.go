@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -85,7 +86,7 @@ func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
 }
 
 func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy) ([]byte, error) {
-	pubKeys := make([]types.ECDSAPublicKey, len(signingPolicy.Voters.Voters()))
+	pubKeys := make([]tee.PublicKey, len(signingPolicy.Voters.Voters()))
 	for j, address := range signingPolicy.Voters.Voters() {
 		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress)
 		if err != nil {
@@ -223,7 +224,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 		return nil, err
 	}
 
-	pubKeys := make([]types.ECDSAPublicKey, len(nextPolicy.Voters.Voters()))
+	pubKeys := make([]tee.PublicKey, len(nextPolicy.Voters.Voters()))
 
 	for j, address := range nextPolicy.Voters.Voters() {
 		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, voterRegistryAddress)
