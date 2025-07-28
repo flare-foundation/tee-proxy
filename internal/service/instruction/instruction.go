@@ -54,7 +54,6 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 func (s *Service) process(i *instruction.Instruction) (*tee.TeeStructsVoteReceipt, error) {
 	if i.Data.TeeId != s.teeID {
-		fmt.Println(i.Data.TeeId, s.teeID)
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}
 
