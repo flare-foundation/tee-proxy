@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -69,6 +70,10 @@ func (s *Service) SetInitialPolicy(ctx context.Context, db *gorm.DB, signingPoli
 
 func (s *Service) update(ctx context.Context, db *gorm.DB, logsC <-chan []database.Log) <-chan cpolicy.SigningPolicy {
 	out := make(chan cpolicy.SigningPolicy, 1)
+
+	if s.activePolicy != nil {
+		out <- *s.activePolicy
+	}
 
 	go func() {
 		for {

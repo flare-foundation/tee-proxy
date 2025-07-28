@@ -127,6 +127,11 @@ func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 		voters = append(voters, voter)
 	}
 
+	_, exists := s.Get(policy.RewardEpochID)
+	if exists {
+		return
+	}
+
 	limiter := limiter.New(voters, s.config.MaxPendingRequests)
 
 	r := &Round{
