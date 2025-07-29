@@ -187,7 +187,7 @@ func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	walletInfo, err := e.wallet.KeyInfo(wID, kID) //todo format this
+	walletInfo, err := e.wallet.KeyData(wID, kID) //todo format this
 	if err != nil {
 		return err
 	}

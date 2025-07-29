@@ -20,8 +20,8 @@ import (
 type IDPair = types.WalletKeyIdPair
 
 type KeyData struct {
-	Info  *wallet.ITeeWalletKeyManagerKeyExistence
-	Proof *types.WalletSignedKeyExistenceProof
+	Info  *wallet.ITeeWalletKeyManagerKeyExistence `json:"info"`
+	Proof *types.WalletSignedKeyExistenceProof     `json:"proof"`
 }
 
 type Storage struct {
@@ -145,14 +145,14 @@ func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSig
 	return info.Proof, nil
 }
 
-func (s *Storage) KeyInfo(walletID common.Hash, keyID uint64) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
+func (s *Storage) KeyData(walletID common.Hash, keyID uint64) (*KeyData, error) {
 	id := IDPair{WalletId: walletID, KeyId: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
 		return nil, errors.New("wallet not found")
 	}
 
-	return info.Info, nil
+	return info, nil
 }
 
 func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
@@ -161,7 +161,12 @@ func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManager
 		return nil, errors.New("wallet not found")
 	}
 
-	return s.KeyInfo(walletID, keys[0])
+	data, err := s.KeyData(walletID, keys[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return data.Info, nil
 }
 
 func teeWalletAction() (*types.Action, error) {
