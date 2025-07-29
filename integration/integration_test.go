@@ -436,8 +436,8 @@ func signTransaction(t *testing.T, pc *proxyConfig, teeId common.Address, wallet
 	originalMessage := payment.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         walletId,
 		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: teeId, KeyId: keyId}},
-		SenderAddress:    "0x123",
-		RecipientAddress: "0x456",
+		SenderAddress:    "rUpy3eEg8rqjqfUoLeBnZkscbKbFsKXC3v",
+		RecipientAddress: "rMuZNV2kjCKs8v8rd8QFizAaPdvCDYTPc7",
 		Amount:           big.NewInt(1000000000),
 		Fee:              big.NewInt(10),
 		PaymentReference: [32]byte{},

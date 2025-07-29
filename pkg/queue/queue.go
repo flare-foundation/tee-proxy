@@ -84,11 +84,8 @@ func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, err
 	}
 
 	storingID, err := queue.Dequeue(ctx)
-	if errors.Is(err, redis.Nil) {
-		return nil, ErrEmptyQueue
-	}
 	if err != nil {
-		return nil, fmt.Errorf("dequeuing %v: %v", id, err)
+		return nil, fmt.Errorf("dequeuing %v: %w", id, err)
 	}
 
 	action, err := as.actions.Get(ctx, storingID.String())
@@ -96,7 +93,7 @@ func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, err
 		return nil, fmt.Errorf("queued action not found: %s", storingID.String())
 	}
 
-	return action, nil
+	return action, err
 }
 
 // GetQueuedActionCount returns the number of elements in the actionStorage.
