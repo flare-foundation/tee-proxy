@@ -3,17 +3,15 @@ package info
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"testing"
 	"time"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
@@ -22,38 +20,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func InMemoryDB(t *testing.T, name string) (*gorm.DB, string) {
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", name)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return db, dsn
-}
-
-func CreateBlock(prevHash string, number uint64) (*database.Block, common.Hash) {
-	hashInput := fmt.Sprintf("%s-%d", prevHash, number)
-	hash := common.HexToHash(hashInput)
-	timestamp := uint64(time.Now().Unix())
-	return &database.Block{
-		Hash:      fmt.Sprintf("%x", hash),
-		Number:    number,
-		Timestamp: timestamp,
-	}, hash
-}
-
 func TestInsertBlock(t *testing.T) {
-	db, _ := InMemoryDB(t, "choose")
+	db, _ := testutil.InMemoryDB(t, "choose")
 	err := db.AutoMigrate(&database.Block{})
 	require.NoError(t, err)
 
 	var latestBlockHash common.Hash
 	for i := uint64(1); i <= 3; i++ {
-		block, hash := CreateBlock(fmt.Sprintf("%d", i), i)
+		block, hash := testutil.CreateBlock(fmt.Sprintf("%d", i), i)
 		latestBlockHash = hash
-		if err := db.Create(block).Error; err != nil {
-			panic(err)
-		}
+		err = db.Create(block).Error
+		require.NoError(t, err)
 	}
 
 	mr := miniredis.RunT(t)
@@ -65,7 +42,7 @@ func TestInsertBlock(t *testing.T) {
 		db:              db,
 		actionQueues:    aq,
 		responseStorage: rs,
-		timingConfig: config.StorageTiming{
+		timingConfig: &config.StorageTiming{
 			CycleInternal:          10 * time.Millisecond,
 			CycleQueueResponseWait: 10 * time.Millisecond,
 		},
@@ -73,9 +50,7 @@ func TestInsertBlock(t *testing.T) {
 
 	go func() {
 		err := s.Run(t.Context())
-		if err != nil {
-			panic(err)
-		}
+		require.NoError(t, err)
 	}()
 
 	time.Sleep(15 * time.Millisecond)
@@ -117,7 +92,7 @@ func TestInsertBlock(t *testing.T) {
 		},
 	}
 	require.NoError(t, err)
-	err = rs.StoreResult(t.Context(), ar)
+	err = rs.StoreResponse(t.Context(), ar)
 	require.NoError(t, err)
 
 	time.Sleep(50 * time.Millisecond)

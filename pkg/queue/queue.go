@@ -107,7 +107,7 @@ func NewResultStorage(client *redis.Client) *ResponseStorage {
 	}
 }
 
-func (rs *ResponseStorage) StoreResult(ctx context.Context, result *types.ActionResponse) error {
+func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.ActionResponse) error {
 	id := StoringID{ActionID: result.Result.ID, SubmissionTag: result.Result.SubmissionTag}
 
 	err := rs.s.Set(ctx, id.String(), result)

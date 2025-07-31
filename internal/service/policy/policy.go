@@ -34,7 +34,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, timing config.Tim
 
 	s.activePolicy = p
 
-	return s.aq.Enqueue(ctx, action, queue.Read)
+	return s.aq.Enqueue(ctx, action, queue.Main)
 }
 
 func (s *Service) Run(ctx context.Context, db *gorm.DB) (<-chan cpolicy.SigningPolicy, error) {

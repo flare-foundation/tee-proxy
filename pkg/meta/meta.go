@@ -1,12 +1,16 @@
 package meta
 
 import (
+	"encoding/json"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 
+	"github.com/flare-foundation/tee-node/pkg/backup"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
 )
@@ -47,11 +51,30 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 		return ftdcCosigners(data)
 
 	case constants.KeyDataProviderRestore.Hash():
-		//Todo
-		_ = data
+		return keyDataProviderRestoreAdmins(data)
 	}
 
 	return make(map[common.Address]bool), 0, nil
+}
+
+func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	cosigners := make(map[common.Address]bool)
+
+	var walletBackupMetadata backup.WalletBackupMetaData // Note: Is this correct?
+	err := json.Unmarshal(data.AdditionalFixedMessage, &walletBackupMetadata)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for _, admin := range walletBackupMetadata.AdminsPublicKeys {
+		adminPub, err := types.ParsePubKey(admin)
+		if err != nil {
+			return nil, 0, err
+		}
+		cosigners[crypto.PubkeyToAddress(*adminPub)] = true
+	}
+
+	return cosigners, walletBackupMetadata.AdminsThreshold, nil
 }
 
 // xrpCosigners retrieves cosigners for payment instruction from wallets configurations.

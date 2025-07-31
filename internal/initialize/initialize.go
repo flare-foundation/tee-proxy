@@ -52,7 +52,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	go walletStorage.RunInfo(ctx, resultService.WalletSyncTrigger)
 
-	infoStorage := info.NewStorage(db, actionQueues, responseStorage, cfg.StorageTiming)
+	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.StorageTiming)
 
 	initialInfo, err := infoStorage.FetchInfo(ctx)
 	if err != nil {
@@ -72,8 +72,6 @@ func Initialize(ctx context.Context, cfgPath string) {
 	if err != nil {
 		panic(err)
 	}
-
-	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 

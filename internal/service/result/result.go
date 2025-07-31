@@ -42,8 +42,12 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 // Serve returns response for actionID with tag "threshold" if present.
 func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 	switch r.Result.OPCommand {
-	case constants.KeyGenerate.Hash(), constants.KeyDataProviderRestore.Hash():
-		s.WalletSyncTrigger <- true
+	case constants.KeyGenerate.Hash(), constants.KeyDataProviderRestore.Hash(), constants.KeyDelete.Hash():
+		select {
+		case s.WalletSyncTrigger <- true:
+		default:
+			// Channel is full => wallet sync already pending, we don't need to trigger it again
+		}
 	}
 
 	if s.teeID.Cmp(common.Address{}) != 0 {
@@ -57,7 +61,7 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 		}
 	}
 
-	return s.rs.StoreResult(ctx, r)
+	return s.rs.StoreResponse(ctx, r)
 }
 
 // Serve returns response for actionID with tag "threshold" if present.
