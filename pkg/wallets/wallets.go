@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"sync"
 	"time"
 
@@ -118,9 +119,45 @@ func (s *Storage) update(walletInfo *types.WalletSignedKeyExistenceProof) error 
 	return nil
 }
 
-func (s *Storage) storeWallets(result *types.ActionResult) error {
-	// todo clear old storages
+// deleteWallets deletes the wallets that aren't used anymore from storage.
+func (s *Storage) deleteWallets(walletInfo []*types.WalletSignedKeyExistenceProof) error {
+	for key := range s.Keys {
+		found, err := isKeyFound(walletInfo, key)
+		if err != nil {
+			return err
+		}
 
+		if found {
+			continue
+		}
+
+		s.KeysForWallet[key.WalletId] = slices.DeleteFunc(s.KeysForWallet[key.WalletId], func(k uint64) bool {
+			return k == key.KeyId
+		})
+		delete(s.Keys, key)
+	}
+	return nil
+}
+
+// isKeyFound checks if the key is found in the wallet info that we received from the TEE.
+func isKeyFound(walletInfo []*types.WalletSignedKeyExistenceProof, key IDPair) (bool, error) {
+	found := false
+	for _, w := range walletInfo {
+		info, err := parse(w)
+		if err != nil {
+			return false, err
+		}
+
+		if key.WalletId == info.WalletId && key.KeyId == info.KeyId {
+			found = true
+			break
+		}
+	}
+
+	return found, nil
+}
+
+func (s *Storage) storeWallets(result *types.ActionResult) error {
 	data, err := parseActionResponse(result)
 	if err != nil {
 		return err
@@ -130,6 +167,10 @@ func (s *Storage) storeWallets(result *types.ActionResult) error {
 		if err := s.update(data[j]); err != nil {
 			return err
 		}
+	}
+
+	if err := s.deleteWallets(data); err != nil {
+		return err
 	}
 
 	return nil

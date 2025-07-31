@@ -38,11 +38,6 @@ func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan 
 	}
 }
 
-// remove if possible
-func (s *Service) SetTeeID(teeID common.Address) {
-	s.teeID = teeID
-}
-
 func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.SignedReceipt, error) {
 	r, err := s.process(i)
 	if err != nil {

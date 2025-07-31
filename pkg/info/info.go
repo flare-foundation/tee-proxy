@@ -29,12 +29,12 @@ type Storage struct {
 	actionQueues    *queue.ActionQueues
 	responseStorage *queue.ResponseStorage
 
-	timingConfig config.StorageTiming
+	timingConfig *config.StorageTiming
 
 	sync.RWMutex
 }
 
-func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage, tc config.StorageTiming) Storage {
+func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage, tc *config.StorageTiming) Storage {
 	return Storage{
 		db:              db,
 		actionQueues:    aq,
