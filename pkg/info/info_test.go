@@ -73,8 +73,8 @@ func TestInsertBlock(t *testing.T) {
 	resp := &types.TeeInfoResponse{
 		TeeInfo: tee.TeeStructsAttestation{
 			Challenge: latestBlockHash,
+			State:     tee.ITeeAvailabilityCheckTeeState{},
 		},
-		State:       []byte{},
 		Attestation: hexutil.Bytes{},
 	}
 	m, err := json.Marshal(resp)

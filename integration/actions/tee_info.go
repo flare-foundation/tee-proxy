@@ -24,7 +24,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.NoError(t, err)
 
 	originalMessage := verification.ITeeVerificationTeeAttestation{
-		TeeMachine: verification.ITeeRegistryTeeMachineWithAttestationData{
+		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
 			TeeId:        pc.TeeId,
 			InitialTeeId: common.Address{},
 			Url:          "bla",

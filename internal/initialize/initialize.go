@@ -102,6 +102,8 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	vs := voting.NewStorage(vc, 3, meta, 10) //todo size
 	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, vs)
+	go instructionService.Forward(ctx)          //nolint:errcheck // todo
+	go instructionService.ListenToPolicies(ctx) //nolint:errcheck // todo
 
 	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage)
 
