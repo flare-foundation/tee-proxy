@@ -229,7 +229,7 @@ func parseActionResponse(r *types.ActionResult) ([]*types.WalletSignedKeyExisten
 func parse(proof *types.WalletSignedKeyExistenceProof) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
 	var out = new(wallet.ITeeWalletKeyManagerKeyExistence)
 
-	err := structs.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistenceProof, out)
+	err := structs.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistence, out)
 	if err != nil {
 		return nil, err
 	}
