@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, walletId [32]byte, keyId uint64, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32, paymentHash string) {
+func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, walletId [32]byte, keyId uint64, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) {
 	originalMessage := payment.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         walletId,
 		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: teeId, KeyId: keyId}},
@@ -36,12 +36,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(originalMessage)
 	require.NoError(t, err)
 
-	additionalFixedMessage := types.SignPaymentAdditionalFixedMessage{
-		PaymentHash: paymentHash,
-		KeyId:       keyId,
-	}
-
-	iData, err := utils.BuildInstructionData(constants.XRP, constants.Pay, originalMessageEncoded, additionalFixedMessage, nil, teeId, rewardEpochId)
+	iData, err := utils.BuildInstructionData(constants.XRP, constants.Pay, originalMessageEncoded, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -53,10 +48,6 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	utils.VerifyActionResponse(t, res, types.Threshold, constants.XRP.Hash(), constants.Pay.Hash())
 
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
-	require.NoError(t, err)
-
-	var signatureData types.GetPaymentSignatureResponse
-	err = json.Unmarshal(res.Result.Data, &signatureData)
 	require.NoError(t, err)
 
 	<-endOfVotingTicker.C

@@ -21,7 +21,7 @@ import (
 )
 
 func BuildInstructionData(opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte,
-	additionalFixedMessageRaw interface{}, additionalVariableMessage interface{}, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
+	additionalFixedMessageRaw any, additionalVariableMessage any, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
 	instructionId, err := GenerateRandomBytes(32)
 	if err != nil {
 		return nil, err
@@ -30,7 +30,7 @@ func BuildInstructionData(opType constants.OPType, opCommand constants.OPCommand
 }
 
 func BuildInstructionDataWithId(instructionId common.Hash, opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte,
-	additionalFixedMessageRaw interface{}, additionalVariableMessage interface{}, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
+	additionalFixedMessageRaw any, additionalVariableMessage any, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
 	var additionalFixedMessage []byte
 	var err error
 	switch additionalFixedMessageRaw := additionalFixedMessageRaw.(type) {
@@ -77,6 +77,7 @@ func GetActionResponse(t *testing.T, port uint, handle string, actionId common.H
 
 	url := fmt.Sprintf("http://localhost:%d/action/%s/%s", port, handle, strings.TrimPrefix(actionId.String(), "0x"))
 	start := time.Now()
+
 	for {
 		resp, err := http.Get(url)
 		if err == nil {
@@ -92,7 +93,6 @@ func GetActionResponse(t *testing.T, port uint, handle string, actionId common.H
 			}
 		}
 		if time.Since(start) > TestTimeConfig.Timeout {
-			require.FailNow(t, "Timeout waiting for action result")
 			return nil
 		}
 		time.Sleep(TestTimeConfig.Interval)

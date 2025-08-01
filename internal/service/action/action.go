@@ -3,6 +3,7 @@ package action
 import (
 	"context"
 
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -21,6 +22,8 @@ func (s *Service) DequeueAction(ctx context.Context, id queue.QueueID) (*types.A
 	if err != nil {
 		return nil, err
 	}
+
+	logger.Debugf("dequeuing action %v %v %v", action.Data.ID, action.Data.Type, action.Data.SubmissionTag)
 
 	return action, nil
 }

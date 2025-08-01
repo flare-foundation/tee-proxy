@@ -81,11 +81,10 @@ func TestProxyTeeIntegration(t *testing.T) {
 	var walletId = common.HexToHash("0xabcdef")
 	var keyId = uint64(1)
 	walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeId, walletId, keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
-	require.Equal(t, walletProof.Restored, false)
+	require.False(t, walletProof.Restored, "getting wallet response")
 	logger.Info("Created wallet proof")
 
-	paymentHash := "560ccd6e79ba7166e82dbf2a5b9a52283a509b63c39d4a4cc7164db3e43484c4"
-	intactions.SignTransaction(t, cfg, cfg.TeeId, walletId, keyId, providerPrivKeys, policy.RewardEpochID, paymentHash)
+	intactions.SignTransaction(t, cfg, cfg.TeeId, walletId, keyId, providerPrivKeys, policy.RewardEpochID)
 	logger.Info("Signed transaction")
 
 	require.NoError(t, err)

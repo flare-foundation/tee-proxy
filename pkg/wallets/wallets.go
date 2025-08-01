@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
+	"fmt"
 	"sync"
 	"time"
 
+	"github.com/flare-foundation/tee-node/pkg/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
@@ -28,7 +30,8 @@ type KeyData struct {
 type Storage struct {
 	KeysForWallet map[common.Hash][]uint64
 	Keys          map[IDPair]*KeyData
-	Backups       map[IDPair]*types.WalletGetBackupResponse // todo align this with docs
+
+	Backups map[IDPair]*types.WalletGetBackupResponse // todo align this with docs
 
 	aq *queue.ActionQueues
 	rs *queue.ResponseStorage
@@ -50,22 +53,81 @@ func NewStorage(aq *queue.ActionQueues, rs *queue.ResponseStorage) Storage {
 	}
 }
 
-func (s *Storage) RunInfo(ctx context.Context, trigger chan bool) {
+func (s *Storage) RunInfo(ctx context.Context, trigger <-chan bool, newKeys <-chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-trigger:
+			logger.Debug("wallet sync start")
+
 			err := s.sync(ctx)
 			if err != nil {
+				logger.Errorf("wallet sync: %v", err)
 				continue
 			}
+
+			logger.Debug("wallet sync done")
+		case newKeyAction := <-newKeys:
+			logger.Debug("wallet key update start")
+			err := s.update(newKeyAction)
+			if err != nil {
+				logger.Errorf("wallet key update: %w", err)
+				continue
+			}
+
+			logger.Debug("wallet key update done")
 		}
 	}
 }
 
+func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSignedKeyExistenceProof, error) {
+	s.RLock()
+	defer s.RUnlock()
+	id := IDPair{WalletId: walletID, KeyId: keyID}
+	info, exists := s.Keys[id]
+	if !exists {
+		return nil, errors.New("key proof not found")
+	}
+
+	return info.Proof, nil
+}
+
+func (s *Storage) KeyData(walletID common.Hash, keyID uint64) (*KeyData, error) {
+	s.RLock()
+	defer s.RUnlock()
+
+	id := IDPair{WalletId: walletID, KeyId: keyID}
+	info, exists := s.Keys[id]
+	if !exists {
+		return nil, errors.New("key data not found")
+	}
+
+	return info, nil
+}
+
+func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
+	s.RLock()
+	defer s.RUnlock()
+
+	keys, exists := s.KeysForWallet[walletID]
+	if !exists || len(keys) == 0 {
+		return nil, errors.New("wallet not found")
+	}
+
+	data, err := s.KeyData(walletID, keys[0])
+	if err != nil {
+		return nil, err
+	}
+
+	return data.Info, nil
+}
+
+// sync enqueues KEY_INFO action, waits for the response, and updated keys storage according to it.
+//
+// On each sync, maps s.Keys and s.KeysForWallet are build anew.
 func (s *Storage) sync(ctx context.Context) error {
-	action, err := teeWalletAction()
+	action, err := keyInfoAction()
 	if err != nil {
 		return err
 	}
@@ -80,21 +142,71 @@ func (s *Storage) sync(ctx context.Context) error {
 		return err
 	}
 
-	s.Lock()
-	defer s.Unlock()
-	err = s.storeWallets(&response.Result)
+	newKeysForWallet, newKeys, err := newKeys(&response.Result)
 	if err != nil {
 		return err
 	}
+
+	logger.Debug("sync locked")
+	s.Lock()
+	logger.Debug("sync ongoing")
+
+	defer s.Unlock()
+	s.Keys = newKeys
+	s.KeysForWallet = newKeysForWallet
 
 	return nil
 }
 
-func (s *Storage) update(walletInfo *types.WalletSignedKeyExistenceProof) error {
-	info, err := parse(walletInfo)
+func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*KeyData, error) {
+	proofs, err := parseKeyInfoActionResult(r)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	keysForWallet := make(map[common.Hash][]uint64, len(proofs))
+	keys := make(map[IDPair]*KeyData, len(proofs))
+
+	for _, proof := range proofs {
+		info, err := parse(proof)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		k, exists := keysForWallet[info.WalletId]
+		if !exists {
+			k = make([]uint64, 0)
+			keysForWallet[info.WalletId] = k
+		}
+		keysForWallet[info.WalletId] = append(k, info.KeyId)
+
+		id := IDPair{
+			WalletId: info.WalletId,
+			KeyId:    info.KeyId,
+		}
+
+		keyData := &KeyData{
+			Info:  info,
+			Proof: proof,
+		}
+		keys[id] = keyData
+	}
+
+	return keysForWallet, keys, nil
+}
+
+func (s *Storage) update(action *types.ActionResult) error {
+	keyInfo, err := parseNewKeyActionResult(action)
 	if err != nil {
 		return err
 	}
+
+	info, err := parse(keyInfo)
+	if err != nil {
+		return err
+	}
+	s.Lock()
+	defer s.Unlock()
 
 	keys, exists := s.KeysForWallet[info.WalletId]
 	if !exists {
@@ -113,112 +225,55 @@ func (s *Storage) update(walletInfo *types.WalletSignedKeyExistenceProof) error 
 		keyData = new(KeyData)
 		s.Keys[id] = keyData
 	}
-	keyData.Proof = walletInfo
+	keyData.Proof = keyInfo
 	keyData.Info = info
 
 	return nil
 }
 
-// deleteWallets deletes the wallets that aren't used anymore from storage.
-func (s *Storage) deleteWallets(walletInfo []*types.WalletSignedKeyExistenceProof) error {
-	for key := range s.Keys {
-		found, err := isKeyFound(walletInfo, key)
-		if err != nil {
-			return err
-		}
-
-		if found {
-			continue
-		}
-
-		s.KeysForWallet[key.WalletId] = slices.DeleteFunc(s.KeysForWallet[key.WalletId], func(k uint64) bool {
-			return k == key.KeyId
-		})
-		delete(s.Keys, key)
-	}
-	return nil
+// keyInfoAction prepares direct action with opType F_GET and opCommand KEY_INFO.
+func keyInfoAction() (*types.Action, error) {
+	return queue.PrepareDirectAction(constants.Get, constants.KeyInfo, nil)
 }
 
-// isKeyFound checks if the key is found in the wallet info that we received from the TEE.
-func isKeyFound(walletInfo []*types.WalletSignedKeyExistenceProof, key IDPair) (bool, error) {
-	found := false
-	for _, w := range walletInfo {
-		info, err := parse(w)
-		if err != nil {
-			return false, err
-		}
-
-		if key.WalletId == info.WalletId && key.KeyId == info.KeyId {
-			found = true
-			break
-		}
+func parseKeyInfoActionResult(r *types.ActionResult) ([]*types.WalletSignedKeyExistenceProof, error) {
+	if !r.Status {
+		return nil, errors.New("invalid action result")
 	}
 
-	return found, nil
-}
-
-func (s *Storage) storeWallets(result *types.ActionResult) error {
-	data, err := parseActionResponse(result)
-	if err != nil {
-		return err
+	if r.OPType != op.Get.Hash() {
+		return nil, errors.New("invalid action opType")
 	}
 
-	for j := range data {
-		if err := s.update(data[j]); err != nil {
-			return err
-		}
+	if r.OPCommand != op.KeyInfo.Hash() {
+		return nil, errors.New("invalid action opCommand")
 	}
 
-	if err := s.deleteWallets(data); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSignedKeyExistenceProof, error) {
-	id := IDPair{WalletId: walletID, KeyId: keyID}
-	info, exists := s.Keys[id]
-	if !exists {
-		return nil, errors.New("wallet not found")
-	}
-
-	return info.Proof, nil
-}
-
-func (s *Storage) KeyData(walletID common.Hash, keyID uint64) (*KeyData, error) {
-	id := IDPair{WalletId: walletID, KeyId: keyID}
-	info, exists := s.Keys[id]
-	if !exists {
-		return nil, errors.New("wallet not found")
-	}
-
-	return info, nil
-}
-
-func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
-	keys, exists := s.KeysForWallet[walletID]
-	if !exists || len(keys) == 0 {
-		return nil, errors.New("wallet not found")
-	}
-
-	data, err := s.KeyData(walletID, keys[0])
+	var res = make([]*types.WalletSignedKeyExistenceProof, 0)
+	err := json.Unmarshal(r.Data, &res)
 	if err != nil {
 		return nil, err
 	}
 
-	return data.Info, nil
+	return res, nil
 }
 
-func teeWalletAction() (*types.Action, error) {
-	return queue.PrepareDirectAction(constants.Get, constants.KeyInfo, nil)
-}
+// parseNewKeyActionResult parses action result data for "KEY_GENERATE" or "KEY_DATA_PROVIDER_RESTORE" action.
+func parseNewKeyActionResult(r *types.ActionResult) (*types.WalletSignedKeyExistenceProof, error) {
+	if !r.Status {
+		return nil, errors.New("invalid action result status")
+	}
 
-// todo: more checks needed?
-// checks signatures
-func parseActionResponse(r *types.ActionResult) ([]*types.WalletSignedKeyExistenceProof, error) {
-	var res = make([]*types.WalletSignedKeyExistenceProof, 0)
-	err := json.Unmarshal(r.Data, &res)
+	if r.OPType != op.Wallet.Hash() {
+		return nil, fmt.Errorf("invalid action result opType, expected %v got %v", op.Wallet, op.HashToOPCommand(r.OPCommand))
+	}
+
+	if r.OPCommand != op.KeyDataProviderRestore.Hash() && r.OPCommand != op.KeyGenerate.Hash() {
+		return nil, errors.New("invalid action result opCommand")
+	}
+
+	res := new(types.WalletSignedKeyExistenceProof)
+	err := json.Unmarshal(r.Data, res)
 	if err != nil {
 		return nil, err
 	}

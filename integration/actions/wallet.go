@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -25,8 +26,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func GenerateWallet(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, walletId [32]byte, keyId uint64, privKeys []*ecdsa.PrivateKey,
-	adminWalletPublicKeys []commonwallet.PublicKey, rewardEpochId uint32) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+func GenerateWallet(
+	t *testing.T,
+	pc *utils.ProxyConfig,
+	teeId common.Address,
+	walletId [32]byte,
+	keyId uint64,
+	privKeys []*ecdsa.PrivateKey,
+	adminWalletPublicKeys []commonwallet.PublicKey,
+	rewardEpochId uint32,
+) *commonwallet.ITeeWalletKeyManagerKeyExistence {
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyGenerate{
 		TeeId:    teeId,
 		WalletId: walletId,
@@ -46,11 +55,15 @@ func GenerateWallet(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, w
 	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyGenerate, originalMessageEncoded, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
+	fmt.Printf("pc.Vc.ProposalExpiration: %v\n", pc.Vc.ProposalExpiration)
+
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 
 	utils.VerifyReceipts(t, receipts, iData)
+
+	fmt.Printf("iData.InstructionId: %v\n", common.Hash(iData.InstructionId))
 
 	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
 	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyGenerate.Hash())
@@ -58,18 +71,25 @@ func GenerateWallet(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, w
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
 	require.NoError(t, err)
 
-	walletExistenceProof, err := structs.Decode[commonwallet.ITeeWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, res.Result.Data)
+	var swe types.WalletSignedKeyExistenceProof
+
+	err = json.Unmarshal(res.Result.Data, &swe)
 	require.NoError(t, err)
-	_ = walletExistenceProof
+
+	walletExistenceProof, err := structs.Decode[commonwallet.ITeeWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, swe.KeyExistence)
+	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunInfo(t.Context(), wst)
-	wst <- true
 
-	time.Sleep(2000 * time.Millisecond)
+	nkc := make(chan *types.ActionResult, 1)
+
+	go pc.Ws.RunInfo(t.Context(), wst, nkc)
+	nkc <- &res.Result
+
+	time.Sleep(5000 * time.Millisecond)
 
 	walletInfo, err := pc.Ws.WalletInfo(walletExistenceProof.WalletId)
-	require.NoError(t, err)
+	require.NoError(t, err, "getting wallet info")
 	require.Equal(t, walletExistenceProof.WalletId, walletInfo.WalletId)
 	require.Equal(t, walletExistenceProof.KeyId, walletInfo.KeyId)
 	require.Equal(t, walletExistenceProof.AddressStr, walletInfo.AddressStr)
@@ -112,7 +132,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyDelete.Hash())
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunInfo(t.Context(), wst)
+	go pc.Ws.RunInfo(t.Context(), wst, nil)
 	wst <- true
 
 	time.Sleep(1500 * time.Millisecond)
@@ -241,11 +261,16 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
 	require.NoError(t, err)
 
-	walletExistenceProof, err := structs.Decode[commonwallet.ITeeWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, res.Result.Data)
+	var wskep types.WalletSignedKeyExistenceProof
+
+	err = json.Unmarshal(res.Result.Data, &wskep)
+	require.NoError(t, err)
+
+	walletExistenceProof, err := structs.Decode[commonwallet.ITeeWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, wskep.KeyExistence)
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunInfo(t.Context(), wst)
+	go pc.Ws.RunInfo(t.Context(), wst, nil)
 	wst <- true
 
 	time.Sleep(1500 * time.Millisecond)

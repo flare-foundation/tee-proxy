@@ -81,7 +81,7 @@ func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Addre
 func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.Address]bool, uint64, error) {
 	cosigners := make(map[common.Address]bool)
 
-	originalMessage, err := types.ParseSignPaymentRequest(data)
+	originalMessage, err := types.ParsePaymentInstruction(data)
 	if err != nil {
 		return nil, 0, err
 	}

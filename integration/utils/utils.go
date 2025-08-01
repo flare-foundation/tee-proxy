@@ -3,6 +3,11 @@ package utils
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"io"
+	"math/rand"
+	"testing"
+	"time"
+
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
@@ -19,10 +24,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
-	"io"
-	"math/rand"
-	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -49,7 +50,7 @@ var TestTimeConfig = struct {
 	Interval time.Duration
 }{
 	Timeout:  2000 * time.Millisecond,
-	Interval: 50 * time.Millisecond,
+	Interval: 5 * time.Millisecond,
 }
 
 func mockDB(t *testing.T) *gorm.DB {
@@ -92,7 +93,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}()
 
 	infoStorage := info.NewStorage(db, aq, rs, &config.StorageTiming{
-		CycleInternal:          TestTimeConfig.Interval,
+		CycleInternal:          1 * time.Minute,
 		CycleQueueResponseWait: TestTimeConfig.Timeout,
 	})
 

@@ -56,6 +56,7 @@ func (s *Storage) Run(ctx context.Context) error {
 			errCount++
 		} else {
 			errCount = 0
+			logger.Info("info updated")
 		}
 
 		if errCount > 10 {
@@ -70,6 +71,7 @@ func (s *Storage) FetchInfo(ctx context.Context) (*types.TeeInfoResponse, error)
 	if err != nil {
 		return nil, err
 	}
+	logger.Info("info fetched")
 
 	return s.Latest, nil
 }

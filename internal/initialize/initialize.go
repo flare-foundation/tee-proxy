@@ -32,6 +32,13 @@ func Initialize(ctx context.Context, cfgPath string) {
 		panic(err)
 	}
 
+	database.WaitCIndexerToSync(ctx, db, database.SyncParams{
+		Retries:            30,
+		OutOfSyncTolerance: 30 * time.Second,
+		MaxSleepTime:       10 * time.Minute,
+		MinSleepTime:       1 * time.Second,
+	})
+
 	pk, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)
 	if err != nil {
 		panic(err)
@@ -50,7 +57,9 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	go internalServer.Serve() //nolint:errcheck // todo
 
-	go walletStorage.RunInfo(ctx, resultService.WalletSyncTrigger)
+	walletSyncCue := make(chan bool, 1)
+
+	go walletStorage.RunInfo(ctx, walletSyncCue, resultService.WalletSync)
 
 	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.StorageTiming)
 
@@ -80,7 +89,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		if err != nil {
 			panic(err)
 		}
-		resultService.WalletSyncTrigger <- true
+		walletSyncCue <- true
 	} else {
 		err = policyService.Initialize(ctx, db, cfg.Timing)
 		if err != nil {
@@ -108,4 +117,18 @@ func Initialize(ctx context.Context, cfgPath string) {
 	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage)
 
 	go externalServer.Serve() //nolint:errcheck // todo
+
+	go walletSyncTrigger(ctx, walletSyncCue)
+}
+
+func walletSyncTrigger(ctx context.Context, c chan bool) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		c <- true
+
+		time.Sleep(10 * time.Minute)
+	}
 }

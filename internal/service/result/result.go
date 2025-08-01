@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/tee-node/pkg/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -18,16 +20,16 @@ import (
 type Service struct {
 	rs *queue.ResponseStorage
 
-	// A channel to trigger synchronization of wallet storage.
-	WalletSyncTrigger chan bool
+	// A channel to trigger of wallet storage update
+	WalletSync chan *types.ActionResult
 
 	teeID common.Address
 }
 
 func NewService(rs *queue.ResponseStorage) Service {
-	wst := make(chan bool, 1)
+	wst := make(chan *types.ActionResult, 10)
 
-	return Service{rs: rs, WalletSyncTrigger: wst}
+	return Service{rs: rs, WalletSync: wst}
 }
 
 func (s *Service) SetIdentity(teeID common.Address) error {
@@ -41,15 +43,6 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 
 // Serve returns response for actionID with tag "threshold" if present.
 func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
-	switch r.Result.OPCommand {
-	case constants.KeyGenerate.Hash(), constants.KeyDataProviderRestore.Hash(), constants.KeyDelete.Hash():
-		select {
-		case s.WalletSyncTrigger <- true:
-		default:
-			// Channel is full => wallet sync already pending, we don't need to trigger it again
-		}
-	}
-
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r)
 		if err != nil {
@@ -58,6 +51,19 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 
 		if signer.Cmp(s.teeID) != 0 {
 			return fmt.Errorf("%w, invalid teeID", status.HTTP[403])
+		}
+	}
+
+	logger.Infof("storing response for %v %v %v: %v", op.HashToOPType(r.Result.OPType), op.HashToOPCommand(r.Result.OPCommand), r.Result.SubmissionTag, r.Result.ID)
+
+	if r.Result.Status {
+		switch r.Result.OPCommand {
+		case constants.KeyGenerate.Hash(), constants.KeyDataProviderRestore.Hash(), constants.KeyDelete.Hash():
+			select {
+			case s.WalletSync <- &r.Result:
+			default:
+				logger.Error("wallet synchronization channel full")
+			}
 		}
 	}
 
