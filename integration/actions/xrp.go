@@ -2,8 +2,8 @@ package actions
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
-	"math/big"
 	"testing"
 	"time"
 
@@ -14,26 +14,33 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
 	"github.com/flare-foundation/tee-node/pkg/types"
+
+	xrpladdress "github.com/flare-foundation/go-flare-common/pkg/xrpl/address"
+	xrputils "github.com/flare-foundation/go-flare-common/pkg/xrpl/signing/utils"
+
+	"github.com/flare-foundation/go-flare-common/pkg/xrpl/signing/secp256k1"
+
+	xrpltypes "github.com/flare-foundation/go-flare-common/pkg/xrpl/encoding/types"
+
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
 	"github.com/stretchr/testify/require"
 )
 
-func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, walletId [32]byte, keyId uint64, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) {
-	originalMessage := payment.ITeePaymentsPaymentInstructionMessage{
-		WalletId:         walletId,
-		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: teeId, KeyId: keyId}},
-		SenderAddress:    "rN5N6fJbc8xyViPDeQFMQMpYfVHuxSGV2G",
-		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
-		Amount:           big.NewInt(1000000000),
-		Fee:              big.NewInt(10),
-		PaymentReference: [32]byte{},
-		Nonce:            0,
-		SubNonce:         0,
-		BatchEndTs:       0,
-	}
+type SignerData struct {
+	Account       string
+	SigningPubKey string
+	TxnSignature  string
+}
 
-	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(originalMessage)
+type TransactionData struct {
+	Tx      map[string]any
+	TxHash  []byte
+	Signers []SignerData
+}
+
+func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, paymentInstruction payment.ITeePaymentsPaymentInstructionMessage, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) TransactionData {
+	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(paymentInstruction)
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
@@ -51,6 +58,52 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
 	require.NoError(t, err)
 
+	var txData map[string]any
+	err = json.Unmarshal(res.Result.Data, &txData)
+	require.NoError(t, err)
+
+	txData["SigningPubKey"] = ""
+
+	encoded, err := xrpltypes.Encode(txData, true)
+	require.NoError(t, err)
+
+	signers := make([]SignerData, 0)
+	SignersData, ok := txData["Signers"].([]any)
+	require.True(t, ok)
+
+	var txHash []byte
+	for _, signerData := range SignersData {
+		signerWrapper, ok := signerData.(map[string]any)
+		require.True(t, ok)
+		signerDataMap, ok := signerWrapper["Signer"].(map[string]any)
+		require.True(t, ok)
+
+		Account, ok := signerDataMap["Account"].(string)
+		require.True(t, ok)
+		SigningPubKey, ok := signerDataMap["SigningPubKey"].(string)
+		require.True(t, ok)
+		TxnSignature, ok := signerDataMap["TxnSignature"].(string)
+		require.True(t, ok)
+
+		accId, err := xrpladdress.ID(Account)
+		require.NoError(t, err)
+
+		txHash = xrputils.Prepare(encoded, true, accId)
+		sigDER, err := hex.DecodeString(TxnSignature)
+		require.NoError(t, err)
+
+		ok, err = secp256k1.Validate(txHash, sigDER, SigningPubKey)
+		require.NoError(t, err)
+		require.True(t, ok)
+
+		sd := SignerData{
+			Account:       Account,
+			SigningPubKey: SigningPubKey,
+			TxnSignature:  TxnSignature,
+		}
+		signers = append(signers, sd)
+	}
+
 	<-endOfVotingTicker.C
 	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", iData.InstructionId)
 	utils.VerifyActionResponse(t, res, types.End, constants.XRP.Hash(), constants.Pay.Hash())
@@ -65,4 +118,10 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 
 	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, teeId)
 	require.NoError(t, err)
+
+	return TransactionData{
+		Tx:      txData,
+		TxHash:  txHash,
+		Signers: signers,
+	}
 }

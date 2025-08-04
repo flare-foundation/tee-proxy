@@ -65,7 +65,6 @@ func (s *Storage) Run(ctx context.Context) error {
 		if errCount > 10 {
 			logger.Error("neki")
 		}
-
 	}
 }
 
