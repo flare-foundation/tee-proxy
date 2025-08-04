@@ -40,7 +40,7 @@ func InitializePolicyAction(
 		return nil, nil, err
 	}
 
-	if timing.BlockToVotingEpochID(latestBlock) < event.StartVotingRoundId {
+	if timing.TimestampToVotingEpochID(latestBlock.Timestamp) < event.StartVotingRoundId {
 		if len(logs) < 2 {
 			return nil, nil, errors.New("active signing policy not in db")
 		}

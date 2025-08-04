@@ -1,0 +1,30 @@
+redis_port = ":6379"
+
+private_key_variable = "PRIVATE_KEY"
+
+[db]
+host = "localhost"
+port = 3306
+database = "flare_ftso_indexer"
+username = "root"
+password = "root"
+log_queries = false
+
+
+[ports]
+internal = "6661"
+external = "6662"
+
+
+[timing]
+t0 = 1658429955
+vote_epoch = 90
+
+[storage_timing]
+cycle_internal = 10
+cycle_queue_response_wait = 2
+
+
+[voting]
+proposal_expiration = 120
+max_pending_request = 100

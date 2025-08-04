@@ -3,8 +3,6 @@ package config
 import (
 	"errors"
 	"time"
-
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 )
 
 type Timing struct {
@@ -17,9 +15,9 @@ type StorageTiming struct {
 	CycleQueueResponseWait time.Duration `toml:"cycle_queue_response_wait"`
 }
 
-// BlockToVotingEpochID returns voting epoch id for a block.
-func (t *Timing) BlockToVotingEpochID(b database.Block) uint32 {
-	return uint32(b.Timestamp - t.T0/t.VoteEpoch)
+// TimestampToVotingEpochID returns voting epoch id for timestamp.
+func (t *Timing) TimestampToVotingEpochID(ts uint64) uint32 {
+	return uint32((ts - t.T0) / t.VoteEpoch)
 }
 
 // validate checks that vote epoch has a positive duration.

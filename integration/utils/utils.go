@@ -122,7 +122,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	metaObj := meta.New(&walletStorage)
 
 	vc := &voting.Config{
-		ProposalExpiration: 2 * time.Second,
+		ProposalExpiration: 600 * time.Millisecond,
 		MaxPendingRequests: 100,
 	}
 
