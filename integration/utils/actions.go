@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -20,17 +21,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BuildInstructionData(opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte,
-	additionalFixedMessageRaw any, additionalVariableMessage any, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
+func BuildInstructionData(opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte, timestamp uint64,
+	additionalFixedMessageRaw interface{}, additionalVariableMessage interface{}, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
 	instructionId, err := GenerateRandomBytes(32)
 	if err != nil {
 		return nil, err
 	}
-	return BuildInstructionDataWithId(common.BytesToHash(instructionId), opType, opCommand, originalMessage, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
+	return BuildInstructionDataWithId(common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
 }
 
-func BuildInstructionDataWithId(instructionId common.Hash, opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte,
-	additionalFixedMessageRaw any, additionalVariableMessage any, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
+func BuildInstructionDataWithId(instructionId common.Hash, opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte, timestamp uint64,
+	additionalFixedMessageRaw interface{}, additionalVariableMessage interface{}, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
 	var additionalFixedMessage []byte
 	var err error
 	switch additionalFixedMessageRaw := additionalFixedMessageRaw.(type) {
@@ -51,6 +52,7 @@ func BuildInstructionDataWithId(instructionId common.Hash, opType constants.OPTy
 		OpCommand:              opCommand.Hash(),
 		OriginalMessage:        originalMessage,
 		AdditionalFixedMessage: additionalFixedMessage,
+		Timestamp:              timestamp,
 	}
 
 	iData := &instruction.Data{
@@ -110,7 +112,6 @@ func SetProxyUrlOnTee(t *testing.T, port uint, proxyUrl string) {
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("http://localhost:%d/configure", port)
-	fmt.Printf("Setting proxy url on tee: %s\n", url)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -126,53 +127,83 @@ func SignAndSendInstructions(t *testing.T, iData *instruction.Data, pkeys []*ecd
 
 	var responses []*voting.SignedReceipt
 	for _, pk := range pkeys {
-		h, err := iData.HashForSigning()
-		require.NoError(t, err)
-
-		sig, err := instruction.SignInstructionHash(h, pk)
-		require.NoError(t, err)
-
-		i := &instruction.Instruction{
-			Data:      *iData,
-			Signature: sig,
-		}
-
-		body, err := json.Marshal(i)
-		require.NoError(t, err)
-
-		url := fmt.Sprintf("http://localhost:%d/instruction", port)
-		resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-
-		require.NoError(t, err)
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-
-		var res voting.SignedReceipt
-		dec := json.NewDecoder(resp.Body)
-		dec.DisallowUnknownFields()
-		err = dec.Decode(&res)
-		require.NoError(t, err)
-		responses = append(responses, &res)
+		response := signAndSendSingleInstruction(t, iData, pk, port)
+		responses = append(responses, response)
 	}
 
 	return responses
 }
 
-func VerifyReceipts(t *testing.T, receipts []*voting.SignedReceipt, iData *instruction.Data) {
+func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data, additionalVariableMessage []hexutil.Bytes, pkeys []*ecdsa.PrivateKey, port uint) ([]*voting.SignedReceipt, []instruction.Data) {
 	t.Helper()
-	VerifyReceiptsForMultipleInstructions(t, receipts, []*instruction.Data{iData})
+
+	if len(additionalVariableMessage) > 0 {
+		require.Equal(t, len(additionalVariableMessage), len(pkeys))
+	}
+
+	instructions := make([]instruction.Data, 0)
+	var receipts []*voting.SignedReceipt
+	for i, pk := range pkeys {
+		iData := *iData
+
+		iData.AdditionalVariableMessage = additionalVariableMessage[i]
+
+		r := signAndSendSingleInstruction(t, &iData, pk, port)
+		receipts = append(receipts, r)
+		instructions = append(instructions, iData)
+	}
+
+	return receipts, instructions
 }
 
-func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.SignedReceipt, instructions []*instruction.Data) {
+func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, pk *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
+	t.Helper()
+
+	h, err := iData.HashForSigning()
+	require.NoError(t, err)
+
+	sig, err := instruction.SignInstructionHash(h, pk)
+	require.NoError(t, err)
+
+	inst := &instruction.Instruction{
+		Data:      *iData,
+		Signature: sig,
+	}
+
+	body, err := json.Marshal(inst)
+	require.NoError(t, err)
+
+	url := fmt.Sprintf("http://localhost:%d/instruction", port)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var res voting.SignedReceipt
+	dec := json.NewDecoder(resp.Body)
+	dec.DisallowUnknownFields()
+	err = dec.Decode(&res)
+	require.NoError(t, err)
+
+	return &res
+}
+
+func VerifyReceipts(t *testing.T, receipts []*voting.SignedReceipt, iData *instruction.Data) {
+	t.Helper()
+	VerifyReceiptsForMultipleInstructions(t, receipts, []instruction.Data{*iData})
+}
+
+func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.SignedReceipt, insts []instruction.Data) {
 	t.Helper()
 
 	sort.Slice(receipts, func(i, j int) bool {
 		return receipts[i].Receipt.Sequence < receipts[j].Receipt.Sequence
 	})
 
-	insHash, err := instructions[0].HashFixed()
+	insHash, err := insts[0].HashFixed()
 	require.NoError(t, err)
 
-	initHash, err := instructions[0].InitialVoteHash()
+	initHash, err := insts[0].InitialVoteHash()
 	require.NoError(t, err)
 
 	currentHash := initHash
@@ -184,10 +215,10 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 		require.Equal(t, receipt.Receipt.InstructionHash[:], insHash[:])
 
 		var iData *instruction.Data
-		if len(instructions) == 1 {
-			iData = instructions[0]
+		if len(insts) > 1 {
+			iData = &insts[i]
 		} else {
-			iData = instructions[i]
+			iData = &insts[0]
 		}
 
 		nextHash, err := instruction.NextVoteHash(currentHash, uint64(i), receipt.Receipt.Signature, iData.AdditionalVariableMessage, receipt.Receipt.Timestamp)
