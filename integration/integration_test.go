@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"sync"
 	"testing"
 
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
@@ -58,8 +59,9 @@ func TestProxyTeeIntegration(t *testing.T) {
 	go teeServer.StartServer()
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
 	integrationUtils.SetProxyUrlOnTee(t, teePort, proxyUrl)
-	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1)
-	defer cleanup()
+
+	var wgProxy sync.WaitGroup
+	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 	// End of setup
 
 	lastPolicy, providerPrivKeys := intactions.InitializePolicy(t, cfg, startingEpochId)
@@ -87,10 +89,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	intactions.SignTransaction(t, cfg, cfg.TeeId, walletId, keyId, providerPrivKeys, policy.RewardEpochID)
 	logger.Info("Signed transaction")
 
-	require.NoError(t, err)
-
 	walletBackup := intactions.GetBackup(t, cfg, walletId, keyId, cfg.TeeId)
-	_ = walletBackup
 	logger.Info("Got backup")
 
 	nonce := big.NewInt(1)
@@ -110,4 +109,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	ftdcResponse := intactions.FtdcProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
 	require.NotNil(t, ftdcResponse)
 	logger.Info("FTDC proof completed")
+
+	cleanup()
+	wgProxy.Wait()
 }

@@ -49,8 +49,11 @@ func (s *Storage) Run(ctx context.Context) error {
 	ticker := time.NewTicker(s.timingConfig.CycleInternal)
 
 	for {
-		<-ticker.C
-
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 		err := s.updateInfo(ctx)
 		if err != nil {
 			errCount++
@@ -62,6 +65,7 @@ func (s *Storage) Run(ctx context.Context) error {
 		if errCount > 10 {
 			logger.Error("neki")
 		}
+
 	}
 }
 

@@ -67,6 +67,10 @@ func (e *External) Serve() error {
 	return e.server.ListenAndServe()
 }
 
+func (e *External) Close() error {
+	return e.server.Close()
+}
+
 func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 

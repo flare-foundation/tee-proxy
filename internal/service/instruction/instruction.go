@@ -75,7 +75,7 @@ func (s *Service) Forward(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("forwarding context stopped %v", ctx.Err())
+			return fmt.Errorf("instruction forwarding stopped %v", ctx.Err())
 		case box := <-s.vs.OutThreshold:
 			box.RLock()
 			a, err := box.Action(types.Threshold)

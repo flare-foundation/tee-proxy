@@ -1,10 +1,12 @@
 package utils
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"fmt"
 	"io"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,9 +70,11 @@ func mockDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// RunProxy simulates behaviour of internal/initialize.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
-func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.PrivateKey) (*ProxyConfig, func()) {
+// RunProxy simulates behavior of internal/initialize.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
+func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.PrivateKey, wg *sync.WaitGroup) (*ProxyConfig, func()) {
 	t.Helper()
+
+	ctx, cancel := context.WithCancel(t.Context())
 
 	mr := miniredis.RunT(t)
 	db := mockDB(t)
@@ -86,10 +90,12 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), &actionService, &resultService, &walletStorage)
 
+	wg.Add(1)
 	go func() {
 		logger.Info("Starting internal server")
 		err := internal.Serve()
-		require.NoError(t, err)
+		require.Error(t, err)
+		wg.Done()
 	}()
 
 	infoStorage := info.NewStorage(db, aq, rs, &config.StorageTiming{
@@ -100,9 +106,11 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	initialInfo, err := infoStorage.FetchInfo(t.Context())
 	require.NoError(t, err)
 
+	wg.Add(1)
 	go func() {
-		err := infoStorage.Run(t.Context())
-		require.NoError(t, err)
+		err := infoStorage.Run(ctx)
+		require.Error(t, err)
+		wg.Done()
 	}()
 
 	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
@@ -120,26 +128,33 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	vs := voting.NewStorage(vc, 3, metaObj, 3)
 
+	instService := instructionService.NewService(teeId, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &actionService, &resultService, &infoStorage, &walletStorage)
+
+	wg.Add(1)
+	go func() {
+		err := instService.Forward(ctx)
+		require.Error(t, err)
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		logger.Info("Starting external server")
+		err := external.Serve()
+		require.Error(t, err)
+		wg.Done()
+	}()
+
 	cleanup := func() {
+		internal.Close()
+		external.Close()
+		cancel()
 		logger.Info("Flushing redis")
 		c.FlushAll(t.Context())
 		_ = c.Close()
 		mr.Close()
 	}
-
-	instService := instructionService.NewService(teeId, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &actionService, &resultService, &infoStorage, &walletStorage)
-
-	go func() {
-		err := instService.Forward(t.Context())
-		require.NoError(t, err)
-	}()
-
-	go func() {
-		logger.Info("Starting external server")
-		err := external.Serve()
-		require.NoError(t, err)
-	}()
 
 	return &ProxyConfig{
 		ExtPort:     externalPort,
@@ -164,14 +179,14 @@ func RandomNormalizedArray(n int, seed int64) []float64 {
 	numbers := make([]float64, n)
 	sum := 0.0
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		// Generate random float between 0 and 1
 		numbers[i] = r.Float64()
 		sum += numbers[i]
 	}
 
 	// Normalize to sum to 1
-	for i := 0; i < n; i++ {
+	for i := range n {
 		numbers[i] /= sum
 	}
 

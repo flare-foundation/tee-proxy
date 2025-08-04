@@ -52,6 +52,10 @@ func (i *Internal) Serve() error {
 	return i.server.ListenAndServe()
 }
 
+func (i *Internal) Close() error {
+	return i.server.Close()
+}
+
 func (i *Internal) registerRoutes() {
 	mux := http.NewServeMux()
 	i.server.Handler = mux
