@@ -261,12 +261,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
 	require.NoError(t, err)
 
-	var wskep types.WalletSignedKeyExistenceProof
-
-	err = json.Unmarshal(res.Result.Data, &wskep)
-	require.NoError(t, err)
-
-	walletExistenceProof, err := structs.Decode[commonwallet.ITeeWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, wskep.KeyExistence)
+	walletExistenceProof, err := types.ExtractKeyExistence(res.Result.Data)
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
@@ -296,5 +291,5 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeId)
 	require.NoError(t, err)
 
-	return &walletExistenceProof
+	return walletExistenceProof
 }
