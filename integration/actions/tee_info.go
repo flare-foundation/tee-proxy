@@ -36,7 +36,8 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	originalMessageEncoded, err := abi.Arguments{verification.MessageArguments[constants.TEEAttestation]}.Pack(originalMessage)
 	require.NoError(t, err)
 
-	iData, err := utils.BuildInstructionData(constants.Reg, constants.TEEAttestation, originalMessageEncoded, nil, nil, pc.TeeId, rewardEpochId)
+	timestamp := uint64(time.Now().Unix())
+	iData, err := utils.BuildInstructionData(constants.Reg, constants.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)

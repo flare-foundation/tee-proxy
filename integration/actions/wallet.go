@@ -52,7 +52,8 @@ func GenerateWallet(
 	originalMessageEncoded, err := abi.Arguments{commonwallet.MessageArguments[constants.KeyGenerate]}.Pack(originalMessage)
 	require.NoError(t, err)
 
-	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyGenerate, originalMessageEncoded, nil, nil, teeId, rewardEpochId)
+	timestamp := uint64(time.Now().Unix())
+	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyGenerate, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	fmt.Printf("pc.Vc.ProposalExpiration: %v\n", pc.Vc.ProposalExpiration)
@@ -120,13 +121,16 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	originalMessageEncoded, err := abi.Arguments{commonwallet.MessageArguments[constants.KeyDelete]}.Pack(originalMessage)
 	require.NoError(t, err)
 
-	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyDelete, originalMessageEncoded, nil, nil, pc.TeeId, rewardEpochId)
+	timestamp := uint64(time.Now().Unix())
+	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyDelete, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
+
+	time.Sleep(1500 * time.Millisecond)
 
 	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
 	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyDelete.Hash())
@@ -192,7 +196,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	}
 
 	teeEciesPubKey := ecies.ImportECDSAPublic(pc.ProxyPubKey)
-	additionalVariableMessages := make([]interface{}, 0)
+	addVarMsgs := make([]interface{}, 0)
 	privKeys := make([]*ecdsa.PrivateKey, 0)
 	for i, privKey := range providersPrivKeys {
 		keySplit, err := backup.DecryptSplit(walletBackup.ProviderEncryptedParts.Splits[i], privKey)
@@ -217,7 +221,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 		cipher, err := ecies.Encrypt(rand.Reader, teeEciesPubKey, plaintext, nil, nil)
 		require.NoError(t, err)
 
-		additionalVariableMessages = append(additionalVariableMessages, cipher)
+		addVarMsgs = append(addVarMsgs, cipher)
 		privKeys = append(privKeys, privKey)
 	}
 
@@ -237,7 +241,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 		cipher, err := ecies.Encrypt(rand.Reader, teeEciesPubKey, plaintext, nil, nil)
 		require.NoError(t, err)
 
-		additionalVariableMessages = append(additionalVariableMessages, cipher)
+		addVarMsgs = append(addVarMsgs, cipher)
 		privKeys = append(privKeys, privKey)
 	}
 
@@ -246,14 +250,17 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 
 	instructionId, _ := utils.GenerateRandomBytes(32)
 	receipts := make([]*voting.SignedReceipt, 0)
-	instructions := make([]*instruction.Data, 0)
+	instructions := make([]instruction.Data, 0)
 	for i, privKey := range privKeys {
-		iData, err := utils.BuildInstructionDataWithId(common.BytesToHash(instructionId), constants.Wallet, constants.KeyDataProviderRestore, originalMessageEncoded, additionalFixedMessage, additionalVariableMessages[i], pc.TeeId, rewardEpochId)
+		timestamp := uint64(time.Now().Unix())
+		iData, err := utils.BuildInstructionDataWithId(common.BytesToHash(instructionId), constants.Wallet, constants.KeyDataProviderRestore, originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], pc.TeeId, rewardEpochId)
 		require.NoError(t, err)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))
-		instructions = append(instructions, iData)
+		instructions = append(instructions, *iData)
 	}
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
+
+	time.Sleep(1500 * time.Millisecond)
 
 	res := utils.GetActionResponse(t, pc.ExtPort, "result", common.BytesToHash(instructionId))
 	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyDataProviderRestore.Hash())

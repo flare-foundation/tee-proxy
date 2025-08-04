@@ -106,4 +106,8 @@ func TestProxyTeeIntegration(t *testing.T) {
 	require.Equal(t, walletProof, recoveredWalletProof)
 
 	intactions.GetTeeAttestation(t, cfg, providerPrivKeys, policy.RewardEpochID)
+
+	ftdcResponse := intactions.FtdcProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
+	require.NotNil(t, ftdcResponse)
+	logger.Info("FTDC proof completed")
 }

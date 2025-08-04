@@ -36,7 +36,8 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(originalMessage)
 	require.NoError(t, err)
 
-	iData, err := utils.BuildInstructionData(constants.XRP, constants.Pay, originalMessageEncoded, nil, nil, teeId, rewardEpochId)
+	timestamp := uint64(time.Now().Unix())
+	iData, err := utils.BuildInstructionData(constants.XRP, constants.Pay, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
