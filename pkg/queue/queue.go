@@ -96,7 +96,7 @@ func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, err
 	return action, err
 }
 
-// GetQueuedActionCount returns the number of elements in the actionStorage.
+// QueueLength returns the number of elements in the main queue.
 func (as *ActionQueues) QueueLength(ctx context.Context) (int64, error) {
 	return as.mainQueue.GetQueueLength(ctx)
 }
@@ -107,27 +107,29 @@ func NewResultStorage(client *redis.Client) *ResponseStorage {
 	}
 }
 
+// StoreResponse stores response with identifier actionID:submissionTag for 2 weeks.
 func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.ActionResponse) error {
 	id := StoringID{ActionID: result.Result.ID, SubmissionTag: result.Result.SubmissionTag}
 
-	err := rs.s.Set(ctx, id.String(), result)
+	err := rs.s.SetWithTTL(ctx, id.String(), result, 14*24*time.Hour)
 	if err != nil {
-		return fmt.Errorf("storing result %s: %v", id.String(), err)
+		return fmt.Errorf("storing response %s: %v", id.String(), err)
 	}
 
 	return nil
 }
 
-func (rs *ResponseStorage) GetResult(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
+// GetResponse returns action response for action id and submission tag.
+func (rs *ResponseStorage) GetResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
 	id := StoringID{ActionID: actionID, SubmissionTag: submissionTag}
 
 	result, err := rs.s.Get(ctx, id.String())
 	if errors.Is(err, redis.Nil) {
-		return nil, fmt.Errorf("%w: response not in storage", status.HTTP[404])
+		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("reading result for %s: %w", id.String(), err)
+		return nil, fmt.Errorf("reading response for %s: %w", id.String(), err)
 	}
 
 	return result, nil
@@ -151,7 +153,7 @@ func (rs *ResponseStorage) WaitOnResponse(ctx context.Context, actionID common.H
 			return nil, err
 		}
 
-		response, err = rs.GetResult(ctx, actionID, submissionTag) // todo retry
+		response, err = rs.GetResponse(ctx, actionID, submissionTag) // todo retry
 		if err == nil {
 			return response, nil
 		}
