@@ -34,7 +34,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	database.WaitCIndexerToSync(ctx, db, database.SyncParams{
 		Retries:            30,
-		OutOfSyncTolerance: 30 * time.Second,
+		OutOfSyncTolerance: 24 * 365 * time.Hour, // temporary, so we can do test with an old database
 		MaxSleepTime:       10 * time.Minute,
 		MinSleepTime:       1 * time.Second,
 	})
