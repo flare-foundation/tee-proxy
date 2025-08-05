@@ -63,7 +63,8 @@ func TestPrivateKeyFromEnv(t *testing.T) {
 
 	keyS := key.D.Text(16)
 
-	os.Setenv("PRIVATE_KEY", keyS)
+	err = os.Setenv("PRIVATE_KEY", keyS)
+	require.NoError(t, err)
 
 	readKey, err := PrivateKeyFromEnv("")
 	require.NoError(t, err)
@@ -73,7 +74,9 @@ func TestPrivateKeyFromEnv(t *testing.T) {
 	_, err = PrivateKeyFromEnv("NO_PRIVATE_KEY")
 	require.Error(t, err)
 
-	os.Setenv("PRIVATE_KEY", "FAIL")
+	err = os.Setenv("PRIVATE_KEY", "FAIL")
+	require.NoError(t, err)
+
 	_, err = PrivateKeyFromEnv("FAIL_PRIVATE_KEY")
 	require.Error(t, err)
 

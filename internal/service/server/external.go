@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -63,12 +64,14 @@ func NewExternal(port string,
 	return &e
 }
 
+// Serve starts the server.
 func (e *External) Serve() error {
 	return e.server.ListenAndServe()
 }
 
-func (e *External) Close() error {
-	return e.server.Close()
+// Close gracefully closes the server.
+func (e *External) Close(ctx context.Context) error {
+	return e.server.Shutdown(ctx)
 }
 
 func (e *External) instH(w http.ResponseWriter, r *http.Request) error {

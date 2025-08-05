@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,12 +49,14 @@ func NewInternal(port string,
 	return &e
 }
 
+// Serve starts the server.
 func (i *Internal) Serve() error {
 	return i.server.ListenAndServe()
 }
 
-func (i *Internal) Close() error {
-	return i.server.Close()
+// Close gracefully closes the server.
+func (i *Internal) Close(ctx context.Context) error {
+	return i.server.Shutdown(ctx)
 }
 
 func (i *Internal) registerRoutes() {

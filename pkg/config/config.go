@@ -100,6 +100,9 @@ func (a Ports) validate() error {
 	return nil
 }
 
+// PrivateKeyFromEnv extracts ecdsa private key from env variable.
+//
+// Private key should be 32 bytes long hex string. It can be 0x or 0
 func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 	if len(variableName) == 0 {
 		variableName = defaultPrivateKeyVariable

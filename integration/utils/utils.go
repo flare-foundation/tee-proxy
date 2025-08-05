@@ -147,12 +147,12 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}()
 
 	cleanup := func() {
-		_ = internal.Close()
-		_ = external.Close()
+		_ = internal.Close(ctx)
+		_ = external.Close(ctx)
 		cancel()
 		logger.Info("Flushing redis")
-		c.FlushAll(t.Context())
-		_ = c.Close()
+		c.FlushAll(ctx)
+		_ = c.Shutdown(ctx)
 		mr.Close()
 	}
 

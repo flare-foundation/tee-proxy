@@ -197,7 +197,7 @@ func GetTransactionParams(walletAddress string, ledgerOffset uint32) (sequence u
 	client := xrplclient.NewClient(xrplclient.ClientConfig{
 		URL: "wss://s.altnet.rippletest.net:51233",
 	})
-	defer client.Close()
+	defer client.Close() //nolint:errcheck
 
 	// Get account sequence
 	sequence, err = GetSequenceInfo(client, walletAddress)

@@ -15,8 +15,6 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/utils"
 )
 
-// Todo join into one function to avoid double lookup
-
 // Meta provides meta data for the instructions.
 type Meta interface {
 	// Cosigners returns cosigners' addresses and the cosigners threshold.
@@ -118,7 +116,7 @@ func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64
 	return cosigners, ftdcReq.Header.CosignersThreshold, nil
 }
 
-func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
+func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch common.Hash(data.OpCommand) {
 	case constants.Prove.Hash():
 		return ftdcCheckConsistency(data, signer)
@@ -149,8 +147,8 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	return nil
 }
 
-func (m *meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
-	if common.Hash(data.OpType) == constants.FTDC.Hash() && common.Hash(data.OpCommand) == constants.Prove.Hash() { // OPType == "FTDC", OPCommand == "PROVE"
+func (*meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
+	if common.Hash(data.OpType) == constants.FTDC.Hash() && common.Hash(data.OpCommand) == constants.Prove.Hash() { // OPType == "F_FTDC", OPCommand == "PROVE"
 		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err
