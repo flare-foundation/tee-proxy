@@ -2,5 +2,8 @@
 .vscode
 
 
+integration/scripts/node_modules
+
+
 /config/*
 !config/config.example.toml

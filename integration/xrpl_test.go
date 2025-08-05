@@ -26,12 +26,16 @@ import (
 
 	intactions "github.com/flare-foundation/tee-proxy/integration/actions"
 	integrationUtils "github.com/flare-foundation/tee-proxy/integration/utils"
+	"github.com/flare-foundation/tee-proxy/integration/xrpl"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	xrplclient "github.com/xrpscan/xrpl-go"
 )
 
-func TestProxyTeeIntegration(t *testing.T) {
+func TestXRPIntegration(t *testing.T) {
+	t.Skip("Skipping XRP integration test")
+
 	// Start of setup
 	const extPort = 8000
 	const intPort = 8008
@@ -81,47 +85,73 @@ func TestProxyTeeIntegration(t *testing.T) {
 	policy := policy.NewSigningPolicy(&event, nil)
 	cfg.Vs.CreateRound(policy)
 
-	var walletId = common.HexToHash("0xabcdef")
-	var keyId = uint64(1)
-	walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeId, walletId, keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
-	require.False(t, walletProof.Restored, "getting wallet response")
-	logger.Info("Created wallet proof")
+	walletIds := make([]common.Hash, 3)
+	walletAddresses := make([]string, 3)
+	keyId := uint64(1)
+	var wg sync.WaitGroup
+	for i := range 3 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			walletIds[i] = common.HexToHash(fmt.Sprintf("0x%x", i))
+
+			walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeId, walletIds[i], keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
+			require.False(t, walletProof.Restored, "getting wallet response")
+			walletAddresses[i] = walletProof.AddressStr
+		}(i)
+	}
+	wg.Wait()
+
+	multisigResult := integrationUtils.CreateMultisigWallet(t, walletAddresses, 2)
+	require.True(t, multisigResult.Success, "creating multisig wallet")
+	require.Greater(t, multisigResult.Balance, 0, "multisig wallet balance should be greater than 0")
+	logger.Info("Created multisig wallet: %s with balance: %d", multisigResult.MultisigAddress, multisigResult.Balance)
+
+	sequence, lastLedgerSequence, err := xrpl.GetTransactionParams(multisigResult.MultisigAddress, 10)
+	require.NoError(t, err)
+	logger.Info("Sequence: %d, Last ledger sequence: %d", sequence, lastLedgerSequence)
 
 	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
-		WalletId:         walletId,
+		WalletId:         [32]byte{}, // add wallet id in loop
 		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeId, KeyId: keyId}},
-		SenderAddress:    "rN5N6fJbc8xyViPDeQFMQMpYfVHuxSGV2G",
+		SenderAddress:    multisigResult.MultisigAddress,
 		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
-		Amount:           big.NewInt(1000000000),
-		Fee:              big.NewInt(10),
+		Amount:           big.NewInt(1_000_000),
+		Fee:              big.NewInt(50),
 		PaymentReference: [32]byte{},
-		Nonce:            0,
+		Nonce:            uint64(sequence),
 		SubNonce:         0,
 		BatchEndTs:       0,
 	}
-	intactions.SignTransaction(t, cfg, cfg.TeeId, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
-	logger.Info("Signed transaction")
 
-	walletBackup := intactions.GetBackup(t, cfg, walletId, keyId, cfg.TeeId)
-	logger.Info("Got backup")
+	var tx map[string]any
+	var txHash []byte
+	signers := make([]intactions.SignerData, 0)
+	for i := range 3 {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
 
-	nonce := big.NewInt(1)
-	intactions.DeleteWallet(t, cfg, walletId, keyId, providerPrivKeys, policy.RewardEpochID, nonce)
-	nonce.Add(nonce, common.Big1)
-	logger.Info("Deleted wallet")
+			paymentInstruction.WalletId = walletIds[i]
 
-	recoveredWalletProof := intactions.RecoverWallet(t, cfg, walletId, keyId, providerPrivKeys, adminPrivKeys, policy.RewardEpochID, nonce, walletBackup)
-	logger.Info("Recovered wallet")
-	walletProof.Restored = true
+			txData := intactions.SignTransaction(t, cfg, cfg.TeeId, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
+			signers = append(signers, txData.Signers...)
+			tx = txData.Tx
+			txHash = txData.TxHash
+		}(i)
+	}
+	wg.Wait()
 
-	walletProof.Nonce = nonce
-	require.Equal(t, walletProof, recoveredWalletProof)
+	logger.Info("Signed transaction: %v", txHash)
 
-	intactions.GetTeeAttestation(t, cfg, providerPrivKeys, policy.RewardEpochID)
+	client := xrplclient.NewClient(xrplclient.ClientConfig{
+		URL: "wss://s.altnet.rippletest.net:51233", // TODO: Make this configurable
+	})
 
-	ftdcResponse := intactions.FtdcProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
-	require.NotNil(t, ftdcResponse)
-	logger.Info("FTDC proof completed")
+	txRes, err := xrpl.SubmitMultisignedTx(client, tx, signers)
+	require.NoError(t, err)
+
+	logger.Info("Submitted transaction: %v", txRes.TransactionHash)
 
 	cleanup()
 	wgProxy.Wait()

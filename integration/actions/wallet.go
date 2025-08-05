@@ -4,7 +4,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -56,15 +55,11 @@ func GenerateWallet(
 	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyGenerate, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
-	fmt.Printf("pc.Vc.ProposalExpiration: %v\n", pc.Vc.ProposalExpiration)
-
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 
 	utils.VerifyReceipts(t, receipts, iData)
-
-	fmt.Printf("iData.InstructionId: %v\n", common.Hash(iData.InstructionId))
 
 	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
 	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyGenerate.Hash())
@@ -87,7 +82,7 @@ func GenerateWallet(
 	go pc.Ws.RunInfo(t.Context(), wst, nkc)
 	nkc <- &res.Result
 
-	time.Sleep(5000 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond)
 
 	walletInfo, err := pc.Ws.WalletInfo(walletExistenceProof.WalletId)
 	require.NoError(t, err, "getting wallet info")
