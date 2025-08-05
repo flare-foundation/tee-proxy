@@ -16,13 +16,22 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-node/pkg/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/stretchr/testify/require"
 )
 
-func BuildInstructionData(opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte, timestamp uint64,
-	additionalFixedMessageRaw interface{}, additionalVariableMessage interface{}, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
+func BuildInstructionData(
+	opType constants.OPType,
+	opCommand constants.OPCommand,
+	originalMessage []byte,
+	timestamp uint64,
+	additionalFixedMessageRaw any,
+	additionalVariableMessage any,
+	teeId common.Address,
+	rewardEpochId uint32,
+) (*instruction.Data, error) {
 	instructionId, err := GenerateRandomBytes(32)
 	if err != nil {
 		return nil, err
@@ -30,11 +39,22 @@ func BuildInstructionData(opType constants.OPType, opCommand constants.OPCommand
 	return BuildInstructionDataWithId(common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
 }
 
-func BuildInstructionDataWithId(instructionId common.Hash, opType constants.OPType, opCommand constants.OPCommand, originalMessage []byte, timestamp uint64,
-	additionalFixedMessageRaw interface{}, additionalVariableMessage interface{}, teeId common.Address, rewardEpochId uint32) (*instruction.Data, error) {
+func BuildInstructionDataWithId(
+	instructionId common.Hash,
+	opType constants.OPType,
+	opCommand constants.OPCommand,
+	originalMessage []byte,
+	timestamp uint64,
+	additionalFixedMessageRaw any,
+	additionalVariableMessage any,
+	teeId common.Address,
+	rewardEpochId uint32,
+) (*instruction.Data, error) {
 	var additionalFixedMessage []byte
 	var err error
 	switch additionalFixedMessageRaw := additionalFixedMessageRaw.(type) {
+	case nil:
+		additionalFixedMessage = []byte{}
 	case []byte:
 		additionalFixedMessage = additionalFixedMessageRaw
 	default:
@@ -61,6 +81,8 @@ func BuildInstructionDataWithId(instructionId common.Hash, opType constants.OPTy
 	}
 
 	switch additionalVariableMessage := additionalVariableMessage.(type) {
+	case nil:
+		iData.AdditionalVariableMessage = []byte{}
 	case []byte:
 		iData.AdditionalVariableMessage = additionalVariableMessage
 	default:
@@ -177,7 +199,7 @@ func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, pk *ecd
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equalf(t, http.StatusOK, resp.StatusCode, "data for %s, %s", op.HashToOPType(iData.OpType), op.HashToOPCommand(iData.OpCommand))
 
 	var res voting.SignedReceipt
 	dec := json.NewDecoder(resp.Body)

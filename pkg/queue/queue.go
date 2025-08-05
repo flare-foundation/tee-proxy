@@ -122,8 +122,12 @@ func (rs *ResponseStorage) GetResult(ctx context.Context, actionID common.Hash, 
 	id := StoringID{ActionID: actionID, SubmissionTag: submissionTag}
 
 	result, err := rs.s.Get(ctx, id.String())
+	if errors.Is(err, redis.Nil) {
+		return nil, fmt.Errorf("%w: response not in storage", status.HTTP[404])
+	}
+
 	if err != nil {
-		return nil, fmt.Errorf("reading result for %s: %v", id.String(), err)
+		return nil, fmt.Errorf("reading result for %s: %w", id.String(), err)
 	}
 
 	return result, nil

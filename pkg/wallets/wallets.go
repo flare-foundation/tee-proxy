@@ -147,10 +147,7 @@ func (s *Storage) sync(ctx context.Context) error {
 		return err
 	}
 
-	logger.Debug("sync locked")
 	s.Lock()
-	logger.Debug("sync ongoing")
-
 	defer s.Unlock()
 	s.Keys = newKeys
 	s.KeysForWallet = newKeysForWallet

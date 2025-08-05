@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/storage"
 	"github.com/flare-foundation/tee-proxy/pkg/limiter"
@@ -149,6 +150,12 @@ func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*tee.TeeStructsVoteReceipt, error) {
 	id := data.InstructionId
+
+	err := checkSize(data)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
 
 	hash, err := data.HashFixed()
 	if err != nil {
