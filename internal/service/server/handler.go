@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
@@ -17,9 +18,24 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error) http.Handl
 		err := f(w, r)
 
 		if err != nil {
-			status.HandleError(w, err)
+			handleError(w, err)
 		}
 	}
+}
+
+// handleError replies to unsuccessful request.
+// If error is wrapped HTTP error, status is retrieved, and error is given in response.
+// Otherwise, status 500 and "internal server error" is given in the reply.
+func handleError(w http.ResponseWriter, err error) {
+	code := status.ErrToCode(err)
+	reason := err.Error()
+	if code == -1 {
+		logger.Errorf("internal error: %w", err)
+		code = http.StatusInternalServerError
+		reason = "internal server error"
+	}
+
+	http.Error(w, reason, code)
 }
 
 func hashParam(r *http.Request, param string) (common.Hash, error) {

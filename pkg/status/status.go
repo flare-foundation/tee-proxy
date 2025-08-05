@@ -3,7 +3,6 @@ package status
 
 import (
 	"errors"
-	"net/http"
 )
 
 var HTTP = map[int]error{
@@ -26,18 +25,4 @@ func ErrToCode(err error) int {
 		}
 	}
 	return -1
-}
-
-// HandleError replies to unsuccessful request.
-// If error is wrapped HTTP error, status is retrieved, and error is given in response.
-// Otherwise, status 500 and "internal server error" is given in the reply.
-func HandleError(w http.ResponseWriter, err error) {
-	code := ErrToCode(err)
-	reason := err.Error()
-	if code == -1 {
-		code = http.StatusInternalServerError
-		reason = "internal server error"
-	}
-
-	http.Error(w, reason, code)
 }
