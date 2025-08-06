@@ -3,9 +3,10 @@ package info
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"testing"
 	"time"
+
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 
@@ -14,7 +15,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/stretchr/testify/require"
@@ -71,9 +71,9 @@ func TestInsertBlock(t *testing.T) {
 	require.Equal(t, data.Challenge, latestBlockHash)
 
 	resp := &types.TeeInfoResponse{
-		TeeInfo: tee.TeeStructsAttestation{
+		TeeInfo: types.TeeInfo{
 			Challenge: latestBlockHash,
-			State:     tee.ITeeAvailabilityCheckTeeState{},
+			State:     types.TeeState{},
 		},
 		Attestation: hexutil.Bytes{},
 	}
@@ -97,5 +97,5 @@ func TestInsertBlock(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 	require.NotNil(t, s.Latest)
-	require.Equal(t, common.Hash(s.Latest.TeeInfo.Challenge), latestBlockHash)
+	require.Equal(t, s.Latest.TeeInfo.Challenge, latestBlockHash)
 }

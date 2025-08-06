@@ -66,11 +66,11 @@ func BuildInstructionDataWithId(
 	require.NoError(t, err)
 
 	instructionDataFixed := instruction.DataFixed{
-		InstructionId:          instructionId,
-		TeeId:                  teeId,
-		RewardEpochId:          rewardEpochId,
-		OpType:                 opType.Hash(),
-		OpCommand:              opCommand.Hash(),
+		InstructionID:          instructionId,
+		TeeID:                  teeId,
+		RewardEpochID:          rewardEpochId,
+		OPType:                 opType.Hash(),
+		OPCommand:              opCommand.Hash(),
 		OriginalMessage:        originalMessage,
 		AdditionalFixedMessage: additionalFixedMessage,
 		Timestamp:              timestamp,
@@ -170,7 +170,7 @@ func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, pk *ecd
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 
 	require.NoError(t, err)
-	require.Equalf(t, http.StatusOK, resp.StatusCode, "data for %s, %s", op.HashToOPType(iData.OpType), op.HashToOPCommand(iData.OpCommand))
+	require.Equalf(t, http.StatusOK, resp.StatusCode, "data for %s, %s", op.HashToOPType(iData.OPType), op.HashToOPCommand(iData.OPCommand))
 
 	var res voting.SignedReceipt
 	dec := json.NewDecoder(resp.Body)

@@ -51,7 +51,7 @@ func constraints(opCommand common.Hash) (sizeConstraint, error) {
 }
 
 func checkSize(data *instruction.Data) error {
-	c, err := constraints(data.OpCommand)
+	c, err := constraints(data.OPCommand)
 	if err != nil {
 		return err
 	}

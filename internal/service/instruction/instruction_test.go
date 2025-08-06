@@ -37,9 +37,9 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 }
 
 func TestVoting(t *testing.T) {
-	teeId := common.HexToAddress("dead")
+	teeID := common.HexToAddress("dead")
 
-	mr, c, s, sk4 := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	mr, c, s, sk4 := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
@@ -53,12 +53,12 @@ func TestVoting(t *testing.T) {
 
 	iData := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionId:          crypto.Keccak256Hash([]byte("TestVoting")),
-			TeeId:                  teeId,
+			InstructionID:          crypto.Keccak256Hash([]byte("TestVoting")),
+			TeeID:                  teeID,
 			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochId:          1,
-			OpType:                 constants.FTDC.Hash(),
-			OpCommand:              constants.Prove.Hash(),
+			RewardEpochID:          1,
+			OPType:                 constants.FTDC.Hash(),
+			OPCommand:              constants.Prove.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -108,7 +108,7 @@ func TestVoting(t *testing.T) {
 	time.Sleep(2000 * time.Millisecond)
 	a, err := s.aq.Pop(t.Context(), queue.Main)
 	require.NoError(t, err)
-	require.Equal(t, a.Data.ID, common.Hash(iData.InstructionId))
+	require.Equal(t, a.Data.ID, iData.InstructionID)
 	require.Equal(t, a.Data.SubmissionTag, types.Threshold)
 	require.Equal(t, a.Data.Type, types.Instruction)
 
@@ -122,9 +122,9 @@ func TestVoting(t *testing.T) {
 }
 
 func TestStatus(t *testing.T) {
-	teeId := common.HexToAddress("dead")
+	teeID := common.HexToAddress("dead")
 
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
@@ -138,12 +138,12 @@ func TestStatus(t *testing.T) {
 
 	iData := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionId:          crypto.Keccak256Hash([]byte("TestStatus")),
-			TeeId:                  teeId,
+			InstructionID:          crypto.Keccak256Hash([]byte("TestStatus")),
+			TeeID:                  teeID,
 			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochId:          1,
-			OpType:                 constants.FTDC.Hash(),
-			OpCommand:              constants.Prove.Hash(),
+			RewardEpochID:          1,
+			OPType:                 constants.FTDC.Hash(),
+			OPCommand:              constants.Prove.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -174,10 +174,10 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
 
 	//Get the status of the instruction
-	status, err := s.Status(i1.Data.InstructionId, 1)
+	status, err := s.Status(i1.Data.InstructionID, 1)
 	require.NoError(t, err)
 
-	require.Equal(t, common.Hash(i1.Data.InstructionId), status.InstructionID)
+	require.Equal(t, i1.Data.InstructionID, status.InstructionID)
 	require.Equal(t, 1, len(status.Status))
 
 	iHash, err := iData.HashFixed()
@@ -194,10 +194,10 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
 
 	//Get the status of the instruction
-	status, err = s.Status(i2.Data.InstructionId, 1)
+	status, err = s.Status(i2.Data.InstructionID, 1)
 	require.NoError(t, err)
 
-	require.Equal(t, common.Hash(i2.Data.InstructionId), status.InstructionID)
+	require.Equal(t, i2.Data.InstructionID, status.InstructionID)
 	require.Equal(t, 1, len(status.Status))
 
 	iHash, err = iData.HashFixed()
@@ -228,10 +228,10 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, uint64(0), sr3.Receipt.Sequence)
 
 	// Get the status of the instruction
-	status, err = s.Status(i3.Data.InstructionId, 1)
+	status, err = s.Status(i3.Data.InstructionID, 1)
 	require.NoError(t, err)
 
-	require.Equal(t, common.Hash(i3.Data.InstructionId), status.InstructionID)
+	require.Equal(t, i3.Data.InstructionID, status.InstructionID)
 	require.Equal(t, 2, len(status.Status))
 
 	iHash, err = iData2.HashFixed()
@@ -242,9 +242,9 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, status.Status[1].Weight, uint16(3))
 }
 
-func TestOpTypeOpCommandValidation(t *testing.T) {
-	teeId := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+func TestOPTypeOPCommandValidation(t *testing.T) {
+	teeID := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -308,12 +308,12 @@ func TestOpTypeOpCommandValidation(t *testing.T) {
 	testInstruction := func(name string, opType, opCommand common.Hash, description string) (*instruction.Instruction, error) {
 		iData := &instruction.Data{
 			DataFixed: instruction.DataFixed{
-				InstructionId:          crypto.Keccak256Hash([]byte("test_" + name)),
-				TeeId:                  teeId,
+				InstructionID:          crypto.Keccak256Hash([]byte("test_" + name)),
+				TeeID:                  teeID,
 				Timestamp:              uint64(time.Now().Unix()),
-				RewardEpochId:          1,
-				OpType:                 opType,
-				OpCommand:              opCommand,
+				RewardEpochID:          1,
+				OPType:                 opType,
+				OPCommand:              opCommand,
 				OriginalMessage:        []byte("TEST_MESSAGE"),
 				AdditionalFixedMessage: hexutil.Bytes{},
 			},
@@ -371,15 +371,15 @@ func TestOpTypeOpCommandValidation(t *testing.T) {
 }
 
 // Helper function to create a base instruction data with common fields
-func createBaseInstructionData(testName string, teeId common.Address) *instruction.Data {
+func createBaseInstructionData(testName string, teeID common.Address) *instruction.Data {
 	return &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionId:          crypto.Keccak256Hash([]byte(testName)),
-			TeeId:                  teeId,
+			InstructionID:          crypto.Keccak256Hash([]byte(testName)),
+			TeeID:                  teeID,
 			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochId:          1,
-			OpType:                 constants.FTDC.Hash(),
-			OpCommand:              constants.Prove.Hash(),
+			RewardEpochID:          1,
+			OPType:                 constants.FTDC.Hash(),
+			OPCommand:              constants.Prove.Hash(),
 			OriginalMessage:        []byte("TEST_MESSAGE"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -402,8 +402,8 @@ func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.Pr
 }
 
 func TestVotingStorageErrors(t *testing.T) {
-	teeId := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	teeID := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -416,8 +416,8 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "WrongTeeID_400",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				iData := createBaseInstructionData("test_wrong_tee_id", teeId)
-				iData.TeeId = common.HexToAddress("wrong") // Wrong teeID
+				iData := createBaseInstructionData("test_wrong_tee_id", teeID)
+				iData.TeeID = common.HexToAddress("wrong") // Wrong teeID
 				return signInstruction(t, iData, testutil.PrivKey1)
 			},
 			expectedError:  "wrong teeID",
@@ -426,8 +426,8 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "NonExistentRewardEpoch_404",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				iData := createBaseInstructionData("test_nonexistent_epoch", teeId)
-				iData.RewardEpochId = 999 // Non-existent epoch
+				iData := createBaseInstructionData("test_nonexistent_epoch", teeID)
+				iData.RewardEpochID = 999 // Non-existent epoch
 				return signInstruction(t, iData, testutil.PrivKey1)
 			},
 			expectedError:  "no round 999",
@@ -436,7 +436,7 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "VoterNotInSigningPolicy_403",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				iData := createBaseInstructionData("test_invalid_voter", teeId)
+				iData := createBaseInstructionData("test_invalid_voter", teeID)
 				randomKey, err := crypto.GenerateKey()
 				require.NoError(t, err)
 				return signInstruction(t, iData, randomKey) // Use key not in signing policy
@@ -447,7 +447,7 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "AlreadyVotedSigner_403",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				iData := createBaseInstructionData("test_duplicate_vote", teeId)
+				iData := createBaseInstructionData("test_duplicate_vote", teeID)
 				inst := signInstruction(t, iData, testutil.PrivKey1)
 
 				// Process the instruction once (should succeed)
@@ -479,7 +479,7 @@ func TestVotingStorageErrors(t *testing.T) {
 	t.Logf("Successfully validated %d voting storage error scenarios", len(testCases))
 }
 
-func setupInstructionService(t *testing.T, teeId common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service, *ecdsa.PrivateKey) {
+func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service, *ecdsa.PrivateKey) {
 	mr := miniredis.RunT(t)
 	c := queue.NewClient(mr.Addr())
 
@@ -498,7 +498,7 @@ func setupInstructionService(t *testing.T, teeId common.Address, sp *policy.Sign
 
 	aq := queue.NewActionQueues(c)
 	s := &Service{
-		teeID:    teeId,
+		teeID:    teeID,
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
 		aq:       aq,

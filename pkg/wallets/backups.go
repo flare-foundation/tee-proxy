@@ -33,7 +33,7 @@ func (s *Storage) shouldCreateNewBackup(id IDPair, activeEpochID uint32) bool {
 		return true
 	}
 
-	return latestBackup.BackupId.RewardEpochID < activeEpochID
+	return latestBackup.BackupID.RewardEpochID < activeEpochID
 }
 
 func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
@@ -76,7 +76,7 @@ func (s *Storage) createNewBackup(r *types.ActionResult) error {
 		return err
 	}
 
-	idPair := IDPair{WalletId: b.BackupId.WalletId, KeyId: b.BackupId.KeyId}
+	idPair := IDPair{WalletID: b.BackupID.WalletID, KeyID: b.BackupID.KeyID}
 
 	s.Backups[idPair] = b
 

@@ -9,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-node/pkg/backup"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
@@ -29,7 +28,7 @@ func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*pol
 
 	initialPolicy := utils.GenerateRandomPolicyData(epochId, voters, randSeed)
 
-	pubKeys := make([]tee.PublicKey, len(voters))
+	pubKeys := make([]types.PublicKey, len(voters))
 	for i, voter := range voters {
 		pubKeys[i] = types.PubKeyToStruct(pubKeysMap[voter])
 	}
@@ -65,7 +64,7 @@ func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32, voters []
 
 	policySignatures := utils.BuildMultiSignedPolicy(nextPolicy.RawBytes(), privKeys)
 
-	pubKeys := make([]tee.PublicKey, len(voters))
+	pubKeys := make([]types.PublicKey, len(voters))
 	for i, voter := range voters {
 		pubKeys[i] = types.PubKeyToStruct(pubKeysMap[voter])
 	}
@@ -93,9 +92,9 @@ func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32, voters []
 }
 
 func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64, teeId common.Address) *backup.WalletBackup {
-	message := &types.WalletKeyIdPair{
-		WalletId: walletId,
-		KeyId:    keyId,
+	message := &types.WalletKeyIDPair{
+		WalletID: walletId,
+		KeyID:    keyId,
 	}
 
 	msg, err := json.Marshal(message)

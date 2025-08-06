@@ -43,7 +43,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.Reg, constants.TEEAttestation, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.Reg, constants.TEEAttestation, pc.TeeId)
 
 	var teeInfoResponse types.TeeInfoResponse
 	err = json.Unmarshal(res.Result.Data, &teeInfoResponse)
@@ -56,5 +56,5 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.Equal(t, receivedTeeId, pc.TeeId)
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Reg, constants.TEEAttestation, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.Reg, constants.TEEAttestation, receipts)
 }

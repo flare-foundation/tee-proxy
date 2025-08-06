@@ -121,7 +121,7 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	}
 
 	ad := types.ActionData{
-		ID:            vb.proposal.instruction.InstructionId,
+		ID:            vb.proposal.instruction.InstructionID,
 		Type:          types.Instruction,
 		SubmissionTag: tag,
 		Message:       m,

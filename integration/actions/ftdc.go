@@ -58,7 +58,7 @@ func FtdcProve(
 
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.FTDC, constants.Prove, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.FTDC, constants.Prove, pc.TeeId)
 
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func FtdcProve(
 	require.Equal(t, ftdcResponse.ResponseBody, hexutil.Bytes(additionalFixedMessageEncoded))
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.FTDC, constants.Prove, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.FTDC, constants.Prove, receipts)
 
 	return &ftdcResponse
 }
@@ -99,7 +99,7 @@ func GetCosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provi
 	cosignerAndProvider := make(map[common.Address]bool)
 
 	for j, cosignerPrivKey := range cosignerPrivKeys {
-		cosignerAddresses[j] = teeUtils.PubkeyToAddress(&cosignerPrivKey.PublicKey)
+		cosignerAddresses[j] = crypto.PubkeyToAddress(cosignerPrivKey.PublicKey)
 		for _, providerPrivKey := range providerPrivKeys {
 			if cosignerAddresses[j] == crypto.PubkeyToAddress(providerPrivKey.PublicKey) {
 				cosignerAndProvider[cosignerAddresses[j]] = true
@@ -138,7 +138,7 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []
 		privKeys = append(privKeys, privKey)
 	}
 	for _, privKey := range cosignerPrivKeys {
-		if _, check := cosignerAndProvider[teeUtils.PubkeyToAddress(&privKey.PublicKey)]; check {
+		if _, check := cosignerAndProvider[crypto.PubkeyToAddress(privKey.PublicKey)]; check {
 			continue
 		}
 		variableMessage, err := teeUtils.Sign(ftdcMsgHash[:], privKey)

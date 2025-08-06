@@ -48,23 +48,23 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 }
 
 func (s *Service) process(i *instruction.Instruction) (*tee.TeeStructsVoteReceipt, error) {
-	if i.Data.TeeId != s.teeID {
+	if i.Data.TeeID != s.teeID {
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}
 
-	ok := constants.IsValid(i.Data.OpType, i.Data.OpCommand)
+	ok := constants.IsValid(i.Data.OPType, i.Data.OPCommand)
 	if !ok {
 		return nil, fmt.Errorf("%w, invalid pair opType, opCommand ", status.HTTP[400])
 	}
 
 	hash, err := i.Data.HashForSigning()
 	if err != nil {
-		return nil, fmt.Errorf("processing instruction %v", err)
+		return nil, fmt.Errorf("hashing instruction %w", err)
 	}
 
 	signer, err := utils.SignatureToSignersAddress(hash[:], i.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving signer %v", err)
+		return nil, fmt.Errorf("retrieving signer %w", err)
 	}
 
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
@@ -75,7 +75,7 @@ func (s *Service) Forward(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("instruction forwarding stopped %v", ctx.Err())
+			return fmt.Errorf("instructionforwarding stopped %v", ctx.Err())
 		case box := <-s.vs.OutThreshold:
 			box.RLock()
 			a, err := box.Action(types.Threshold)

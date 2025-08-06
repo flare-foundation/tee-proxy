@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
-	commonwallet "github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 
 	intactions "github.com/flare-foundation/tee-proxy/integration/actions"
 	integrationUtils "github.com/flare-foundation/tee-proxy/integration/utils"
@@ -56,9 +56,13 @@ func TestXRPIntegration(t *testing.T) {
 	}
 
 	// change type
-	adminWalletPublicKeys := make([]commonwallet.PublicKey, len(adminPubKeys))
+	adminWalletPublicKeys := make([]wallet.PublicKey, len(adminPubKeys))
 	for i, pubKey := range adminPubKeys {
-		adminWalletPublicKeys[i] = commonwallet.PublicKey(types.PubKeyToStruct(pubKey))
+		pk := types.PubKeyToStruct(pubKey)
+		adminWalletPublicKeys[i] = wallet.PublicKey{
+			X: pk.X,
+			Y: pk.Y,
+		}
 	}
 
 	go teeServer.StartServer()

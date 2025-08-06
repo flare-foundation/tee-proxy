@@ -51,7 +51,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.XRP, constants.Pay, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.XRP, constants.Pay, pc.TeeId)
 
 	var txData map[string]any
 	err = json.Unmarshal(res.Result.Data, &txData)
@@ -100,9 +100,9 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	}
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.XRP, constants.Pay, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.XRP, constants.Pay, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return TransactionData{

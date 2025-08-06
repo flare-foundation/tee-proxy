@@ -62,7 +62,7 @@ func GenerateWallet(
 
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.Wallet, constants.KeyGenerate, teeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.Wallet, constants.KeyGenerate, teeId)
 
 	var swe types.WalletSignedKeyExistenceProof
 
@@ -89,9 +89,9 @@ func GenerateWallet(
 	require.Equal(t, false, walletExistenceProof.Restored)
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Wallet, constants.KeyGenerate, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.Wallet, constants.KeyGenerate, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return &walletExistenceProof
@@ -118,7 +118,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.Wallet, constants.KeyDelete, pc.TeeId)
+	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.Wallet, constants.KeyDelete, pc.TeeId)
 
 	wst := make(chan bool, 1)
 	go pc.Ws.RunInfo(t.Context(), wst, nil)
@@ -134,9 +134,9 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	require.Error(t, err)
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Wallet, constants.KeyDelete, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.Wallet, constants.KeyDelete, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 }
 

@@ -51,12 +51,12 @@ func TestFTDCMeta(t *testing.T) {
 	ts := uint64(time.Now().Unix())
 
 	data := instruction.DataFixed{
-		InstructionId:          [32]byte{},
-		TeeId:                  common.Address{},
+		InstructionID:          [32]byte{},
+		TeeID:                  common.Address{},
 		Timestamp:              ts,
-		RewardEpochId:          0,
-		OpType:                 constants.FTDC.Hash(),
-		OpCommand:              constants.Prove.Hash(),
+		RewardEpochID:          0,
+		OPType:                 constants.FTDC.Hash(),
+		OPCommand:              constants.Prove.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: []byte("todo"),
 	}
@@ -104,12 +104,12 @@ func TestMetaGeneral(t *testing.T) {
 	m := New(nil)
 
 	data := &instruction.DataFixed{
-		InstructionId:          [32]byte{},
-		TeeId:                  common.Address{},
+		InstructionID:          [32]byte{},
+		TeeID:                  common.Address{},
 		Timestamp:              0,
-		RewardEpochId:          0,
-		OpType:                 constants.Wallet.Hash(),
-		OpCommand:              constants.KeyGenerate.Hash(),
+		RewardEpochID:          0,
+		OPType:                 constants.Wallet.Hash(),
+		OPCommand:              constants.KeyGenerate.Hash(),
 		OriginalMessage:        []byte("todo"),
 		AdditionalFixedMessage: []byte("todo"),
 	}
@@ -168,9 +168,9 @@ func TestXRPCosigners(t *testing.T) {
 		ConfigSettings: wallet.ITeeWalletKeyManagerKeyConfigSettings{},
 	}
 
-	idPair := types.WalletKeyIdPair{
-		WalletId: wID,
-		KeyId:    kID,
+	idPair := types.WalletKeyIDPair{
+		WalletID: wID,
+		KeyID:    kID,
 	}
 
 	ws.Keys[idPair] = &wallets.KeyData{
@@ -202,12 +202,12 @@ func TestXRPCosigners(t *testing.T) {
 	require.NoError(t, err)
 
 	data := instruction.DataFixed{
-		InstructionId:          [32]byte{},
-		TeeId:                  teeID,
+		InstructionID:          [32]byte{},
+		TeeID:                  teeID,
 		Timestamp:              0,
-		RewardEpochId:          0,
-		OpType:                 constants.XRP.Hash(),
-		OpCommand:              constants.Pay.Hash(),
+		RewardEpochID:          0,
+		OPType:                 constants.XRP.Hash(),
+		OPCommand:              constants.Pay.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: nil,
 	}
@@ -244,12 +244,12 @@ func TestXRPCosigners(t *testing.T) {
 	require.NoError(t, err)
 
 	data = instruction.DataFixed{
-		InstructionId:          [32]byte{},
-		TeeId:                  teeID,
+		InstructionID:          [32]byte{},
+		TeeID:                  teeID,
 		Timestamp:              0,
-		RewardEpochId:          0,
-		OpType:                 constants.XRP.Hash(),
-		OpCommand:              constants.Pay.Hash(),
+		RewardEpochID:          0,
+		OPType:                 constants.XRP.Hash(),
+		OPCommand:              constants.Pay.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: nil,
 	}

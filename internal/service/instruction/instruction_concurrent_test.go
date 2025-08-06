@@ -20,8 +20,8 @@ import (
 
 // Note: Even when starting the two threads at the same time, the first thread will be processed faster so we don't really create the best race condition here.
 func TestConcurrentVoteBoxCreation(t *testing.T) {
-	teeId := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	teeID := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -29,7 +29,7 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 	// Expected: Both should be processed, but only one vote per signer should be recorded
 
 	// Create base instruction data
-	iData := createBaseInstructionData("concurrent_same_same", teeId)
+	iData := createBaseInstructionData("concurrent_same_same", teeID)
 
 	// Create two identical instructions with different signers
 	inst1 := signInstruction(t, iData, testutil.PrivKey1)
@@ -77,7 +77,7 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 	require.NoError(t, errors[1], "Second instruction should succeed")
 
 	// Verify vote box state
-	status, err := s.Status(iData.InstructionId, 1)
+	status, err := s.Status(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
 	// PrivKey1 has weight 1, PrivKey2 has weight 3, so total should be 4
@@ -90,8 +90,8 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 // with 100 pairs of concurrent instructions to maximize probability of race conditions.
 // This test specifically focuses on ensuring no duplicate vote boxes are created.
 func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
-	teeId := common.HexToAddress("sameInstIdDiffHash")
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.MockSigningPolicy)
+	teeID := common.HexToAddress("sameInstIDDiffHash")
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -112,20 +112,20 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	var instructionPairs []instructionPair
 
 	// Create pairs where each pair has:
-	// 1. Same InstructionId (will compete for the same voteBoxes map slot)
+	// 1. Same InstructionID (will compete for the same voteBoxes map slot)
 	// 2. Different FixedVariableMessage (will create different hashes, different vote boxes)
 	for i := 0; i < numPairs; i++ {
-		baseInstId := crypto.Keccak256Hash([]byte(fmt.Sprintf("race_test_pair_%d", i)))
+		baseInstID := crypto.Keccak256Hash([]byte(fmt.Sprintf("race_test_pair_%d", i)))
 
-		// Create base instruction data with unique InstructionId for this pair
+		// Create base instruction data with unique InstructionID for this pair
 		iData := &instruction.Data{
 			DataFixed: instruction.DataFixed{
-				InstructionId:          baseInstId,
-				TeeId:                  teeId,
+				InstructionID:          baseInstID,
+				TeeID:                  teeID,
 				Timestamp:              uint64(time.Now().Unix()) + uint64(i%10), // Slight time variation
-				RewardEpochId:          1,
-				OpType:                 constants.FTDC.Hash(),
-				OpCommand:              constants.Prove.Hash(),
+				RewardEpochID:          1,
+				OPType:                 constants.FTDC.Hash(),
+				OPCommand:              constants.Prove.Hash(),
 				OriginalMessage:        []byte("RACE_TEST_MESSAGE"),
 				AdditionalFixedMessage: hexutil.Bytes{},
 			},
@@ -162,7 +162,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	for _, pair := range instructionPairs {
 		// Launch first instruction of the pair
 		wg.Add(1)
-		go func(p instructionPair, inst *instruction.Instruction, instId string) {
+		go func(p instructionPair, inst *instruction.Instruction, instID string) {
 			defer wg.Done()
 			<-startChan // Wait for signal to start
 			_, err := s.ServeInstruction(context.Background(), inst)
@@ -171,7 +171,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 
 		// Launch second instruction of the pair
 		wg.Add(1)
-		go func(p instructionPair, inst *instruction.Instruction, instId string) {
+		go func(p instructionPair, inst *instruction.Instruction, instID string) {
 			defer wg.Done()
 			<-startChan // Wait for signal to start
 			_, err := s.ServeInstruction(context.Background(), inst)
@@ -192,7 +192,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	// Verify that each instruction pair created exactly 2 vote boxes (one for each different hash)
 	// This is the critical test: ensuring no duplicate vote boxes were created due to race conditions
 	for i, pair := range instructionPairs {
-		status, err := s.Status(pair.baseData.InstructionId, 1)
+		status, err := s.Status(pair.baseData.InstructionID, 1)
 		require.NoError(t, err, "Failed to get status for pair %d", i)
 
 		// Should have exactly 2 vote boxes (one for each different AdditionalVariableMessage hash)
@@ -210,8 +210,8 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 }
 
 func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
-	teeId := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.MockSigningPolicy)
+	teeID := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -219,7 +219,7 @@ func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
 	const numGoroutines = 100
 
 	// Create base instruction
-	iData := createBaseInstructionData("high_load_same", teeId)
+	iData := createBaseInstructionData("high_load_same", teeID)
 
 	// Create different signatures for the same instruction
 	var instructions []*instruction.Instruction
@@ -279,7 +279,7 @@ func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
 	require.Greater(t, successCount, 0, "At least one instruction should succeed")
 
 	// Verify final state
-	status, err := s.Status(iData.InstructionId, 1)
+	status, err := s.Status(iData.InstructionID, 1)
 	require.NoError(t, err)
 
 	totalWeight := uint16(0)
@@ -295,7 +295,7 @@ func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
 
 	t.Logf("Average weight per successful vote: %.2f", float64(totalWeight)/float64(successCount))
 
-	status, err = s.Status(iData.InstructionId, 1)
+	status, err = s.Status(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
 	require.Equal(t, uint16(65535), status.Status[0].Weight, "Should have weight from all voters")
@@ -304,8 +304,8 @@ func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
 }
 
 func TestConcurrentThresholdFinalization(t *testing.T) {
-	teeId := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	teeID := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -324,7 +324,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	// Expected: Only one action should be enqueued, not two
 
 	// Create instruction data
-	iData := createBaseInstructionData("threshold_race", teeId)
+	iData := createBaseInstructionData("threshold_race", teeID)
 
 	// First, add a vote that's below threshold (PrivKey1 has weight 1, threshold is 3)
 	inst1 := signInstruction(t, iData, testutil.PrivKey1)
@@ -332,7 +332,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	require.NoError(t, err, "First vote should succeed")
 
 	// Verify we're below threshold
-	status, err := s.Status(iData.InstructionId, 1)
+	status, err := s.Status(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
 	require.Equal(t, uint16(1), status.Status[0].Weight, "Should have weight 1")
@@ -368,7 +368,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	wg.Wait()
 
 	// Verify final vote box state
-	status, err = s.Status(iData.InstructionId, 1)
+	status, err = s.Status(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should still have one vote box")
 	require.Equal(t, uint16(7), status.Status[0].Weight, "Should have combined weight (1+3+3=7)")
@@ -386,7 +386,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 		actionCount++
 
 		// Verify the action is correct
-		require.Equal(t, common.Hash(iData.InstructionId), action.Data.ID, "Action should have correct instruction ID")
+		require.Equal(t, iData.InstructionID, action.Data.ID, "Action should have correct instruction ID")
 		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
 		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
 

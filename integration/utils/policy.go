@@ -4,11 +4,13 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
-	"github.com/flare-foundation/tee-node/pkg/types"
 	"math/big"
 	"math/rand"
 
+	"github.com/flare-foundation/tee-node/pkg/types"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 
@@ -92,14 +94,14 @@ func GenerateRandomKeys(numVoters int) ([]common.Address, []*ecdsa.PrivateKey, m
 	pubKeys := make(map[common.Address]*ecdsa.PublicKey)
 
 	for i := 0; i < numVoters; i++ {
-		voterPrivKey, err := utils.GenerateEthereumPrivateKey()
+		voterPrivKey, err := crypto.GenerateKey()
 		if err != nil {
 			panic(err)
 		}
 		voterPubKey := voterPrivKey.PublicKey
 
 		privKeys[i] = voterPrivKey
-		voters[i] = utils.PubkeyToAddress(&voterPubKey)
+		voters[i] = crypto.PubkeyToAddress(voterPubKey)
 		pubKeys[voters[i]] = &voterPubKey
 	}
 
