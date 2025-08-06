@@ -12,7 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-node/pkg/backup"
-	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -25,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// GenerateWallet Sends KEY_GENERATE instruction for wallet with specified admins, verifies ITeeWalletKeyManagerKeyExistence proof  and checks that wallet is present in proxy wallet storage
 func GenerateWallet(
 	t *testing.T,
 	pc *utils.ProxyConfig,
@@ -52,7 +52,7 @@ func GenerateWallet(
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyGenerate, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, constants.Wallet, constants.KeyGenerate, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -61,11 +61,7 @@ func GenerateWallet(
 
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyGenerate.Hash())
-
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
-	require.NoError(t, err)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.Wallet, constants.KeyGenerate, teeId)
 
 	var swe types.WalletSignedKeyExistenceProof
 
@@ -82,29 +78,25 @@ func GenerateWallet(
 	go pc.Ws.RunInfo(t.Context(), wst, nkc)
 	nkc <- &res.Result
 
-	time.Sleep(1000 * time.Millisecond)
-
-	walletInfo, err := pc.Ws.WalletInfo(walletExistenceProof.WalletId)
-	require.NoError(t, err, "getting wallet info")
-	require.Equal(t, walletExistenceProof.WalletId, walletInfo.WalletId)
-	require.Equal(t, walletExistenceProof.KeyId, walletInfo.KeyId)
-	require.Equal(t, walletExistenceProof.AddressStr, walletInfo.AddressStr)
+	walletInfo := utils.GetWalletInfo(t, pc, walletId, keyId)
+	require.NoError(t, err)
+	require.Equal(t, walletExistenceProof.WalletId, walletInfo.Info.WalletId)
+	require.Equal(t, walletExistenceProof.KeyId, walletInfo.Info.KeyId)
+	require.Equal(t, walletExistenceProof.AddressStr, walletInfo.Info.AddressStr)
+	require.Equal(t, constants.XRP.Hash(), common.BytesToHash(originalMessage.OpType[:]))
+	require.Equal(t, originalMessage.ConfigConstants, walletExistenceProof.ConfigConstants)
+	require.Equal(t, false, walletExistenceProof.Restored)
 
 	<-endOfVotingTicker.C
-	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.End, constants.Wallet.Hash(), constants.KeyGenerate.Hash())
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Wallet, constants.KeyGenerate, receipts)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
-	require.NoError(t, err)
-
-	signerSequence := new(types.RewardingData)
-	err = json.Unmarshal(res.Result.Data, &signerSequence)
-	require.NoError(t, err)
-	require.Equal(t, signerSequence.VoteSequence.VoteHash, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]))
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
+	utils.VerifyVotingStatus(t, votingStatus, 0, 0, utils.TotalWeight/2)
 
 	return &walletExistenceProof
 }
 
+// DeleteWallet Send KEY_DELETE instruction, verifies response and checks that the wallet is deleted from proxy wallet storage
 func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64,
 	privKeys []*ecdsa.PrivateKey, rewardEpochId uint32, nonce *big.Int) {
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyDelete{
@@ -117,7 +109,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData, err := utils.BuildInstructionData(constants.Wallet, constants.KeyDelete, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, constants.Wallet, constants.KeyDelete, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -125,10 +117,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	time.Sleep(1500 * time.Millisecond)
-
-	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyDelete.Hash())
+	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.Wallet, constants.KeyDelete, pc.TeeId)
 
 	wst := make(chan bool, 1)
 	go pc.Ws.RunInfo(t.Context(), wst, nil)
@@ -136,6 +125,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 
 	time.Sleep(1500 * time.Millisecond)
 
+	// Check that the wallet is removed from proxy
 	_, err = pc.Ws.WalletInfo(walletId)
 	require.Error(t, err)
 
@@ -143,21 +133,13 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	require.Error(t, err)
 
 	<-endOfVotingTicker.C
-	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.End, constants.Wallet.Hash(), constants.KeyDelete.Hash())
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Wallet, constants.KeyDelete, receipts)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
-	require.NoError(t, err)
-
-	rewData := new(types.RewardingData)
-	err = json.Unmarshal(res.Result.Data, &rewData)
-	require.NoError(t, err)
-	require.Equal(t, rewData.VoteSequence.VoteHash, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]))
-
-	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeId)
-	require.NoError(t, err)
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
+	utils.VerifyVotingStatus(t, votingStatus, 0, 0, utils.TotalWeight/2)
 }
 
+// RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies ITeeWalletKeyManagerKeyExistence proof and cheks that recovered wallet is in proxy wallet storage
 func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64, providersPrivKeys, adminsPrivKeys []*ecdsa.PrivateKey,
 	rewardEpochId uint32, nonce *big.Int, walletBackup *backup.WalletBackup) *commonwallet.ITeeWalletKeyManagerKeyExistence {
 	originalMessage := commonwallet.ITeeWalletBackupManagerKeyDataProviderRestore{
@@ -193,6 +175,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	teeEciesPubKey := ecies.ImportECDSAPublic(pc.ProxyPubKey)
 	addVarMsgs := make([]interface{}, 0)
 	privKeys := make([]*ecdsa.PrivateKey, 0)
+	// Recover providers shares
 	for i, privKey := range providersPrivKeys {
 		keySplit, err := backup.DecryptSplit(walletBackup.ProviderEncryptedParts.Splits[i], privKey)
 		require.NoError(t, err)
@@ -220,6 +203,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 		privKeys = append(privKeys, privKey)
 	}
 
+	// Recover admin shares
 	for i, privKey := range adminsPrivKeys {
 		address := crypto.PubkeyToAddress(privKey.PublicKey)
 		_, check := adminAndProvider[address]
@@ -243,25 +227,20 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 
+	// Send KEY_DATA_PROVIDER_RESTORE instruction for each provider & admin
 	instructionId, _ := utils.GenerateRandomBytes(32)
 	receipts := make([]*voting.SignedReceipt, 0)
 	instructions := make([]instruction.Data, 0)
 	for i, privKey := range privKeys {
 		timestamp := uint64(time.Now().Unix())
-		iData, err := utils.BuildInstructionDataWithId(common.BytesToHash(instructionId), constants.Wallet, constants.KeyDataProviderRestore, originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], pc.TeeId, rewardEpochId)
-		require.NoError(t, err)
+		iData := utils.BuildInstructionDataWithId(t, common.BytesToHash(instructionId), constants.Wallet, constants.KeyDataProviderRestore,
+			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], pc.TeeId, rewardEpochId)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))
 		instructions = append(instructions, *iData)
 	}
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	time.Sleep(1500 * time.Millisecond)
-
-	res := utils.GetActionResponse(t, pc.ExtPort, "result", common.BytesToHash(instructionId))
-	utils.VerifyActionResponse(t, res, types.Threshold, constants.Wallet.Hash(), constants.KeyDataProviderRestore.Hash())
-
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
-	require.NoError(t, err)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", common.BytesToHash(instructionId), types.Threshold, constants.Wallet, constants.KeyDataProviderRestore, pc.TeeId)
 
 	walletExistenceProof, err := types.ExtractKeyExistence(res.Result.Data)
 	require.NoError(t, err)
@@ -270,28 +249,18 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	go pc.Ws.RunInfo(t.Context(), wst, nil)
 	wst <- true
 
-	time.Sleep(1500 * time.Millisecond)
-
-	// check that wallet is actually on the tee
-	wallet, err := pc.Ws.WalletInfo(walletId)
+	// Check that wallet is actually on the tee
+	walletInfo := utils.GetWalletInfo(t, pc, walletId, keyId)
 	require.NoError(t, err)
-	require.Equal(t, walletId, wallet.WalletId)
-	require.Equal(t, keyId, wallet.KeyId)
+	require.Equal(t, walletId, walletInfo.Info.WalletId)
+	require.Equal(t, keyId, walletInfo.Info.KeyId)
+	require.Equal(t, true, walletExistenceProof.Restored)
 
 	<-endOfVotingTicker.C
-	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", common.BytesToHash(instructionId))
-	utils.VerifyActionResponse(t, res, types.End, constants.Wallet.Hash(), constants.KeyDataProviderRestore.Hash())
+	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionId), constants.Wallet, constants.KeyDataProviderRestore, receipts)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
-	require.NoError(t, err)
-
-	rewData := new(types.RewardingData)
-	err = json.Unmarshal(res.Result.Data, &rewData)
-	require.NoError(t, err)
-	require.Equal(t, rewData.VoteSequence.VoteHash, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]))
-
-	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeId)
-	require.NoError(t, err)
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, common.BytesToHash(instructionId))
+	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), utils.TotalWeight/2)
 
 	return walletExistenceProof
 }

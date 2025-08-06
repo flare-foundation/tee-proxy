@@ -3,9 +3,11 @@ package utils
 import (
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -99,7 +101,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}()
 
 	infoStorage := info.NewStorage(db, aq, rs, &config.StorageTiming{
-		CycleInternal:          1 * time.Minute,
+		CycleInternal:          TestTimeConfig.Interval,
 		CycleQueueResponseWait: TestTimeConfig.Timeout,
 	})
 
@@ -200,4 +202,71 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+func makeRequests[T any](t *testing.T, url string, result *T) {
+	t.Helper()
+	start := time.Now()
+	for {
+		resp, err := http.Get(url)
+		if err == nil && resp != nil {
+			if resp.StatusCode == http.StatusOK {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				err = resp.Body.Close()
+				require.NoError(t, err)
+
+				err = json.Unmarshal(bodyBytes, result)
+				require.NoError(t, err)
+
+				return
+			}
+		}
+		if time.Since(start) > TestTimeConfig.Timeout {
+			require.FailNow(t, fmt.Sprintf("Timeout waiting for %s", url))
+			return
+		}
+		time.Sleep(TestTimeConfig.Interval)
+	}
+}
+
+// GetTeeInfo Fetches TeeInfoResponse until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetTeeInfo(t *testing.T, pc *ProxyConfig) *types.TeeInfoResponse {
+	t.Helper()
+	url := fmt.Sprintf("http://localhost:%d/info", pc.ExtPort)
+	var res types.TeeInfoResponse
+	makeRequests(t, url, &res)
+	return &res
+}
+
+// GetVotingStatus Fetches VoteStatus until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetVotingStatus(t *testing.T, pc *ProxyConfig, rewardEpochID uint32, instructionID common.Hash) *voting.VoteStatus {
+	t.Helper()
+	url := fmt.Sprintf("http://localhost:%d/action/status/%d/%s", pc.ExtPort, rewardEpochID, instructionID.String()[2:])
+	var res voting.VoteStatus
+	makeRequests(t, url, &res)
+	return &res
+}
+
+// GetWalletInfo Fetches KeyData until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetWalletInfo(t *testing.T, pc *ProxyConfig, walletID [32]byte, keyID uint64) *wallets.KeyData {
+	t.Helper()
+	url := fmt.Sprintf("http://localhost:%d/wallet/%x/%d", pc.ExtPort, common.BytesToHash(walletID[:]), keyID)
+	var res wallets.KeyData
+	makeRequests(t, url, &res)
+	return &res
+}
+
+func WaitFor(t *testing.T, interval, timeout time.Duration, fn func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if fn() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(interval)
+	}
 }

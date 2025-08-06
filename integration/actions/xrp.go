@@ -4,13 +4,11 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/ethereum/go-ethereum/common"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -22,7 +20,6 @@ import (
 
 	xrpltypes "github.com/flare-foundation/go-flare-common/pkg/xrpl/encoding/types"
 
-	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -44,7 +41,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData, err := utils.BuildInstructionData(constants.XRP, constants.Pay, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, constants.XRP, constants.Pay, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -52,11 +49,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.Threshold, constants.XRP.Hash(), constants.Pay.Hash())
-
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
-	require.NoError(t, err)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.XRP, constants.Pay, pc.TeeId)
 
 	var txData map[string]any
 	err = json.Unmarshal(res.Result.Data, &txData)
@@ -105,19 +98,10 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	}
 
 	<-endOfVotingTicker.C
-	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.End, constants.XRP.Hash(), constants.Pay.Hash())
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.XRP, constants.Pay, receipts)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
-	require.NoError(t, err)
-
-	rewData := new(types.RewardingData)
-	err = json.Unmarshal(res.Result.Data, &rewData)
-	require.NoError(t, err)
-	require.Equal(t, rewData.VoteSequence.VoteHash, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]))
-
-	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, teeId)
-	require.NoError(t, err)
+	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
+	utils.VerifyVotingStatus(t, votingStatus, 0, 0, utils.TotalWeight/2)
 
 	return TransactionData{
 		Tx:      txData,

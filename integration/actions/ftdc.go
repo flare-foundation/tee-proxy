@@ -49,8 +49,7 @@ func FtdcProve(
 	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys)
 	require.NoError(t, err)
 
-	iData, err := utils.BuildInstructionData(constants.FTDC, constants.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, pc.TeeId, rewardEpochId)
-	require.NoError(t, err)
+	iData := utils.BuildInstructionData(t, constants.FTDC, constants.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, pc.TeeId, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
@@ -58,8 +57,7 @@ func FtdcProve(
 
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.Threshold, constants.FTDC.Hash(), constants.Prove.Hash())
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.FTDC, constants.Prove, pc.TeeId)
 
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
 	require.NoError(t, err)
@@ -86,19 +84,11 @@ func FtdcProve(
 		_, err = teeUtils.CheckSignature(ftdcMsgHash.Bytes(), signature, cosignerAddresses)
 		require.NoError(t, err)
 	}
+
 	require.Equal(t, ftdcResponse.ResponseBody, hexutil.Bytes(additionalFixedMessageEncoded))
 
 	<-endOfVotingTicker.C
-	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.End, constants.FTDC.Hash(), constants.Prove.Hash())
-
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
-	require.NoError(t, err)
-
-	signerSequence := new(types.RewardingData)
-	err = json.Unmarshal(res.Result.Data, &signerSequence)
-	require.NoError(t, err)
-	require.Equal(t, signerSequence.VoteSequence.VoteHash, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]))
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.FTDC, constants.Prove, receipts)
 
 	return &ftdcResponse
 }

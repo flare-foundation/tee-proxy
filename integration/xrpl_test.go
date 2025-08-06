@@ -69,7 +69,7 @@ func TestXRPIntegration(t *testing.T) {
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 	// End of setup
 
-	lastPolicy, providerPrivKeys := intactions.InitializePolicy(t, cfg, startingEpochId)
+	lastPolicy, _, providerPrivKeys, _ := intactions.InitializePolicy(t, cfg, startingEpochId)
 	logger.Info("Initialized policy")
 
 	event := relay.RelaySigningPolicyInitialized{

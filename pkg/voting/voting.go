@@ -38,6 +38,11 @@ type Config struct {
 	MaxPendingRequests uint          `toml:"max_pending_request"` // if not positive, it defaults to 100.
 }
 
+type VoteStatus struct {
+	InstructionID common.Hash `json:"instructionId"`
+	Status        []Status    `json:"status"`
+}
+
 // setDefault sets default values if applicable.
 func (v *Config) setDefault() *Config {
 	if v == nil {
@@ -114,7 +119,7 @@ type voteBoxes struct {
 	sync.RWMutex
 }
 
-func newVotBoxes() *voteBoxes {
+func newVoteBoxes() *voteBoxes {
 	return &voteBoxes{
 		M: map[common.Hash]*voteBox{},
 	}
@@ -176,7 +181,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	round.Lock()
 	boxes, exist := round.Voting.M[id]
 	if !exist {
-		boxes = newVotBoxes()
+		boxes = newVoteBoxes()
 		defer round.Unlock()
 		// we only save it at the end if no errors are returned
 	} else {
