@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
+	"github.com/flare-foundation/tee-node/pkg/types"
 	"math/big"
 	"math/rand"
 
@@ -144,4 +145,22 @@ func GenerateRandomPolicyData(rewardEpochId uint32, voters []common.Address, see
 	}
 	event.SigningPolicyBytes = policyBytes
 	return policy.NewSigningPolicy(&event, nil)
+}
+
+func BuildMultiSignedPolicy(policyBytes []byte, voterPrivKeys []*ecdsa.PrivateKey) types.MultiSignedPolicy {
+	sigs := make([][]byte, 0, len(voterPrivKeys))
+
+	hash := policy.Hash(policyBytes)
+	for _, voterPrivKey := range voterPrivKeys {
+		sig, err := utils.Sign(hash, voterPrivKey)
+		if err != nil {
+			panic(err)
+		}
+		sigs = append(sigs, sig)
+	}
+
+	return types.MultiSignedPolicy{
+		PolicyBytes: policyBytes,
+		Signatures:  sigs,
+	}
 }

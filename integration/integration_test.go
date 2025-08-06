@@ -6,16 +6,13 @@ import (
 	"math/big"
 	"sync"
 	"testing"
-
-	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 
 	teeServer "github.com/flare-foundation/tee-node/pkg/server"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
-
-	"github.com/flare-foundation/go-flare-common/pkg/policy"
 
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 
@@ -65,20 +62,14 @@ func TestProxyTeeIntegration(t *testing.T) {
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 	// End of setup
 
-	lastPolicy, providerPrivKeys := intactions.InitializePolicy(t, cfg, startingEpochId)
+	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochId)
+	ok := integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
+		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
+		return common.BytesToHash(teeInfo.TeeInfo.LastSigningPolicyHash[:]) == common.BytesToHash(policy.Hash()[:])
+	})
+	require.True(t, ok, "Policy not initialized on TEE")
 	logger.Info("Initialized policy")
 
-	event := relay.RelaySigningPolicyInitialized{
-		RewardEpochId:      big.NewInt(int64(lastPolicy.RewardEpochID)),
-		StartVotingRoundId: lastPolicy.StartVotingRoundID,
-		Threshold:          lastPolicy.Threshold,
-		Seed:               lastPolicy.Seed,
-		Voters:             lastPolicy.Voters.Voters(),
-		Weights:            integrationUtils.GetVoterWeights(lastPolicy),
-		SigningPolicyBytes: []byte{},
-		Timestamp:          0,
-	}
-	policy := policy.NewSigningPolicy(&event, nil)
 	cfg.Vs.CreateRound(policy)
 
 	var walletId = common.HexToHash("0xabcdef")
@@ -122,6 +113,16 @@ func TestProxyTeeIntegration(t *testing.T) {
 	ftdcResponse := intactions.FtdcProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
 	require.NotNil(t, ftdcResponse)
 	logger.Info("FTDC proof completed")
+
+	startingEpochId++
+	newPolicy, _, _, _ := intactions.UpdatePolicy(t, cfg, startingEpochId, voters, providerPrivKeys, providerPubKeysMap)
+	logger.Info("Updated policy")
+
+	ok = integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
+		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
+		return common.BytesToHash(teeInfo.TeeInfo.LastSigningPolicyHash[:]) == common.BytesToHash(newPolicy.Hash()[:])
+	})
+	require.True(t, ok, "TEE info did not update to new policy hash in time")
 
 	cleanup()
 	wgProxy.Wait()

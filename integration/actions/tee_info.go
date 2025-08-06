@@ -14,7 +14,6 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
 	"github.com/flare-foundation/tee-node/pkg/types"
-	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -37,19 +36,14 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData, err := utils.BuildInstructionData(constants.Reg, constants.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
-	require.NoError(t, err)
+	iData := utils.BuildInstructionData(t, constants.Reg, constants.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.GetActionResponse(t, pc.ExtPort, "result", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.Threshold, constants.Reg.Hash(), constants.TEEAttestation.Hash())
-
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
-	require.NoError(t, err)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionId, types.Threshold, constants.Reg, constants.TEEAttestation, pc.TeeId)
 
 	var teeInfoResponse types.TeeInfoResponse
 	err = json.Unmarshal(res.Result.Data, &teeInfoResponse)
@@ -62,14 +56,5 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.Equal(t, receivedTeeId, pc.TeeId)
 
 	<-endOfVotingTicker.C
-	res = utils.GetActionResponse(t, pc.ExtPort, "rewarding-data", iData.InstructionId)
-	utils.VerifyActionResponse(t, res, types.End, constants.Reg.Hash(), constants.TEEAttestation.Hash())
-
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
-	require.NoError(t, err)
-
-	signerSequence := new(types.RewardingData)
-	err = json.Unmarshal(res.Result.Data, &signerSequence)
-	require.NoError(t, err)
-	require.Equal(t, signerSequence.VoteSequence.VoteHash, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]))
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Reg, constants.TEEAttestation, receipts)
 }

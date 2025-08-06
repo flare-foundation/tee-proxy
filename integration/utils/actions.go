@@ -5,12 +5,14 @@ import (
 	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
+	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -23,6 +25,7 @@ import (
 )
 
 func BuildInstructionData(
+	t *testing.T,
 	opType constants.OPType,
 	opCommand constants.OPCommand,
 	originalMessage []byte,
@@ -31,15 +34,14 @@ func BuildInstructionData(
 	additionalVariableMessage any,
 	teeId common.Address,
 	rewardEpochId uint32,
-) (*instruction.Data, error) {
+) *instruction.Data {
 	instructionId, err := GenerateRandomBytes(32)
-	if err != nil {
-		return nil, err
-	}
-	return BuildInstructionDataWithId(common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
+	require.NoError(t, err)
+	return BuildInstructionDataWithId(t, common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
 }
 
 func BuildInstructionDataWithId(
+	t *testing.T,
 	instructionId common.Hash,
 	opType constants.OPType,
 	opCommand constants.OPCommand,
@@ -49,7 +51,7 @@ func BuildInstructionDataWithId(
 	additionalVariableMessage any,
 	teeId common.Address,
 	rewardEpochId uint32,
-) (*instruction.Data, error) {
+) *instruction.Data {
 	var additionalFixedMessage []byte
 	var err error
 	switch additionalFixedMessageRaw := additionalFixedMessageRaw.(type) {
@@ -59,10 +61,8 @@ func BuildInstructionDataWithId(
 		additionalFixedMessage = additionalFixedMessageRaw
 	default:
 		additionalFixedMessage, err = json.Marshal(additionalFixedMessageRaw)
-		if err != nil {
-			return nil, err
-		}
 	}
+	require.NoError(t, err)
 
 	instructionDataFixed := instruction.DataFixed{
 		InstructionId:          instructionId,
@@ -87,40 +87,10 @@ func BuildInstructionDataWithId(
 		iData.AdditionalVariableMessage = additionalVariableMessage
 	default:
 		iData.AdditionalVariableMessage, err = json.Marshal(additionalVariableMessage)
-		if err != nil {
-			return nil, err
-		}
+		require.NoError(t, err)
 	}
 
-	return iData, err
-}
-
-// GetActionResponse Makes request to localhost:port/action/handle/actionId every TestTimeConfig.Interval ms until TestTimeConfig.Timeout
-func GetActionResponse(t *testing.T, port uint, handle string, actionId common.Hash) *types.ActionResponse {
-	t.Helper()
-
-	url := fmt.Sprintf("http://localhost:%d/action/%s/%s", port, handle, strings.TrimPrefix(actionId.String(), "0x"))
-	start := time.Now()
-
-	for {
-		resp, err := http.Get(url)
-		if err == nil {
-			if resp.StatusCode == http.StatusOK {
-				bodyBytes, err := io.ReadAll(resp.Body)
-				require.NoError(t, err)
-
-				var res types.ActionResponse
-				err = json.Unmarshal(bodyBytes, &res)
-				require.NoError(t, err)
-
-				return &res
-			}
-		}
-		if time.Since(start) > TestTimeConfig.Timeout {
-			return nil
-		}
-		time.Sleep(TestTimeConfig.Interval)
-	}
+	return iData
 }
 
 func SetProxyUrlOnTee(t *testing.T, port uint, proxyUrl string) {
@@ -251,9 +221,56 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 	}
 }
 
-func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType, opCommand common.Hash) {
+// VerifyActionResponse Verifies the action response against expected values and checks the signature
+func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType constants.OPType, opCommand constants.OPCommand, teeId common.Address) {
 	require.True(t, res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
-	require.Equal(t, opType, res.Result.OPType)
-	require.Equal(t, opCommand, res.Result.OPCommand)
+	require.Equal(t, opType.Hash(), res.Result.OPType)
+	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
+
+	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
+	require.NoError(t, err)
+}
+
+// VerifyVotingStatus Verifies number of cosigners, cosigners threshold, finalized and weight of the VoteStatus
+func VerifyVotingStatus(t *testing.T, votingStatus *voting.VoteStatus, nCosigners, cosignersThreshold, threshold uint16) {
+	require.Equal(t, 1, len(votingStatus.Status))
+	require.Equal(t, nCosigners, votingStatus.Status[0].Cosigners)
+
+	require.Equal(t, cosignersThreshold, votingStatus.Status[0].CosignersThreshold)
+	require.True(t, votingStatus.Status[0].Finalized)
+	require.GreaterOrEqual(t, votingStatus.Status[0].Weight, threshold)
+	require.Equal(t, threshold, votingStatus.Status[0].Threshold)
+}
+
+// FetchAndVerifyActionResponse Fetches ActionResponse and verifies the signature
+func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, actionId common.Hash, submissionTag types.SubmissionTag, opType constants.OPType, opCommand constants.OPCommand, teeId common.Address) *types.ActionResponse {
+	t.Helper()
+
+	url := fmt.Sprintf("http://localhost:%d/action/%s/%s", port, handle, strings.TrimPrefix(actionId.String(), "0x"))
+	var res types.ActionResponse
+	makeRequests(t, url, &res)
+
+	require.True(t, res.Result.Status)
+	require.Equal(t, submissionTag, res.Result.SubmissionTag)
+	require.Equal(t, opType.Hash(), res.Result.OPType)
+	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
+
+	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
+	require.NoError(t, err)
+
+	return &res
+}
+
+// FetchAndVerifyRewardingData Fetches rewarding data and verifies the action response and vote sequence
+func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID common.Hash, opType constants.OPType, opCommand constants.OPCommand, receipts []*voting.SignedReceipt) {
+	res := FetchAndVerifyActionResponse(t, pc.ExtPort, "rewarding-data", instructionID, types.End, opType, opCommand, pc.TeeId)
+
+	rewData := new(types.RewardingData)
+	err := json.Unmarshal(res.Result.Data, &rewData)
+	require.NoError(t, err)
+	require.Equal(t, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]), rewData.VoteSequence.VoteHash)
+
+	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeId)
+	require.NoError(t, err)
 }

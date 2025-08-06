@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {
+func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*policy.SigningPolicy, []common.Address, []*ecdsa.PrivateKey, map[common.Address]*ecdsa.PublicKey) {
 	t.Helper()
 
 	// Generate random voters and corresponding private keys
@@ -54,7 +54,42 @@ func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*pol
 	require.Equal(t, types.Submit, res.Result.SubmissionTag)
 	require.True(t, res.Result.Status)
 
-	return initialPolicy, privKeys
+	return initialPolicy, voters, privKeys, pubKeysMap
+}
+
+func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32, voters []common.Address, privKeys []*ecdsa.PrivateKey, pubKeysMap map[common.Address]*ecdsa.PublicKey) (*policy.SigningPolicy, []common.Address, []*ecdsa.PrivateKey, map[common.Address]*ecdsa.PublicKey) {
+	t.Helper()
+
+	randSeed := int64(12345)
+	nextPolicy := utils.GenerateRandomPolicyData(epochId, voters, randSeed)
+
+	policySignatures := utils.BuildMultiSignedPolicy(nextPolicy.RawBytes(), privKeys)
+
+	pubKeys := make([]tee.PublicKey, len(voters))
+	for i, voter := range voters {
+		pubKeys[i] = types.PubKeyToStruct(pubKeysMap[voter])
+	}
+
+	updatePolicyRequest := types.UpdatePolicyRequest{
+		NewPolicy:  policySignatures,
+		PublicKeys: pubKeys,
+	}
+	updatePolicyRequestBytes, err := json.Marshal(updatePolicyRequest)
+	require.NoError(t, err)
+
+	a, err := queue.PrepareDirectAction(constants.Policy, constants.UpdatePolicy, updatePolicyRequestBytes)
+	require.NoError(t, err)
+
+	err = pc.Aq.Enqueue(t.Context(), a, queue.Main)
+	require.NoError(t, err)
+
+	res, err := pc.Rs.WaitOnResponse(t.Context(), a.Data.ID, types.Submit, utils.TestTimeConfig.Timeout)
+	require.NoError(t, err)
+
+	require.Equal(t, types.Submit, res.Result.SubmissionTag)
+	require.True(t, res.Result.Status)
+
+	return nextPolicy, voters, privKeys, pubKeysMap
 }
 
 func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64, teeId common.Address) *backup.WalletBackup {
