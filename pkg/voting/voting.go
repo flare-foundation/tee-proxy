@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/storage"
 	"github.com/flare-foundation/tee-proxy/pkg/limiter"
@@ -158,7 +157,6 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	err := checkSize(data)
 	if err != nil {
-		logger.Error(err)
 		return nil, err
 	}
 
@@ -177,10 +175,10 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		return nil, fmt.Errorf("verifying message validity: %w", err)
 	}
 
-	// Do not allow creating two sets boxes at once. Release lock if set of boxes exists.
+	// Do not allow creating two sets of boxes at once. Release lock if set of boxes exists.
 	round.Lock()
-	boxes, exist := round.Voting.M[id]
-	if !exist {
+	boxes, existsBs := round.Voting.M[id]
+	if !existsBs {
 		boxes = newVoteBoxes()
 		defer round.Unlock()
 		// we only save it at the end if no errors are returned
@@ -190,8 +188,9 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	// Do not allow creating two boxes at once. Release lock if box exist.
 	boxes.Lock()
-	box, exist := boxes.M[hash]
-	if !exist {
+
+	box, existsB := boxes.M[hash]
+	if !existsB {
 		box, err = s.startVoteBox(data, signer, round, id)
 		defer boxes.Unlock()
 		if err != nil {
@@ -229,9 +228,12 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	receipt.InstructionHash = hash
 
-	// save (only needed if new are made otherwise ineffective)
-	boxes.M[hash] = box
-	round.Voting.M[id] = boxes
+	if !existsB {
+		boxes.M[hash] = box
+	}
+	if !existsBs {
+		round.Voting.M[id] = boxes
+	}
 
 	if finished {
 		round.limiter.Decrement(box.Proposer)

@@ -20,6 +20,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-node/pkg/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/stretchr/testify/require"
 )
@@ -35,7 +36,7 @@ func BuildInstructionData(
 	teeId common.Address,
 	rewardEpochId uint32,
 ) *instruction.Data {
-	instructionId, err := GenerateRandomBytes(32)
+	instructionId, err := testutil.GenerateRandomBytes(32)
 	require.NoError(t, err)
 	return BuildInstructionDataWithId(t, common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
 }

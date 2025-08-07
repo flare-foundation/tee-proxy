@@ -12,7 +12,9 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 
-	"github.com/flare-foundation/tee-node/pkg/utils"
+	utils "github.com/flare-foundation/tee-node/pkg/utils"
+
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 )
 
 func EncodeSigningPolicy(policy *relay.RelaySigningPolicyInitialized) ([]byte, error) {
@@ -113,20 +115,18 @@ func GetVoterWeights(policy *policy.SigningPolicy) []uint16 {
 	return weights
 }
 
-const TotalWeight = 1<<16 - 1
-
 func GenerateRandomPolicyData(rewardEpochId uint32, voters []common.Address, seed int64) *policy.SigningPolicy {
 	rgen := rand.New(rand.NewSource(seed))
 
 	startVotingRoundId := rgen.Uint32()
 
-	threshold := uint16(TotalWeight / 2)
+	threshold := uint16(testutil.TotalWeight / 2)
 	randSeed := big.NewInt(rgen.Int63())
 	weights := []uint16{}
 
-	normalizedWeights := RandomNormalizedArray(len(voters), seed)
+	normalizedWeights := testutil.RandomNormalizedArray(len(voters), seed)
 	for _, w := range normalizedWeights {
-		weights = append(weights, uint16(w*TotalWeight))
+		weights = append(weights, uint16(w*testutil.TotalWeight))
 	}
 
 	event := relay.RelaySigningPolicyInitialized{

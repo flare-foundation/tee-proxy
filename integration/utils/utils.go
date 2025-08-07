@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"sync"
 	"testing"
@@ -33,8 +32,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
-
-	cryptorand "crypto/rand"
 )
 
 type ProxyConfig struct {
@@ -47,6 +44,7 @@ type ProxyConfig struct {
 	Vc          *voting.Config
 	Vs          *voting.Storage
 	Ws          *wallets.Storage
+	If          *info.Storage
 }
 
 var TestTimeConfig = struct {
@@ -54,7 +52,16 @@ var TestTimeConfig = struct {
 	Interval time.Duration
 }{
 	Timeout:  2000 * time.Millisecond,
-	Interval: 5 * time.Millisecond,
+	Interval: 50 * time.Millisecond,
+}
+
+var StorageTimeConfig = struct {
+	CycleInternal          time.Duration
+	CycleQueueResponseWait time.Duration
+}{
+
+	CycleInternal:          50 * time.Millisecond,
+	CycleQueueResponseWait: 10 * time.Millisecond,
 }
 
 func mockDB(t *testing.T) *gorm.DB {
@@ -101,8 +108,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}()
 
 	infoStorage := info.NewStorage(db, aq, rs, &config.StorageTiming{
-		CycleInternal:          TestTimeConfig.Interval,
-		CycleQueueResponseWait: TestTimeConfig.Timeout,
+		CycleInternal:          StorageTimeConfig.CycleInternal,
+		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 	})
 
 	initialInfo, err := infoStorage.FetchInfo(t.Context())
@@ -169,39 +176,6 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		Vs:          vs,
 		Ws:          &walletStorage,
 	}, cleanup
-}
-
-// RandomNormalizedArray generates an array of n random floats that sum to 1
-func RandomNormalizedArray(n int, seed int64) []float64 {
-	// Initialize random source with seed
-	source := rand.NewSource(seed)
-	r := rand.New(source)
-
-	// Generate random numbers
-	numbers := make([]float64, n)
-	sum := 0.0
-
-	for i := range n {
-		// Generate random float between 0 and 1
-		numbers[i] = r.Float64()
-		sum += numbers[i]
-	}
-
-	// Normalize to sum to 1
-	for i := range n {
-		numbers[i] /= sum
-	}
-
-	return numbers
-}
-
-func GenerateRandomBytes(n int) ([]byte, error) {
-	b := make([]byte, n)
-	if _, err := io.ReadFull(cryptorand.Reader, b); err != nil {
-		return nil, err
-	}
-
-	return b, nil
 }
 
 func makeRequests[T any](t *testing.T, url string, result *T) {

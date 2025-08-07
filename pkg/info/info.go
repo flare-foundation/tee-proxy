@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -59,7 +60,6 @@ func (s *Storage) Run(ctx context.Context) error {
 			errCount++
 		} else {
 			errCount = 0
-			logger.Info("info updated")
 		}
 
 		if errCount > 10 {
@@ -74,7 +74,6 @@ func (s *Storage) FetchInfo(ctx context.Context) (*types.TeeInfoResponse, error)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("info fetched")
 
 	return s.Latest, nil
 }
@@ -129,6 +128,8 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 
 	s.Lock()
 	defer s.Unlock()
+
+	fmt.Printf("PROXY AFTER UPDATE INFO %v\n", result.TeeInfo.TeeTimestamp)
 
 	s.Latest = result
 
