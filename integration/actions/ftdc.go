@@ -15,6 +15,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +43,7 @@ func FtdcProve(
 	originalMessageEncoded, err := types.EncodeFTDCRequest(originalMessage)
 	require.NoError(t, err)
 
-	challenge, err := utils.GenerateRandomBytes(32)
+	challenge, err := testutil.GenerateRandomBytes(32)
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())

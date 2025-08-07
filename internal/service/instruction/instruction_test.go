@@ -1,6 +1,8 @@
 package instruction
 
 import (
+	"context"
+	"crypto/ecdsa"
 	"testing"
 	"time"
 
@@ -10,9 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
@@ -33,35 +37,12 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 }
 
 func TestVoting(t *testing.T) {
-	mr := miniredis.RunT(t)
-	c := queue.NewClient(mr.Addr())
+	teeId := common.HexToAddress("dead")
+
+	mr, c, s, sk4 := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
-
-	vCfg := &voting.Config{
-		ProposalExpiration: 0,
-		MaxPendingRequests: 0,
-	}
-
-	vs := voting.NewStorage(vCfg, 3, &testMeta{}, 3)
-	vs.CreateRound(testutil.TestSigningPolicy)
-
-	var teeId = common.HexToAddress("dead")
-
-	PrivKey4, err := crypto.GenerateKey()
-	if err != nil {
-		panic("cannot generate key")
-	}
-
-	aq := queue.NewActionQueues(c)
-	s := &Service{
-		teeID:    teeId,
-		vs:       vs,
-		policies: make(chan policy.SigningPolicy, 1),
-		aq:       aq,
-		pk:       PrivKey4,
-	}
 
 	go func() {
 		err := s.Forward(t.Context())
@@ -72,12 +53,97 @@ func TestVoting(t *testing.T) {
 
 	iData := &instruction.Data{
 		DataFixed: instruction.DataFixed{
-			InstructionId:          crypto.Keccak256Hash([]byte("todo")),
+			InstructionId:          crypto.Keccak256Hash([]byte("TestVoting")),
 			TeeId:                  teeId,
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochId:          1,
-			OpType:                 constants.Wallet.Hash(),
-			OpCommand:              constants.KeyGenerate.Hash(),
+			OpType:                 constants.FTDC.Hash(),
+			OpCommand:              constants.Prove.Hash(),
+			OriginalMessage:        []byte("TODO"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	iData.AdditionalVariableMessage = hexutil.Bytes("ADD_VAR_1")
+	h, err := iData.HashForSigning()
+	require.NoError(t, err)
+
+	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	i1 := &instruction.Instruction{
+		Data:      *iData,
+		Signature: s1,
+	}
+
+	iData.AdditionalVariableMessage = hexutil.Bytes("ADD_VAR_2")
+	h, err = iData.HashForSigning()
+	require.NoError(t, err)
+
+	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
+	require.NoError(t, err)
+
+	i2 := &instruction.Instruction{
+		Data:      *iData,
+		Signature: s2,
+	}
+
+	sr1, err := s.ServeInstruction(t.Context(), i1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
+
+	sr2, err := s.ServeInstruction(t.Context(), i2)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
+
+	pubKey1, err := sr1.RecoverPubKey()
+	require.NoError(t, err)
+	require.True(t, pubKey1.X.Cmp(sk4.X) == 0 && pubKey1.Y.Cmp(sk4.Y) == 0)
+
+	pubKey2, err := sr2.RecoverPubKey()
+	require.NoError(t, err)
+	require.True(t, pubKey2.X.Cmp(sk4.X) == 0 && pubKey2.Y.Cmp(sk4.Y) == 0)
+
+	time.Sleep(2000 * time.Millisecond)
+	a, err := s.aq.Pop(t.Context(), queue.Main)
+	require.NoError(t, err)
+	require.Equal(t, a.Data.ID, common.Hash(iData.InstructionId))
+	require.Equal(t, a.Data.SubmissionTag, types.Threshold)
+	require.Equal(t, a.Data.Type, types.Instruction)
+
+	//* --------------------------------
+	require.Len(t, a.Signatures, 2)
+	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
+	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
+
+	require.Equal(t, a.AdditionalVariableMessages[0], hexutil.Bytes("ADD_VAR_1"))
+	require.Equal(t, a.AdditionalVariableMessages[1], hexutil.Bytes("ADD_VAR_2"))
+}
+
+func TestStatus(t *testing.T) {
+	teeId := common.HexToAddress("dead")
+
+	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	go func() {
+		err := s.Forward(t.Context())
+		if err != nil {
+			return
+		}
+	}()
+
+	iData := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionId:          crypto.Keccak256Hash([]byte("TestStatus")),
+			TeeId:                  teeId,
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochId:          1,
+			OpType:                 constants.FTDC.Hash(),
+			OpCommand:              constants.Prove.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -107,24 +173,337 @@ func TestVoting(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
 
+	//Get the status of the instruction
+	status, err := s.Status(i1.Data.InstructionId, 1)
+	require.NoError(t, err)
+
+	require.Equal(t, common.Hash(i1.Data.InstructionId), status.InstructionID)
+	require.Equal(t, 1, len(status.Status))
+
+	iHash, err := iData.HashFixed()
+	require.NoError(t, err)
+	require.Equal(t, status.Status[0].InstructionHash, iHash)
+	require.Equal(t, status.Status[0].Finalized, false)
+	require.Equal(t, status.Status[0].Deleted, false)
+	require.Equal(t, status.Status[0].Weight, uint16(1))
+
+	// * --------------------------------
 	sr2, err := s.ServeInstruction(t.Context(), i2)
 	require.NoError(t, err)
+
 	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
 
-	pubKey1, err := sr1.RecoverPubKey()
+	//Get the status of the instruction
+	status, err = s.Status(i2.Data.InstructionId, 1)
 	require.NoError(t, err)
-	require.True(t, pubKey1.X.Cmp(PrivKey4.X) == 0 && pubKey1.Y.Cmp(PrivKey4.Y) == 0)
 
-	pubKey2, err := sr2.RecoverPubKey()
+	require.Equal(t, common.Hash(i2.Data.InstructionId), status.InstructionID)
+	require.Equal(t, 1, len(status.Status))
+
+	iHash, err = iData.HashFixed()
 	require.NoError(t, err)
-	require.True(t, pubKey2.X.Cmp(PrivKey4.X) == 0 && pubKey2.Y.Cmp(PrivKey4.Y) == 0)
+	require.Equal(t, status.Status[0].InstructionHash, iHash)
+	require.Equal(t, status.Status[0].Finalized, true)
+	require.Equal(t, status.Status[0].Deleted, false)
+	require.Equal(t, status.Status[0].Weight, uint16(4))
 
-	time.Sleep(2000 * time.Millisecond)
-	a, err := s.aq.Pop(t.Context(), queue.Main)
+	// * --------------------------------
+	iData2 := *iData
+	iData2.OriginalMessage = []byte("TODO2")
+
+	h2, err := iData2.HashForSigning()
 	require.NoError(t, err)
-	require.Equal(t, a.Data.ID, common.Hash(iData.InstructionId))
 
-	require.Len(t, a.Signatures, 2)
-	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
-	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
+	s3, err := instruction.SignInstructionHash(h2, testutil.PrivKey3)
+	require.NoError(t, err)
+
+	i3 := &instruction.Instruction{
+		Data:      iData2,
+		Signature: s3,
+	}
+
+	sr3, err := s.ServeInstruction(t.Context(), i3)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(0), sr3.Receipt.Sequence)
+
+	// Get the status of the instruction
+	status, err = s.Status(i3.Data.InstructionId, 1)
+	require.NoError(t, err)
+
+	require.Equal(t, common.Hash(i3.Data.InstructionId), status.InstructionID)
+	require.Equal(t, 2, len(status.Status))
+
+	iHash, err = iData2.HashFixed()
+	require.NoError(t, err)
+	require.Equal(t, status.Status[1].InstructionHash, iHash)
+	require.Equal(t, status.Status[1].Finalized, false)
+	require.Equal(t, status.Status[1].Deleted, false)
+	require.Equal(t, status.Status[1].Weight, uint16(3))
+}
+
+func TestOpTypeOpCommandValidation(t *testing.T) {
+	teeId := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	// Valid opType/opCommand combinations - these should pass validation
+	validTestCases := []struct {
+		name        string
+		opType      common.Hash
+		opCommand   common.Hash
+		description string
+	}{
+		{"Reg_TEEAttestation", constants.Reg.Hash(), constants.TEEAttestation.Hash(), "Reg + TEEAttestation should be valid"},
+		{"Wallet_KeyDataProviderRestore", constants.Wallet.Hash(), constants.KeyDataProviderRestore.Hash(), "Wallet + KeyDataProviderRestore should be valid"},
+		{"Wallet_KeyDataProviderRestoreTest", constants.Wallet.Hash(), constants.KeyDataProviderRestoreTest.Hash(), "Wallet + KeyDataProviderRestoreTest should be valid"},
+		{"Wallet_KeyDelete", constants.Wallet.Hash(), constants.KeyDelete.Hash(), "Wallet + KeyDelete should be valid"},
+		{"Wallet_KeyGenerate", constants.Wallet.Hash(), constants.KeyGenerate.Hash(), "Wallet + KeyGenerate should be valid"},
+		{"XRP_Pay", constants.XRP.Hash(), constants.Pay.Hash(), "XRP + Pay should be valid"},
+		{"XRP_Reissue", constants.XRP.Hash(), constants.Reissue.Hash(), "XRP + Reissue should be valid"},
+		{"BTC_Pay", constants.BTC.Hash(), constants.Pay.Hash(), "BTC + Pay should be valid"},
+		{"BTC_Reissue", constants.BTC.Hash(), constants.Reissue.Hash(), "BTC + Reissue should be valid"},
+		{"FTDC_Prove", constants.FTDC.Hash(), constants.Prove.Hash(), "FTDC + Prove should be valid"},
+	}
+
+	// Constraint violations - these fail due to "non instruction opCommand" constraint in constraints.go
+	constraintViolationTestCases := []struct {
+		name        string
+		opType      common.Hash
+		opCommand   common.Hash
+		description string
+	}{
+		{"Get_KeyInfo", constants.Get.Hash(), constants.KeyInfo.Hash(), "Get + KeyInfo should be invalid (non instruction opCommand)"},
+		{"Get_TEEBackup", constants.Get.Hash(), constants.TEEBackup.Hash(), "Get + TEEBackup should be invalid (non instruction opCommand)"},
+		{"Get_TEEInfo", constants.Get.Hash(), constants.TEEInfo.Hash(), "Get + TEEInfo should be invalid (non instruction opCommand)"},
+		{"Policy_InitializePolicy", constants.Policy.Hash(), constants.InitializePolicy.Hash(), "Policy + InitializePolicy should be invalid (non instruction opCommand)"},
+		{"Policy_UpdatePolicy", constants.Policy.Hash(), constants.UpdatePolicy.Hash(), "Policy + UpdatePolicy should be invalid (non instruction opCommand)"},
+	}
+
+	// Invalid opType/opCommand pairs - these fail due to incompatible type/command combinations
+	invalidPairTestCases := []struct {
+		name        string
+		opType      common.Hash
+		opCommand   common.Hash
+		description string
+	}{
+		{"Wallet_Pay", constants.Wallet.Hash(), constants.Pay.Hash(), "Wallet + Pay should be invalid"},
+		{"Wallet_Prove", constants.Wallet.Hash(), constants.Prove.Hash(), "Wallet + Prove should be invalid"},
+		{"XRP_KeyGenerate", constants.XRP.Hash(), constants.KeyGenerate.Hash(), "XRP + KeyGenerate should be invalid"},
+		{"XRP_TEEAttestation", constants.XRP.Hash(), constants.TEEAttestation.Hash(), "XRP + TEEAttestation should be invalid"},
+		{"FTDC_Pay", constants.FTDC.Hash(), constants.Pay.Hash(), "FTDC + Pay should be invalid"},
+		{"FTDC_KeyGenerate", constants.FTDC.Hash(), constants.KeyGenerate.Hash(), "FTDC + KeyGenerate should be invalid"},
+		{"Get_Pay", constants.Get.Hash(), constants.Pay.Hash(), "Get + Pay should be invalid"},
+		{"Policy_KeyGenerate", constants.Policy.Hash(), constants.KeyGenerate.Hash(), "Policy + KeyGenerate should be invalid"},
+		{"Reg_Pay", constants.Reg.Hash(), constants.Pay.Hash(), "Reg + Pay should be invalid"},
+		{"BTC_Prove", constants.BTC.Hash(), constants.Prove.Hash(), "BTC + Prove should be invalid"},
+	}
+
+	validCount := 0
+	constraintViolationCount := 0
+	invalidPairCount := 0
+
+	// Helper function to create and test an instruction
+	testInstruction := func(name string, opType, opCommand common.Hash, description string) (*instruction.Instruction, error) {
+		iData := &instruction.Data{
+			DataFixed: instruction.DataFixed{
+				InstructionId:          crypto.Keccak256Hash([]byte("test_" + name)),
+				TeeId:                  teeId,
+				Timestamp:              uint64(time.Now().Unix()),
+				RewardEpochId:          1,
+				OpType:                 opType,
+				OpCommand:              opCommand,
+				OriginalMessage:        []byte("TEST_MESSAGE"),
+				AdditionalFixedMessage: hexutil.Bytes{},
+			},
+			AdditionalVariableMessage: hexutil.Bytes{},
+		}
+
+		hash, err := iData.HashForSigning()
+		require.NoError(t, err, "Failed to generate hash for signing for %s", name)
+
+		signature, err := instruction.SignInstructionHash(hash, testutil.PrivKey1)
+		require.NoError(t, err, "Failed to sign instruction hash for %s", name)
+
+		inst := &instruction.Instruction{
+			Data:      *iData,
+			Signature: signature,
+		}
+
+		_, err = s.ServeInstruction(context.Background(), inst)
+		return inst, err
+	}
+
+	// Test valid combinations - these should pass
+	t.Log("Testing valid opType/opCommand combinations...")
+	for _, tc := range validTestCases {
+		_, err := testInstruction(tc.name, tc.opType, tc.opCommand, tc.description)
+		require.NoError(t, err, "Expected valid combination to pass: %s (%s)", tc.name, tc.description)
+		validCount++
+	}
+
+	// Test constraint violations - these should fail with "non instruction opCommand" error
+	t.Log("Testing constraint violation cases...")
+	for _, tc := range constraintViolationTestCases {
+		_, err := testInstruction(tc.name, tc.opType, tc.opCommand, tc.description)
+		require.Error(t, err, "Expected constraint violation to fail: %s (%s)", tc.name, tc.description)
+		require.Contains(t, err.Error(), "non instruction opCommand", "Expected 'non instruction opCommand' error for: %s", tc.name)
+		require.Contains(t, err.Error(), "'bad request'", "Expected 400 status code error for: %s", tc.name)
+		constraintViolationCount++
+	}
+
+	// Test invalid pairs - these should fail with "invalid pair opType, opCommand" error
+	t.Log("Testing invalid opType/opCommand pair cases...")
+	for _, tc := range invalidPairTestCases {
+		_, err := testInstruction(tc.name, tc.opType, tc.opCommand, tc.description)
+		require.Error(t, err, "Expected invalid pair to fail: %s (%s)", tc.name, tc.description)
+		require.Contains(t, err.Error(), "invalid pair opType, opCommand", "Expected 'invalid pair opType, opCommand' error for: %s", tc.name)
+		require.Contains(t, err.Error(), "'bad request'", "Expected 400 status code error for: %s", tc.name)
+		invalidPairCount++
+	}
+
+	// Summary logging
+	t.Logf("Successfully validated %d valid opType/opCommand pairs", validCount)
+	t.Logf("Successfully validated %d constraint violation cases", constraintViolationCount)
+	t.Logf("Successfully validated %d invalid opType/opCommand pairs", invalidPairCount)
+	t.Logf("Total test cases: %d", validCount+constraintViolationCount+invalidPairCount)
+}
+
+// Helper function to create a base instruction data with common fields
+func createBaseInstructionData(testName string, teeId common.Address) *instruction.Data {
+	return &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionId:          crypto.Keccak256Hash([]byte(testName)),
+			TeeId:                  teeId,
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochId:          1,
+			OpType:                 constants.FTDC.Hash(),
+			OpCommand:              constants.Prove.Hash(),
+			OriginalMessage:        []byte("TEST_MESSAGE"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+}
+
+// Helper function to sign an instruction with a given private key
+func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.PrivateKey) *instruction.Instruction {
+	hash, err := iData.HashForSigning()
+	require.NoError(t, err)
+
+	signature, err := instruction.SignInstructionHash(hash, privateKey)
+	require.NoError(t, err)
+
+	return &instruction.Instruction{
+		Data:      *iData,
+		Signature: signature,
+	}
+}
+
+func TestVotingStorageErrors(t *testing.T) {
+	teeId := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeId, testutil.TestSigningPolicy)
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	testCases := []struct {
+		name           string
+		setupFunc      func(t *testing.T, s *Service) *instruction.Instruction
+		expectedError  string
+		expectedStatus string
+	}{
+		{
+			name: "WrongTeeID_400",
+			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				iData := createBaseInstructionData("test_wrong_tee_id", teeId)
+				iData.TeeId = common.HexToAddress("wrong") // Wrong teeID
+				return signInstruction(t, iData, testutil.PrivKey1)
+			},
+			expectedError:  "wrong teeID",
+			expectedStatus: "'bad request'",
+		},
+		{
+			name: "NonExistentRewardEpoch_404",
+			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				iData := createBaseInstructionData("test_nonexistent_epoch", teeId)
+				iData.RewardEpochId = 999 // Non-existent epoch
+				return signInstruction(t, iData, testutil.PrivKey1)
+			},
+			expectedError:  "no round 999",
+			expectedStatus: "'not found'",
+		},
+		{
+			name: "VoterNotInSigningPolicy_403",
+			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				iData := createBaseInstructionData("test_invalid_voter", teeId)
+				randomKey, err := crypto.GenerateKey()
+				require.NoError(t, err)
+				return signInstruction(t, iData, randomKey) // Use key not in signing policy
+			},
+			expectedError:  "voter not registered",
+			expectedStatus: "'forbidden'",
+		},
+		{
+			name: "AlreadyVotedSigner_403",
+			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				iData := createBaseInstructionData("test_duplicate_vote", teeId)
+				inst := signInstruction(t, iData, testutil.PrivKey1)
+
+				// Process the instruction once (should succeed)
+				_, err := s.ServeInstruction(context.Background(), inst)
+				require.NoError(t, err, "First vote should succeed")
+
+				// Return the same instruction to try voting again
+				return inst
+			},
+			expectedError:  "signature already stored",
+			expectedStatus: "'forbidden'",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			instruction := tc.setupFunc(t, s)
+
+			_, err := s.ServeInstruction(context.Background(), instruction)
+
+			require.Error(t, err, "Expected error for %s", tc.name)
+			require.Contains(t, err.Error(), tc.expectedError, "Expected specific error message for %s", tc.name)
+			require.Contains(t, err.Error(), tc.expectedStatus, "Expected specific status code for %s", tc.name)
+
+			t.Logf("✓ %s: Got expected error: %v", tc.name, err)
+		})
+	}
+
+	t.Logf("Successfully validated %d voting storage error scenarios", len(testCases))
+}
+
+func setupInstructionService(t *testing.T, teeId common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service, *ecdsa.PrivateKey) {
+	mr := miniredis.RunT(t)
+	c := queue.NewClient(mr.Addr())
+
+	vCfg := &voting.Config{
+		ProposalExpiration: 0,
+		MaxPendingRequests: 0,
+	}
+
+	vs := voting.NewStorage(vCfg, 3, &testMeta{}, 3)
+	vs.CreateRound(sp)
+
+	sk4, err := crypto.GenerateKey()
+	if err != nil {
+		panic("cannot generate key")
+	}
+
+	aq := queue.NewActionQueues(c)
+	s := &Service{
+		teeID:    teeId,
+		vs:       vs,
+		policies: make(chan policy.SigningPolicy, 1),
+		aq:       aq,
+		pk:       sk4,
+	}
+
+	return mr, c, s, sk4
 }

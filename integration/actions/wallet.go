@@ -21,6 +21,7 @@ import (
 	commonwallet "github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -91,7 +92,7 @@ func GenerateWallet(
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Wallet, constants.KeyGenerate, receipts)
 
 	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
-	utils.VerifyVotingStatus(t, votingStatus, 0, 0, utils.TotalWeight/2)
+	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return &walletExistenceProof
 }
@@ -136,7 +137,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.Wallet, constants.KeyDelete, receipts)
 
 	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
-	utils.VerifyVotingStatus(t, votingStatus, 0, 0, utils.TotalWeight/2)
+	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 }
 
 // RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies ITeeWalletKeyManagerKeyExistence proof and cheks that recovered wallet is in proxy wallet storage
@@ -227,8 +228,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 
-	// Send KEY_DATA_PROVIDER_RESTORE instruction for each provider & admin
-	instructionId, _ := utils.GenerateRandomBytes(32)
+	instructionId, _ := testutil.GenerateRandomBytes(32)
 	receipts := make([]*voting.SignedReceipt, 0)
 	instructions := make([]instruction.Data, 0)
 	for i, privKey := range privKeys {
@@ -260,7 +260,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionId), constants.Wallet, constants.KeyDataProviderRestore, receipts)
 
 	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, common.BytesToHash(instructionId))
-	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), utils.TotalWeight/2)
+	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), testutil.TotalWeight/2)
 
 	return walletExistenceProof
 }

@@ -4,9 +4,10 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
-	"github.com/ethereum/go-ethereum/common"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
@@ -21,6 +22,7 @@ import (
 	xrpltypes "github.com/flare-foundation/go-flare-common/pkg/xrpl/encoding/types"
 
 	"github.com/flare-foundation/tee-proxy/integration/utils"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,7 +103,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionId, constants.XRP, constants.Pay, receipts)
 
 	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionId)
-	utils.VerifyVotingStatus(t, votingStatus, 0, 0, utils.TotalWeight/2)
+	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return TransactionData{
 		Tx:      txData,
