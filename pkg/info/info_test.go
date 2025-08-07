@@ -54,7 +54,7 @@ func TestInsertBlock(t *testing.T) {
 	}()
 
 	time.Sleep(15 * time.Millisecond)
-	a, err := aq.Pop(t.Context(), queue.Read)
+	a, err := aq.Dequeue(t.Context(), queue.Read)
 	require.NoError(t, err)
 	require.Equal(t, types.Submit, a.Data.SubmissionTag)
 	require.Equal(t, types.Direct, a.Data.Type)

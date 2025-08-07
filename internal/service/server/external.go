@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
@@ -66,6 +67,7 @@ func NewExternal(port string,
 
 // Serve starts the server.
 func (e *External) Serve() error {
+	logger.Infof("serving external at %s", e.server.Addr)
 	return e.server.ListenAndServe()
 }
 
@@ -182,7 +184,6 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// decide on the response type
 func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
 	wID, err := hashParam(r, walletID)
 	if err != nil {
@@ -194,7 +195,7 @@ func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	walletInfo, err := e.wallet.KeyData(wID, kID) //todo format this
+	walletInfo, err := e.wallet.KeyData(wID, kID)
 	if err != nil {
 		return err
 	}

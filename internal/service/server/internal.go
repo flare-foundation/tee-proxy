@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
@@ -51,6 +52,7 @@ func NewInternal(port string,
 
 // Serve starts the server.
 func (i *Internal) Serve() error {
+	logger.Infof("serving internal at %s", i.server.Addr)
 	return i.server.ListenAndServe()
 }
 

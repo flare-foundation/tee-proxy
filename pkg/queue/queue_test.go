@@ -39,7 +39,7 @@ func TestActionQueues(t *testing.T) {
 	err := q.Enqueue(ctx, action, Main)
 	require.NoError(t, err)
 
-	retrievedAction, err := q.Pop(ctx, Main)
+	retrievedAction, err := q.Dequeue(ctx, Main)
 	require.NoError(t, err)
 
 	require.Equal(t, *action, *retrievedAction)

@@ -96,6 +96,7 @@ func (s *Storage[T]) Enqueue(ctx context.Context, item T) error {
 	return s.client.LPush(ctx, s.prefix(""), data).Err()
 }
 
+// Dequeue dequeues an item from the queue. If no item is available, ErrEmptyQueue returned.
 func (s *Storage[T]) Dequeue(ctx context.Context) (T, error) {
 	var t T
 

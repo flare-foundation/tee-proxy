@@ -7,6 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
@@ -84,17 +85,20 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
 
-	if (common.Hash{}).Cmp(initialInfo.TeeInfo.InitialSigningPolicyHash) != 0 {
+	if initialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
+		logger.Infof("starting signing policy updates from epoch %d", initialInfo.TeeInfo.LastSigningPolicyID)
 		err = policyService.SetInitialPolicy(ctx, db, initialInfo.TeeInfo.LastSigningPolicyID)
 		if err != nil {
 			panic(err)
 		}
 		walletSyncCue <- true
 	} else {
+		logger.Info("initializing signing policy")
 		err = policyService.Initialize(ctx, db, cfg.Timing)
 		if err != nil {
 			panic(err)
 		}
+		logger.Info("first ")
 	}
 
 	policyChan, err := policyService.Run(ctx, db)

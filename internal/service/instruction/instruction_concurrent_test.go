@@ -96,7 +96,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	defer c.Close() //nolint:errcheck
 
 	// Use 100 pairs of instructions to maximize race condition probability
-	const numPairs = 100 //00
+	const numPairs = 100
 	const totalInstructions = numPairs * 2
 
 	t.Logf("Starting race condition stress test with %d instruction pairs (%d total instructions)", numPairs, totalInstructions)
@@ -379,7 +379,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	// Most importantly: verify only ONE action was enqueued
 	actionCount := 0
 	for {
-		action, err := s.aq.Pop(context.Background(), queue.Main)
+		action, err := s.aq.Dequeue(context.Background(), queue.Main)
 		if err != nil {
 			break // No more actions in queue
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
@@ -75,7 +76,7 @@ func (s *Service) Forward(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("instructionforwarding stopped %v", ctx.Err())
+			return fmt.Errorf("instruction forwarding stopped %v", ctx.Err())
 		case box := <-s.vs.OutThreshold:
 			box.RLock()
 			a, err := box.Action(types.Threshold)
@@ -114,6 +115,8 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 		case <-ctx.Done():
 			return fmt.Errorf("listenToPolicies stopped %v", ctx.Err())
 		case policy := <-s.policies:
+			logger.Debugf("creating round for %d", policy.RewardEpochID)
+			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())
 			s.vs.CreateRound(&policy)
 		}
 	}

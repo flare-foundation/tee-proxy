@@ -27,7 +27,7 @@ func FtdcProve(
 	providerPrivKeys, cosignerPrivKeys []*ecdsa.PrivateKey,
 	rewardEpochId uint32,
 ) *types.FTDCProveResponse {
-	cosignerAddresses, cosignerAndProvider := GetCosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
+	cosignerAddresses, cosignerAndProvider := CosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
 
 	originalMessage := connector.IFtdcHubFtdcAttestationRequest{
 		Header: connector.IFtdcHubFtdcRequestHeader{
@@ -94,7 +94,7 @@ func FtdcProve(
 	return &ftdcResponse
 }
 
-func GetCosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, providerPrivKeys []*ecdsa.PrivateKey) ([]common.Address, map[common.Address]bool) {
+func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, providerPrivKeys []*ecdsa.PrivateKey) ([]common.Address, map[common.Address]bool) {
 	cosignerAddresses := make([]common.Address, len(cosignerPrivKeys))
 	cosignerAndProvider := make(map[common.Address]bool)
 

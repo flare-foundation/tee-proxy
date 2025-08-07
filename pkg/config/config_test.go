@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -14,10 +13,8 @@ import (
 func TestRead(t *testing.T) {
 	const path = "./test_configs/config.toml"
 
-	cfg, err := Read(path)
+	_, err := Read(path)
 	require.NoError(t, err)
-
-	fmt.Printf("cfg: %v\n", cfg)
 }
 
 func TestReadFail(t *testing.T) {
@@ -30,8 +27,6 @@ func TestReadFail(t *testing.T) {
 
 	_, err = Read(nopath)
 	require.Error(t, err)
-
-	fmt.Printf("err: %v\n", err)
 }
 
 func TestValidateAddresses(t *testing.T) {

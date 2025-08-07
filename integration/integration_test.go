@@ -69,7 +69,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochId)
 	ok := integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
-		return common.BytesToHash(teeInfo.TeeInfo.LastSigningPolicyHash[:]) == common.BytesToHash(policy.Hash()[:])
+		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.Hash())
 	})
 	require.True(t, ok, "Policy not initialized on TEE")
 	logger.Info("Initialized policy")
@@ -124,7 +124,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 
 	ok = integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
-		return common.BytesToHash(teeInfo.TeeInfo.LastSigningPolicyHash[:]) == common.BytesToHash(newPolicy.Hash()[:])
+		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(newPolicy.Hash())
 	})
 	require.True(t, ok, "TEE info did not update to new policy hash in time")
 

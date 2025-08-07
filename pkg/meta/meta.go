@@ -41,7 +41,7 @@ func New(ws *wallets.Storage) Meta {
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	switch common.Hash(data.OPCommand) {
+	switch data.OPCommand {
 	case constants.Pay.Hash(), constants.Reissue.Hash():
 		return xrpCosigners(data, m.ws)
 
@@ -117,7 +117,7 @@ func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64
 }
 
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
-	switch common.Hash(data.OPCommand) {
+	switch data.OPCommand {
 	case constants.Prove.Hash():
 		return ftdcCheckConsistency(data, signer)
 	}

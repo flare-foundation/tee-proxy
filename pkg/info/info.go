@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -53,6 +52,7 @@ func (s *Storage) Run(ctx context.Context) error {
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
+			logger.Info("tee info storage exiting")
 			return ctx.Err()
 		}
 		err := s.updateInfo(ctx)
@@ -62,8 +62,8 @@ func (s *Storage) Run(ctx context.Context) error {
 			errCount = 0
 		}
 
-		if errCount > 10 {
-			logger.Error("neki")
+		if errCount > 5 {
+			logger.Errorf("tee info update unsuccessful in %d attempts: latest error: %s", errCount, err)
 		}
 	}
 }
@@ -128,8 +128,6 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 
 	s.Lock()
 	defer s.Unlock()
-
-	fmt.Printf("PROXY AFTER UPDATE INFO %v\n", result.TeeInfo.TeeTimestamp)
 
 	s.Latest = result
 

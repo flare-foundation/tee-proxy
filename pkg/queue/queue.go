@@ -71,7 +71,8 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 
 var ErrEmptyQueue = fmt.Errorf("%w: empty queue", status.HTTP[404])
 
-func (as *ActionQueues) Pop(ctx context.Context, id QueueID) (*types.Action, error) {
+// Dequeue dequeues action from indicated queue. If no action is available, wrapped ErrEmptyQueue is dequeued.
+func (as *ActionQueues) Dequeue(ctx context.Context, id QueueID) (*types.Action, error) {
 	var queue *Storage[*StoringID]
 
 	switch id {
@@ -150,7 +151,7 @@ func (rs *ResponseStorage) WaitOnResponse(ctx context.Context, actionID common.H
 
 	for {
 		if err = ctx.Err(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
 		}
 
 		response, err = rs.GetResponse(ctx, actionID, submissionTag) // todo retry

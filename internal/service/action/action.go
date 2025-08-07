@@ -18,7 +18,7 @@ func NewService(aq *queue.ActionQueues) Service {
 }
 
 func (s *Service) DequeueAction(ctx context.Context, id queue.QueueID) (*types.Action, error) {
-	action, err := s.aq.Pop(ctx, id)
+	action, err := s.aq.Dequeue(ctx, id)
 	if err != nil {
 		return nil, err
 	}

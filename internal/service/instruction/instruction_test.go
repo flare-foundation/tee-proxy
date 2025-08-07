@@ -106,13 +106,13 @@ func TestVoting(t *testing.T) {
 	require.True(t, pubKey2.X.Cmp(sk4.X) == 0 && pubKey2.Y.Cmp(sk4.Y) == 0)
 
 	time.Sleep(2000 * time.Millisecond)
-	a, err := s.aq.Pop(t.Context(), queue.Main)
+	a, err := s.aq.Dequeue(t.Context(), queue.Main)
 	require.NoError(t, err)
 	require.Equal(t, a.Data.ID, iData.InstructionID)
 	require.Equal(t, a.Data.SubmissionTag, types.Threshold)
 	require.Equal(t, a.Data.Type, types.Instruction)
 
-	//* --------------------------------
+	// --------------------------------
 	require.Len(t, a.Signatures, 2)
 	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
 	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
@@ -173,7 +173,7 @@ func TestStatus(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
 
-	//Get the status of the instruction
+	// Get the status of the instruction
 	status, err := s.Status(i1.Data.InstructionID, 1)
 	require.NoError(t, err)
 
@@ -193,7 +193,7 @@ func TestStatus(t *testing.T) {
 
 	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
 
-	//Get the status of the instruction
+	// Get the status of the instruction
 	status, err = s.Status(i2.Data.InstructionID, 1)
 	require.NoError(t, err)
 

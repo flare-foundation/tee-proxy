@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/policy"
@@ -81,8 +82,10 @@ func (s *Service) update(ctx context.Context, db *gorm.DB, logsC <-chan []databa
 			case <-ctx.Done():
 				return
 			case logs := <-logsC:
+				logger.Debugf("updating signing policy from %d")
 				action, p, err := policy.UpdatePolicyAction(ctx, db, s.addresses, logs[0], s.activePolicy)
 				if err != nil {
+					logger.Errorf("creating UPDATE_POLICY action: %s", err)
 					continue
 				}
 
@@ -92,6 +95,7 @@ func (s *Service) update(ctx context.Context, db *gorm.DB, logsC <-chan []databa
 
 				err = s.aq.Enqueue(ctx, action, queue.Read)
 				if err != nil {
+					logger.Errorf("enqueueing UPDATE_POLICY action: %s", err)
 					continue
 				}
 			}
