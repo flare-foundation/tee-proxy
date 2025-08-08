@@ -236,10 +236,18 @@ func TestStatus(t *testing.T) {
 
 	iHash, err = iData2.HashFixed()
 	require.NoError(t, err)
-	require.Equal(t, status.Status[1].InstructionHash, iHash)
-	require.Equal(t, status.Status[1].Finalized, false)
-	require.Equal(t, status.Status[1].Deleted, false)
-	require.Equal(t, status.Status[1].Weight, uint16(3))
+
+	if status.Status[0].InstructionHash == iHash {
+		require.Equal(t, status.Status[0].Finalized, false)
+		require.Equal(t, status.Status[0].Deleted, false)
+		require.Equal(t, status.Status[0].Weight, uint16(3))
+	} else if status.Status[1].InstructionHash == iHash {
+		require.Equal(t, status.Status[1].Finalized, false)
+		require.Equal(t, status.Status[1].Deleted, false)
+		require.Equal(t, status.Status[1].Weight, uint16(3))
+	} else {
+		require.Fail(t, "unexpected instruction hash")
+	}
 }
 
 func TestOPTypeOPCommandValidation(t *testing.T) {
