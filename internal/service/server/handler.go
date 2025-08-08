@@ -30,7 +30,7 @@ func handleError(w http.ResponseWriter, err error) {
 	code := status.ErrToCode(err)
 	reason := err.Error()
 	if code == -1 {
-		logger.Errorf("internal error: %w", err)
+		logger.Errorf("internal error: %s", err)
 		code = http.StatusInternalServerError
 		reason = "internal server error"
 	}

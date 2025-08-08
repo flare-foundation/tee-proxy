@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -87,7 +88,7 @@ func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSig
 	id := IDPair{WalletID: walletID, KeyID: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
-		return nil, errors.New("key proof not found")
+		return nil, fmt.Errorf("%w: key proof not found", status.HTTP[404])
 	}
 
 	return info.Proof, nil
@@ -100,7 +101,7 @@ func (s *Storage) KeyData(walletID common.Hash, keyID uint64) (*KeyData, error) 
 	id := IDPair{WalletID: walletID, KeyID: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
-		return nil, errors.New("key data not found")
+		return nil, fmt.Errorf("%w: key data not found", status.HTTP[404])
 	}
 
 	return info, nil
