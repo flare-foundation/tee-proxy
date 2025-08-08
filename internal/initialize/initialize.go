@@ -94,11 +94,10 @@ func Initialize(ctx context.Context, cfgPath string) {
 		walletSyncCue <- true
 	} else {
 		logger.Info("initializing signing policy")
-		err = policyService.Initialize(ctx, db, cfg.Timing)
+		err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset)
 		if err != nil {
 			panic(err)
 		}
-		logger.Info("first ")
 	}
 
 	policyChan, err := policyService.Run(ctx, db)

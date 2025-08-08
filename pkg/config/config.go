@@ -4,9 +4,9 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,14 +18,14 @@ import (
 const defaultPrivateKeyVariable = "PRIVATE_KEY"
 
 type Proxy struct {
-	DB                 database.Config `toml:"db"`                   // C-chain indexer database config.
-	RedisPort          string          `toml:"redis_port"`           // Redis database port.
-	Addresses          Addresses       `toml:"addresses"`            // Smart contract addresses.
-	Ports              Ports           `toml:"ports"`                // Servers ports.
-	Timing             Timing          `toml:"timing"`               // Chain timing.
-	StorageTiming      StorageTiming   `toml:"storage_timing"`       // Storage timing
-	Voting             voting.Config   `toml:"voting"`               // Instruction voting configurations.
-	PrivateKeyVariable string          `toml:"private_key_variable"` // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
+	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
+	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
+	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
+	Ports                      Ports           `toml:"ports"`                         // Servers ports.
+	StorageTiming              StorageTiming   `toml:"storage_timing"`                // Storage timing
+	Voting                     voting.Config   `toml:"voting"`                        // Instruction voting configurations.
+	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
+	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for current - n.
 }
 
 type Addresses struct {
@@ -58,20 +58,14 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
-	err = c.Timing.validate()
-	if err != nil {
-		return c, err
-	}
-
 	err = c.StorageTiming.validate()
 	if err != nil {
 		return c, err
 	}
 
-	c.StorageTiming.CycleInternal = c.StorageTiming.CycleInternal * time.Second
-	c.StorageTiming.CycleQueueResponseWait = c.StorageTiming.CycleQueueResponseWait * time.Second
-
-	c.Voting.ProposalExpiration = c.Voting.ProposalExpiration * time.Second
+	if c.InitialSigningPolicyOffset < 0 {
+		return c, fmt.Errorf("InitialSigningPolicyOffset cannot be negative")
+	}
 
 	return c, err
 }

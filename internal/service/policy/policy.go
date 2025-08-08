@@ -27,13 +27,19 @@ func NewService(aq *queue.ActionQueues, addresses config.Addresses) *Service {
 	}
 }
 
-func (s *Service) Initialize(ctx context.Context, db *gorm.DB, timing config.Timing) error {
-	action, p, err := policy.InitializePolicyAction(ctx, db, s.addresses, timing)
+func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int) error {
+	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.addresses, offset)
 	if err != nil {
 		return err
 	}
 
+	if actualOffset != offset {
+		logger.Warnf("policy initialization set for offset: %d, actual offset: %d", offset, actualOffset)
+	}
+
 	s.activePolicy = p
+
+	logger.Infof("initialized for policy %d", p.RewardEpochID)
 
 	return s.aq.Enqueue(ctx, action, queue.Main)
 }

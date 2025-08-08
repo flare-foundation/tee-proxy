@@ -78,35 +78,6 @@ func TestPrivateKeyFromEnv(t *testing.T) {
 	os.Clearenv()
 }
 
-func TestValidateTiming(t *testing.T) {
-	var timing = Timing{
-		T0:        1,
-		VoteEpoch: 90,
-	}
-
-	require.NoError(t, timing.validate())
-
-	timing.VoteEpoch = 0
-
-	require.Error(t, timing.validate())
-}
-
-func TestTimestampToVotingEpoch(t *testing.T) {
-	// flare
-	var tm = Timing{
-		T0:        1658430000,
-		VoteEpoch: 90,
-	}
-
-	ts := uint64(0x6890b28f) // from block 0xa52a662873fdc34ffcb415733c601ff1f24f9885c7579df84737f102d223406d on flare
-
-	expectedVR := uint32(1065370)
-
-	vr := tm.TimestampToVotingEpochID(ts)
-
-	require.Equal(t, expectedVR, vr)
-}
-
 func TestValidateStorageTiming(t *testing.T) {
 	var timing = StorageTiming{
 		CycleInternal:          100 * time.Second,

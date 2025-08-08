@@ -18,66 +18,46 @@ import (
 	"gorm.io/gorm"
 )
 
+// InitializePolicyAction prepares action for INITIALIZE_POLICY".
+// SigningPolicyInitialized event that precedes the last emitted by offset is used.
+// If such event is not found, the oldest found event is used.
+//
+// The action, signing policy, and used offset are returned.
 func InitializePolicyAction(
 	ctx context.Context,
 	db *gorm.DB,
 	addresses config.Addresses,
-	timing config.Timing,
-) (*types.Action, *policy.SigningPolicy, error) {
-	logs, err := fetchLastTwoSigningPolicyInitializedEvents(ctx, db, addresses.Relay)
-	if err != nil {
-		return nil, nil, err
+	offset int,
+) (*types.Action, *policy.SigningPolicy, int, error) {
+	params := database.LatestLogsParams{
+		Address: addresses.Relay,
+		Topic0:  signingPolicyInitializedEventSel,
+		Number:  offset + 1,
 	}
 
-	latestBlock, err := database.FetchLatestBlock(ctx, db, nil)
+	logs, err := database.FetchLatestLogsByAddressAndTopic0(ctx, db, params)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 
-	event, err := policy.ParseSigningPolicyInitializedEvent(logs[0])
+	event, err := policy.ParseSigningPolicyInitializedEvent(logs[len(logs)-1])
 	if err != nil {
-		return nil, nil, err
-	}
-
-	if timing.TimestampToVotingEpochID(latestBlock.Timestamp) < event.StartVotingRoundId {
-		if len(logs) < 2 {
-			return nil, nil, errors.New("active signing policy not in db")
-		}
-
-		event, err = policy.ParseSigningPolicyInitializedEvent(logs[1])
-		if err != nil {
-			return nil, nil, err
-		}
+		return nil, nil, 0, err
 	}
 
 	p := policy.NewSigningPolicy(event, nil)
 
 	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 
 	action, err := prepareInitializePolicyAction(msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 
-	return action, p, err
-}
-
-// fetchLastTwoSigningPolicyInitializedEvents fetches last two SigningPolicyInitialized
-// events emitted by Relay.
-func fetchLastTwoSigningPolicyInitializedEvents(
-	ctx context.Context,
-	db *gorm.DB,
-	relayAddress common.Address,
-) ([]database.Log, error) {
-	params := database.LatestLogsParams{
-		Address: relayAddress,
-		Topic0:  signingPolicyInitializedEventSel,
-		Number:  2,
-	}
-	return database.FetchLatestLogsByAddressAndTopic0(ctx, db, params)
+	return action, p, len(logs) - 1, err
 }
 
 func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
