@@ -390,14 +390,6 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
 		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
 
-		if len(action.Signatures) >= 2 {
-			fmt.Printf("action %v\n", action.Signatures)
-			fmt.Printf("inst1 %v\n", inst1.Signature)
-			fmt.Printf("inst2 %v\n", inst2.Signature)
-			fmt.Printf("inst3 %v\n", inst3.Signature)
-			break
-		}
-
 		// Should have all three signatures
 		require.Len(t, action.Signatures, 2, "Queued action should contain two signatures")
 	}
