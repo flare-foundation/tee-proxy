@@ -7,7 +7,6 @@ import (
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
-	"github.com/flare-foundation/tee-node/pkg/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -53,8 +52,6 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 			return fmt.Errorf("%w, invalid teeID", status.HTTP[403])
 		}
 	}
-
-	logger.Infof("storing response for %v %v %v: %v", op.HashToOPType(r.Result.OPType), op.HashToOPCommand(r.Result.OPCommand), r.Result.SubmissionTag, r.Result.ID)
 
 	if r.Result.Status {
 		switch r.Result.OPCommand {

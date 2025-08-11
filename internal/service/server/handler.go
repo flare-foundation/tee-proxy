@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -40,6 +41,9 @@ func handleError(w http.ResponseWriter, err error) {
 
 func hashParam(r *http.Request, param string) (common.Hash, error) {
 	s := r.PathValue(param)
+
+	s = strings.ToLower(s)
+	s, _ = strings.CutPrefix(s, "0x")
 
 	sB, err := hex.DecodeString(s)
 	if err != nil {
