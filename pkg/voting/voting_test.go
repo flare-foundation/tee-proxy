@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestH(t *testing.T) {
+func TestReceipt(t *testing.T) {
 	r := Receipt{
 		InstructionHash:               common.Hash{},
 		Sequence:                      0,
@@ -35,4 +35,54 @@ func TestH(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, pk.PublicKey, *pub)
+}
+
+func TestConfig(t *testing.T) {
+	tests := []struct {
+		before Config
+		after  Config
+	}{
+		{
+			before: Config{},
+			after: Config{
+				ProposalExpiration: defaultProposalExpiration,
+				MaxPendingRequests: defaultMaxPendingRequests,
+			},
+		},
+		{
+			before: Config{
+				ProposalExpiration: 1,
+				MaxPendingRequests: 1,
+			},
+			after: Config{
+				ProposalExpiration: 1,
+				MaxPendingRequests: 1,
+			},
+		},
+		{
+			before: Config{
+				ProposalExpiration: -10,
+				MaxPendingRequests: 1,
+			},
+			after: Config{
+				ProposalExpiration: defaultProposalExpiration,
+				MaxPendingRequests: 1,
+			},
+		},
+		{
+			before: Config{
+				ProposalExpiration: 10,
+				MaxPendingRequests: 0,
+			},
+			after: Config{
+				ProposalExpiration: 10,
+				MaxPendingRequests: defaultMaxPendingRequests,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test.before.SetDefault()
+		require.Equal(t, test.before, test.after)
+	}
 }

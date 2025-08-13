@@ -93,6 +93,11 @@ func (sr *SignedReceipt) RecoverPubKey() (*ecdsa.PublicKey, error) {
 	return crypto.SigToPub(msg, sr.Signature)
 }
 
+const (
+	defaultProposalExpiration = 120 * time.Second
+	defaultMaxPendingRequests = uint(100)
+)
+
 type Config struct {
 	ProposalExpiration time.Duration `toml:"proposal_expiration"` // if not positive, it defaults to 120s
 	MaxPendingRequests uint          `toml:"max_pending_request"` // if not positive, it defaults to 100.
@@ -104,11 +109,11 @@ func (v *Config) SetDefault() *Config {
 		v = new(Config)
 	}
 
-	if v.MaxPendingRequests < 1 {
-		v.MaxPendingRequests = 100
+	if v.MaxPendingRequests == 0 {
+		v.MaxPendingRequests = defaultMaxPendingRequests
 	}
-	if v.ProposalExpiration < 1 {
-		v.ProposalExpiration = 120 * time.Second
+	if v.ProposalExpiration <= 0 {
+		v.ProposalExpiration = defaultProposalExpiration
 	}
 
 	return v
