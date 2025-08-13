@@ -14,7 +14,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
@@ -167,8 +166,8 @@ func (vb *voteBox) Status(hash common.Hash) voting.Status {
 // that is true only the first time the conditions for finalization are fulfilled.
 //
 // The returned receipt has zero valued Instruction Hash that has to be filled in the calling function.
-func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (tee.TeeStructsVoteReceipt, bool, error) {
-	var receipt tee.TeeStructsVoteReceipt
+func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (voting.Receipt, bool, error) {
+	var receipt voting.Receipt
 
 	if voterGroup == invalidVoter {
 		return receipt, false, fmt.Errorf("%w: invalid voter", status.HTTP[403])
@@ -204,7 +203,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		vb.cosignerWeight++
 	}
 
-	receipt = tee.TeeStructsVoteReceipt{
+	receipt = voting.Receipt{
 		InstructionHash:               common.Hash{}, // to be added in the calling function
 		Sequence:                      vote.Sequence,
 		Signature:                     signature,

@@ -16,7 +16,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 )
 
 const maxBIPS = 10000
@@ -126,7 +125,7 @@ func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 // If a round does not exits an error is returned.
 // If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
 
-func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*tee.TeeStructsVoteReceipt, error) {
+func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*voting.Receipt, error) {
 	id := data.InstructionID
 
 	err := checkSize(data)

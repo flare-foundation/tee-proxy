@@ -10,7 +10,6 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
@@ -44,10 +43,10 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 		return nil, err
 	}
 
-	return voting.SignReceipt(s.pk, r)
+	return r.Sign(s.pk)
 }
 
-func (s *Service) process(i *instruction.Instruction) (*tee.TeeStructsVoteReceipt, error) {
+func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
 	if i.Data.TeeID != s.teeID {
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}

@@ -65,7 +65,7 @@ func TestStorage(t *testing.T) {
 
 	hf, err := i.HashFixed()
 	require.NoError(t, err)
-	require.Equal(t, hf, common.Hash(r1.InstructionHash))
+	require.Equal(t, hf, r1.InstructionHash)
 
 	r2, err := s.AddVote(i, a2, s2)
 	require.NoError(t, err)
@@ -182,8 +182,8 @@ func TestFTDCMessage(t *testing.T) {
 	hash, err := i.HashFixed()
 	require.NoError(t, err)
 
-	require.Equal(t, common.Hash(rec.InstructionHash), hash)
-	require.Equal(t, common.Hash(rec.AdditionalVariableMessageHash), crypto.Keccak256Hash(i.AdditionalVariableMessage))
+	require.Equal(t, rec.InstructionHash, hash)
+	require.Equal(t, rec.AdditionalVariableMessageHash, crypto.Keccak256Hash(i.AdditionalVariableMessage))
 }
 
 func TestStorageConcurrent(t *testing.T) {

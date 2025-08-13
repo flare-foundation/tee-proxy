@@ -30,25 +30,44 @@ type Statuses struct {
 	Status        []Status    `json:"status"`
 }
 
-// SignedReceipt combines Receipt and its signature.
-type SignedReceipt struct {
-	Receipt   tee.TeeStructsVoteReceipt `json:"receipt"`
-	Signature hexutil.Bytes             `json:"signature"`
+type Receipt struct {
+	InstructionHash               common.Hash   `json:"instructionHash"`
+	Sequence                      uint64        `json:"sequence"`
+	Signature                     hexutil.Bytes `json:"signature"`
+	AdditionalVariableMessageHash common.Hash   `json:"additionalVariableMessageHash"`
+	Timestamp                     uint64        `json:"timestamp"`
+	VoteHash                      common.Hash   `json:"voteHash"`
 }
 
-// Todo: Should we just move this to go flare common?
-func HashReceipt(r *tee.TeeStructsVoteReceipt) common.Hash {
-	e, err := structs.Encode(tee.StructArg[tee.VoteReceipt], r)
+func (r *Receipt) Hash() (common.Hash, error) {
+	rd := tee.TeeStructsVoteReceipt{
+		InstructionHash:               r.InstructionHash,
+		Sequence:                      r.Sequence,
+		Signature:                     r.Signature,
+		AdditionalVariableMessageHash: r.AdditionalVariableMessageHash,
+		Timestamp:                     r.Timestamp,
+		VoteHash:                      r.VoteHash,
+	}
+	e, err := structs.Encode(tee.StructArg[tee.VoteReceipt], rd)
 	if err != nil {
-		return common.Hash{}
+		return common.Hash{}, err
 	}
 
-	return crypto.Keccak256Hash(e)
+	return crypto.Keccak256Hash(e), nil
+}
+
+// SignedReceipt combines Receipt and its signature.
+type SignedReceipt struct {
+	Receipt   Receipt       `json:"receipt"`
+	Signature hexutil.Bytes `json:"signature"`
 }
 
 // Sign signs the receipt with the private key and returns signed receipt.
-func SignReceipt(pk *ecdsa.PrivateKey, r *tee.TeeStructsVoteReceipt) (*SignedReceipt, error) {
-	h := HashReceipt(r)
+func (r *Receipt) Sign(pk *ecdsa.PrivateKey) (*SignedReceipt, error) {
+	h, err := r.Hash()
+	if err != nil {
+		return nil, err
+	}
 
 	sig, err := crypto.Sign(accounts.TextHash(h[:]), pk)
 	if err != nil {
@@ -64,10 +83,14 @@ func SignReceipt(pk *ecdsa.PrivateKey, r *tee.TeeStructsVoteReceipt) (*SignedRec
 }
 
 // RecoverPubKey recovers signer of the signed receipt.
-func (r *SignedReceipt) RecoverPubKey() (*ecdsa.PublicKey, error) {
-	msg := accounts.TextHash(HashReceipt(&r.Receipt).Bytes())
+func (sr *SignedReceipt) RecoverPubKey() (*ecdsa.PublicKey, error) {
+	h, err := sr.Receipt.Hash()
+	if err != nil {
+		return nil, err
+	}
+	msg := accounts.TextHash(h.Bytes())
 
-	return crypto.SigToPub(msg, r.Signature)
+	return crypto.SigToPub(msg, sr.Signature)
 }
 
 type Config struct {
