@@ -229,6 +229,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
+// startVoteBox
 func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round, id common.Hash) (*voteBox, error) {
 	eventTime := time.Unix(int64(data.Timestamp), 0)
 
@@ -275,12 +276,6 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 
 	box.StartTime = time.Now()
 	box.EndTime = box.StartTime.Add(s.config.ProposalExpiration)
-
-	go func() {
-		time.Sleep(time.Until(box.EndTime))
-
-		s.OutEnd <- box
-	}()
 
 	return box, nil
 }

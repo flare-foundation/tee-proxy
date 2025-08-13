@@ -228,8 +228,15 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	receipt.InstructionHash = hash
 
+	// save box or boxes if they are not saved yet.
 	if !existsB {
 		boxes.M[hash] = box
+
+		go func() {
+			time.Sleep(time.Until(box.EndTime))
+
+			s.OutEnd <- box
+		}()
 	}
 	if !existsBs {
 		round.Voting.M[id] = boxes
