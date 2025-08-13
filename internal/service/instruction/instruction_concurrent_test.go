@@ -392,7 +392,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
 		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
 
-		require.GreaterOrEqual(t, len(action.Signatures), 2, "Queued action should contain two signatures has %d", len(action.Signatures))
+		require.Len(t, action.Signatures, 2, "Queued action should contain two signatures has")
 	}
 
 	require.Equal(t, actionCount, 1)
@@ -470,7 +470,7 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
 		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
 
-		require.GreaterOrEqual(t, len(action.Signatures), n/2+1, "Queued action should contain at least 51 signatures has %d", len(action.Signatures))
+		require.Len(t, action.Signatures, n/2+1, "wrong number of signatures")
 	}
 
 	require.Equal(t, actionCount, 1)
