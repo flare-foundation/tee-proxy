@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/stretchr/testify/require"
@@ -62,8 +62,8 @@ func TestInsertBlock(t *testing.T) {
 	var instruction types.DirectInstruction
 	err = json.Unmarshal(a.Data.Message, &instruction)
 	require.NoError(t, err)
-	require.Equal(t, constants.Get.Hash(), instruction.OPType)
-	require.Equal(t, constants.TEEInfo.Hash(), instruction.OPCommand)
+	require.Equal(t, op.Get.Hash(), instruction.OPType)
+	require.Equal(t, op.TEEInfo.Hash(), instruction.OPCommand)
 
 	var data types.TeeInfoRequest
 	err = json.Unmarshal(instruction.Message, &data)
@@ -85,8 +85,8 @@ func TestInsertBlock(t *testing.T) {
 			ID:            a.Data.ID,
 			SubmissionTag: a.Data.SubmissionTag,
 			Status:        true,
-			OPType:        constants.Get.Hash(),
-			OPCommand:     constants.TEEInfo.Hash(),
+			OPType:        op.Get.Hash(),
+			OPCommand:     op.TEEInfo.Hash(),
 			Version:       "1.0.0",
 			Data:          m,
 		},

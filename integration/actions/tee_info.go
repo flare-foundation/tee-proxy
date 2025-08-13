@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
@@ -32,18 +32,18 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 		},
 		Challenge: [32]byte(challenge.Bytes()),
 	}
-	originalMessageEncoded, err := abi.Arguments{verification.MessageArguments[constants.TEEAttestation]}.Pack(originalMessage)
+	originalMessageEncoded, err := abi.Arguments{verification.MessageArguments[op.TEEAttestation]}.Pack(originalMessage)
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, constants.Reg, constants.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.Reg, constants.TEEAttestation, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.Reg, op.TEEAttestation, pc.TeeId)
 
 	var teeInfoResponse types.TeeInfoResponse
 	err = json.Unmarshal(res.Result.Data, &teeInfoResponse)
@@ -56,5 +56,5 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.Equal(t, receivedTeeId, pc.TeeId)
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.Reg, constants.TEEAttestation, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.Reg, op.TEEAttestation, receipts)
 }

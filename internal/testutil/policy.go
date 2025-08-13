@@ -17,15 +17,16 @@ import (
 var TestSigningPolicy *policy.SigningPolicy
 
 var (
-	PrivKey1 *ecdsa.PrivateKey
-	PrivKey2 *ecdsa.PrivateKey
-	PrivKey3 *ecdsa.PrivateKey
+	PrivKey1 *ecdsa.PrivateKey // has weight 1/7
+	PrivKey2 *ecdsa.PrivateKey // has weight 3/7
+	PrivKey3 *ecdsa.PrivateKey // has weight 3/7
 )
 
-var MockSigningPolicy *policy.SigningPolicy // With 100 signers closer to production
-var MockPrivKeys []*ecdsa.PrivateKey
+const numberOfVoters = 100
 
-const TotalWeight = 1<<16 - 1
+var MockSigningPolicy, MockPrivKeys = GeneratePolicy(100, true)
+
+const TotalWeight = 1<<16 - 1 // max uint16
 
 func init() {
 	var err error
@@ -61,40 +62,6 @@ func init() {
 	}
 
 	TestSigningPolicy = policy.NewSigningPolicy(&event, nil)
-
-	// * ================================================
-
-	addresses := make([]common.Address, 0, 100)
-	for i := 0; i < 100; i++ {
-		privKey, err := crypto.GenerateKey()
-		if err != nil {
-			panic("cannot generate key")
-		}
-		MockPrivKeys = append(MockPrivKeys, privKey)
-		addresses = append(addresses, crypto.PubkeyToAddress(privKey.PublicKey))
-	}
-
-	normalizedWeights := RandomNormalizedArray(len(addresses), 12345)
-	weights := make([]uint16, len(addresses))
-	weightSum := 0
-	for i, w := range normalizedWeights[:99] {
-		weights[i] = uint16(w * TotalWeight)
-		weightSum += int(weights[i])
-	}
-	weights[99] = TotalWeight - uint16(weightSum)
-
-	event = relay.RelaySigningPolicyInitialized{
-		RewardEpochId:      big.NewInt(1),
-		StartVotingRoundId: 0,
-		Threshold:          uint16(TotalWeight / 2),
-		Seed:               big.NewInt(2),
-		Voters:             addresses,
-		Weights:            weights,
-		SigningPolicyBytes: []byte{},
-		Timestamp:          0,
-	}
-
-	MockSigningPolicy = policy.NewSigningPolicy(&event, nil)
 }
 
 // RandomNormalizedArray generates an array of n random floats that sum to 1
@@ -128,4 +95,54 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {
+	pks := make([]*ecdsa.PrivateKey, n)
+	addresses := make([]common.Address, n)
+	for j := range numberOfVoters {
+		privKey, err := crypto.GenerateKey()
+		if err != nil {
+			panic("cannot generate key")
+		}
+		pks[j] = privKey
+		addresses[j] = crypto.PubkeyToAddress(privKey.PublicKey)
+	}
+
+	weights := make([]uint16, n)
+	sum := uint16(0)
+
+	if randomWeights {
+		tempWeights := RandomNormalizedArray(n, 10)
+
+		for j := range n {
+			weights[j] = uint16(tempWeights[j] * TotalWeight)
+			sum += weights[j]
+		}
+	} else {
+		for j := range n {
+			weights[j] = uint16(TotalWeight / n)
+			sum += weights[j]
+		}
+	}
+
+	th := sum / 2
+	if sum%2 == 1 {
+		th++
+	}
+
+	event := relay.RelaySigningPolicyInitialized{
+		RewardEpochId:      big.NewInt(1),
+		StartVotingRoundId: 0,
+		Threshold:          th,
+		Seed:               big.NewInt(2),
+		Voters:             addresses,
+		Weights:            weights,
+		SigningPolicyBytes: []byte{},
+		Timestamp:          0,
+	}
+
+	sp := policy.NewSigningPolicy(&event, nil)
+
+	return sp, pks
 }

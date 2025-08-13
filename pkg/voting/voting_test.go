@@ -7,8 +7,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -47,8 +47,8 @@ func TestStorage(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 constants.Wallet.Hash(),
-			OPCommand:              constants.KeyGenerate.Hash(),
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -141,8 +141,8 @@ func TestFTDCMessageValidity(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
 			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			OPType:                 op.FTDC.Hash(),
+			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 		},
@@ -189,8 +189,8 @@ func TestFTDCMessage(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			OPType:                 op.FTDC.Hash(),
+			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 		},
@@ -224,8 +224,8 @@ func TestStorageConcurrent(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
 			RewardEpochID:          1,
-			OPType:                 constants.Wallet.Hash(),
-			OPCommand:              constants.KeyGenerate.Hash(),
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -296,8 +296,8 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 constants.Wallet.Hash(),
-			OPCommand:              constants.KeyGenerate.Hash(),
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},

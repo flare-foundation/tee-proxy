@@ -13,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -90,7 +90,7 @@ func action(challenge common.Hash) (*types.Action, error) {
 		return nil, err
 	}
 
-	return queue.PrepareDirectAction(constants.Get, constants.TEEInfo, msg)
+	return queue.PrepareDirectAction(op.Get, op.TEEInfo, msg)
 }
 
 func (s *Storage) updateInfo(ctx context.Context) error {

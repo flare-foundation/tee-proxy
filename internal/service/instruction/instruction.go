@@ -8,8 +8,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -53,7 +53,7 @@ func (s *Service) process(i *instruction.Instruction) (*tee.TeeStructsVoteReceip
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}
 
-	ok := constants.IsValid(i.Data.OPType, i.Data.OPCommand)
+	ok := op.IsValidPair(i.Data.OPType, i.Data.OPCommand)
 	if !ok {
 		return nil, fmt.Errorf("%w, invalid pair opType, opCommand ", status.HTTP[400])
 	}

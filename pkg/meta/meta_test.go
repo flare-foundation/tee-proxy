@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
@@ -55,8 +55,8 @@ func TestFTDCMeta(t *testing.T) {
 		TeeID:                  common.Address{},
 		Timestamp:              ts,
 		RewardEpochID:          0,
-		OPType:                 constants.FTDC.Hash(),
-		OPCommand:              constants.Prove.Hash(),
+		OPType:                 op.FTDC.Hash(),
+		OPCommand:              op.Prove.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: []byte("todo"),
 	}
@@ -108,8 +108,8 @@ func TestMetaGeneral(t *testing.T) {
 		TeeID:                  common.Address{},
 		Timestamp:              0,
 		RewardEpochID:          0,
-		OPType:                 constants.Wallet.Hash(),
-		OPCommand:              constants.KeyGenerate.Hash(),
+		OPType:                 op.Wallet.Hash(),
+		OPCommand:              op.KeyGenerate.Hash(),
 		OriginalMessage:        []byte("todo"),
 		AdditionalFixedMessage: []byte("todo"),
 	}
@@ -150,7 +150,7 @@ func TestXRPCosigners(t *testing.T) {
 		TeeId:             teeID,
 		WalletId:          wID,
 		KeyId:             kID,
-		OpType:            constants.XRP.Hash(),
+		OpType:            op.XRP.Hash(),
 		PublicKey:         []byte{},
 		ProofOfPossession: []byte{},
 		Nonce:             &big.Int{},
@@ -198,7 +198,7 @@ func TestXRPCosigners(t *testing.T) {
 		BatchEndTs:       0,
 	}
 
-	encoded, err := abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(om)
+	encoded, err := abi.Arguments{payment.MessageArguments[op.Pay]}.Pack(om)
 	require.NoError(t, err)
 
 	data := instruction.DataFixed{
@@ -206,8 +206,8 @@ func TestXRPCosigners(t *testing.T) {
 		TeeID:                  teeID,
 		Timestamp:              0,
 		RewardEpochID:          0,
-		OPType:                 constants.XRP.Hash(),
-		OPCommand:              constants.Pay.Hash(),
+		OPType:                 op.XRP.Hash(),
+		OPCommand:              op.Pay.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: nil,
 	}
@@ -240,7 +240,7 @@ func TestXRPCosigners(t *testing.T) {
 		BatchEndTs:       0,
 	}
 
-	encoded, err = abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(om)
+	encoded, err = abi.Arguments{payment.MessageArguments[op.Pay]}.Pack(om)
 	require.NoError(t, err)
 
 	data = instruction.DataFixed{
@@ -248,8 +248,8 @@ func TestXRPCosigners(t *testing.T) {
 		TeeID:                  teeID,
 		Timestamp:              0,
 		RewardEpochID:          0,
-		OPType:                 constants.XRP.Hash(),
-		OPCommand:              constants.Pay.Hash(),
+		OPType:                 op.XRP.Hash(),
+		OPCommand:              op.Pay.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: nil,
 	}

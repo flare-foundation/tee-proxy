@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -55,7 +55,7 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 
 	if r.Result.Status {
 		switch r.Result.OPCommand {
-		case constants.KeyGenerate.Hash(), constants.KeyDataProviderRestore.Hash(), constants.KeyDelete.Hash():
+		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDelete.Hash():
 			select {
 			case s.WalletSync <- &r.Result:
 			default:

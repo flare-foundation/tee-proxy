@@ -4,8 +4,10 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/tee-node/pkg/op"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 

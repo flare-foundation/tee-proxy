@@ -5,8 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 
@@ -42,13 +42,13 @@ func New(ws *wallets.Storage) Meta {
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
 	switch data.OPCommand {
-	case constants.Pay.Hash(), constants.Reissue.Hash():
+	case op.Pay.Hash(), op.Reissue.Hash():
 		return xrpCosigners(data, m.ws)
 
-	case constants.Prove.Hash():
+	case op.Prove.Hash():
 		return ftdcCosigners(data)
 
-	case constants.KeyDataProviderRestore.Hash():
+	case op.KeyDataProviderRestore.Hash():
 		return keyDataProviderRestoreAdmins(data)
 	}
 
@@ -118,7 +118,7 @@ func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64
 
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch data.OPCommand {
-	case constants.Prove.Hash():
+	case op.Prove.Hash():
 		return ftdcCheckConsistency(data, signer)
 	}
 
@@ -148,7 +148,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 }
 
 func (*meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
-	if data.OPType == constants.FTDC.Hash() && data.OPCommand == constants.Prove.Hash() { // OPType == "F_FTDC", OPCommand == "PROVE"
+	if data.OPType == op.FTDC.Hash() && data.OPCommand == op.Prove.Hash() { // OPType == "F_FTDC", OPCommand == "PROVE"
 		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err

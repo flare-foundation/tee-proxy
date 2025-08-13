@@ -11,7 +11,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -61,7 +61,7 @@ func InitializePolicyAction(
 }
 
 func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
-	return queue.PrepareDirectAction(constants.Policy, constants.InitializePolicy, msg)
+	return queue.PrepareDirectAction(op.Policy, op.InitializePolicy, msg)
 }
 
 func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy) ([]byte, error) {
@@ -192,7 +192,7 @@ func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addre
 }
 
 func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
-	return queue.PrepareDirectAction(constants.Policy, constants.UpdatePolicy, msg)
+	return queue.PrepareDirectAction(op.Policy, op.UpdatePolicy, msg)
 }
 
 func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64) ([]byte, error) {

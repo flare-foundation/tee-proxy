@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/backup"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
@@ -41,7 +41,7 @@ func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*pol
 	message, err := json.Marshal(req)
 	require.NoError(t, err)
 
-	a, err := queue.PrepareDirectAction(constants.Policy, constants.InitializePolicy, message)
+	a, err := queue.PrepareDirectAction(op.Policy, op.InitializePolicy, message)
 	require.NoError(t, err)
 
 	err = pc.Aq.Enqueue(t.Context(), a, queue.Main)
@@ -76,7 +76,7 @@ func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32, voters []
 	updatePolicyRequestBytes, err := json.Marshal(updatePolicyRequest)
 	require.NoError(t, err)
 
-	a, err := queue.PrepareDirectAction(constants.Policy, constants.UpdatePolicy, updatePolicyRequestBytes)
+	a, err := queue.PrepareDirectAction(op.Policy, op.UpdatePolicy, updatePolicyRequestBytes)
 	require.NoError(t, err)
 
 	err = pc.Aq.Enqueue(t.Context(), a, queue.Main)
@@ -100,7 +100,7 @@ func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uin
 	msg, err := json.Marshal(message)
 	require.NoError(t, err)
 
-	a, err := queue.PrepareDirectAction(constants.Get, constants.TEEBackup, msg)
+	a, err := queue.PrepareDirectAction(op.Get, op.TEEBackup, msg)
 	require.NoError(t, err)
 
 	err = pc.Aq.Enqueue(t.Context(), a, queue.Main)

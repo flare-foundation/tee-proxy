@@ -6,7 +6,7 @@ import (
 	"errors"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
@@ -14,7 +14,7 @@ import (
 //
 // With type "direct" and tag "submit".
 // todo: find a better place.
-func PrepareDirectAction(opType constants.OPType, opCommand constants.OPCommand, msg []byte) (*types.Action, error) {
+func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*types.Action, error) {
 	id, err := randID()
 	if err != nil {
 		return nil, err

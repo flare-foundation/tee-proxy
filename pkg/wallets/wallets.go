@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flare-foundation/tee-node/pkg/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -16,7 +15,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
@@ -231,7 +230,7 @@ func (s *Storage) update(action *types.ActionResult) error {
 
 // keyInfoAction prepares direct action with opType F_GET and opCommand KEY_INFO.
 func keyInfoAction() (*types.Action, error) {
-	return queue.PrepareDirectAction(constants.Get, constants.KeyInfo, nil)
+	return queue.PrepareDirectAction(op.Get, op.KeyInfo, nil)
 }
 
 func parseKeyInfoActionResult(r *types.ActionResult) ([]*types.WalletSignedKeyExistenceProof, error) {

@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -50,7 +50,7 @@ func FtdcProve(
 	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys)
 	require.NoError(t, err)
 
-	iData := utils.BuildInstructionData(t, constants.FTDC, constants.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, pc.TeeId, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
@@ -58,7 +58,7 @@ func FtdcProve(
 
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.FTDC, constants.Prove, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.FTDC, op.Prove, pc.TeeId)
 
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func FtdcProve(
 	require.Equal(t, ftdcResponse.ResponseBody, hexutil.Bytes(additionalFixedMessageEncoded))
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.FTDC, constants.Prove, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.FTDC, op.Prove, receipts)
 
 	return &ftdcResponse
 }

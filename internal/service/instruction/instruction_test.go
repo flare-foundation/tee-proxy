@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -57,8 +57,8 @@ func TestVoting(t *testing.T) {
 			TeeID:                  teeID,
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			OPType:                 op.FTDC.Hash(),
+			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -142,8 +142,8 @@ func TestStatus(t *testing.T) {
 			TeeID:                  teeID,
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			OPType:                 op.FTDC.Hash(),
+			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        []byte("TODO"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},
@@ -263,16 +263,16 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 		opCommand   common.Hash
 		description string
 	}{
-		{"Reg_TEEAttestation", constants.Reg.Hash(), constants.TEEAttestation.Hash(), "Reg + TEEAttestation should be valid"},
-		{"Wallet_KeyDataProviderRestore", constants.Wallet.Hash(), constants.KeyDataProviderRestore.Hash(), "Wallet + KeyDataProviderRestore should be valid"},
-		{"Wallet_KeyDataProviderRestoreTest", constants.Wallet.Hash(), constants.KeyDataProviderRestoreTest.Hash(), "Wallet + KeyDataProviderRestoreTest should be valid"},
-		{"Wallet_KeyDelete", constants.Wallet.Hash(), constants.KeyDelete.Hash(), "Wallet + KeyDelete should be valid"},
-		{"Wallet_KeyGenerate", constants.Wallet.Hash(), constants.KeyGenerate.Hash(), "Wallet + KeyGenerate should be valid"},
-		{"XRP_Pay", constants.XRP.Hash(), constants.Pay.Hash(), "XRP + Pay should be valid"},
-		{"XRP_Reissue", constants.XRP.Hash(), constants.Reissue.Hash(), "XRP + Reissue should be valid"},
-		{"BTC_Pay", constants.BTC.Hash(), constants.Pay.Hash(), "BTC + Pay should be valid"},
-		{"BTC_Reissue", constants.BTC.Hash(), constants.Reissue.Hash(), "BTC + Reissue should be valid"},
-		{"FTDC_Prove", constants.FTDC.Hash(), constants.Prove.Hash(), "FTDC + Prove should be valid"},
+		{"Reg_TEEAttestation", op.Reg.Hash(), op.TEEAttestation.Hash(), "Reg + TEEAttestation should be valid"},
+		{"Wallet_KeyDataProviderRestore", op.Wallet.Hash(), op.KeyDataProviderRestore.Hash(), "Wallet + KeyDataProviderRestore should be valid"},
+		{"Wallet_KeyDataProviderRestoreTest", op.Wallet.Hash(), op.KeyDataProviderRestoreTest.Hash(), "Wallet + KeyDataProviderRestoreTest should be valid"},
+		{"Wallet_KeyDelete", op.Wallet.Hash(), op.KeyDelete.Hash(), "Wallet + KeyDelete should be valid"},
+		{"Wallet_KeyGenerate", op.Wallet.Hash(), op.KeyGenerate.Hash(), "Wallet + KeyGenerate should be valid"},
+		{"XRP_Pay", op.XRP.Hash(), op.Pay.Hash(), "XRP + Pay should be valid"},
+		{"XRP_Reissue", op.XRP.Hash(), op.Reissue.Hash(), "XRP + Reissue should be valid"},
+		{"BTC_Pay", op.BTC.Hash(), op.Pay.Hash(), "BTC + Pay should be valid"},
+		{"BTC_Reissue", op.BTC.Hash(), op.Reissue.Hash(), "BTC + Reissue should be valid"},
+		{"FTDC_Prove", op.FTDC.Hash(), op.Prove.Hash(), "FTDC + Prove should be valid"},
 	}
 
 	// Constraint violations - these fail due to "non instruction opCommand" constraint in constraints.go
@@ -282,11 +282,11 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 		opCommand   common.Hash
 		description string
 	}{
-		{"Get_KeyInfo", constants.Get.Hash(), constants.KeyInfo.Hash(), "Get + KeyInfo should be invalid (non instruction opCommand)"},
-		{"Get_TEEBackup", constants.Get.Hash(), constants.TEEBackup.Hash(), "Get + TEEBackup should be invalid (non instruction opCommand)"},
-		{"Get_TEEInfo", constants.Get.Hash(), constants.TEEInfo.Hash(), "Get + TEEInfo should be invalid (non instruction opCommand)"},
-		{"Policy_InitializePolicy", constants.Policy.Hash(), constants.InitializePolicy.Hash(), "Policy + InitializePolicy should be invalid (non instruction opCommand)"},
-		{"Policy_UpdatePolicy", constants.Policy.Hash(), constants.UpdatePolicy.Hash(), "Policy + UpdatePolicy should be invalid (non instruction opCommand)"},
+		{"Get_KeyInfo", op.Get.Hash(), op.KeyInfo.Hash(), "Get + KeyInfo should be invalid (non instruction opCommand)"},
+		{"Get_TEEBackup", op.Get.Hash(), op.TEEBackup.Hash(), "Get + TEEBackup should be invalid (non instruction opCommand)"},
+		{"Get_TEEInfo", op.Get.Hash(), op.TEEInfo.Hash(), "Get + TEEInfo should be invalid (non instruction opCommand)"},
+		{"Policy_InitializePolicy", op.Policy.Hash(), op.InitializePolicy.Hash(), "Policy + InitializePolicy should be invalid (non instruction opCommand)"},
+		{"Policy_UpdatePolicy", op.Policy.Hash(), op.UpdatePolicy.Hash(), "Policy + UpdatePolicy should be invalid (non instruction opCommand)"},
 	}
 
 	// Invalid opType/opCommand pairs - these fail due to incompatible type/command combinations
@@ -296,16 +296,16 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 		opCommand   common.Hash
 		description string
 	}{
-		{"Wallet_Pay", constants.Wallet.Hash(), constants.Pay.Hash(), "Wallet + Pay should be invalid"},
-		{"Wallet_Prove", constants.Wallet.Hash(), constants.Prove.Hash(), "Wallet + Prove should be invalid"},
-		{"XRP_KeyGenerate", constants.XRP.Hash(), constants.KeyGenerate.Hash(), "XRP + KeyGenerate should be invalid"},
-		{"XRP_TEEAttestation", constants.XRP.Hash(), constants.TEEAttestation.Hash(), "XRP + TEEAttestation should be invalid"},
-		{"FTDC_Pay", constants.FTDC.Hash(), constants.Pay.Hash(), "FTDC + Pay should be invalid"},
-		{"FTDC_KeyGenerate", constants.FTDC.Hash(), constants.KeyGenerate.Hash(), "FTDC + KeyGenerate should be invalid"},
-		{"Get_Pay", constants.Get.Hash(), constants.Pay.Hash(), "Get + Pay should be invalid"},
-		{"Policy_KeyGenerate", constants.Policy.Hash(), constants.KeyGenerate.Hash(), "Policy + KeyGenerate should be invalid"},
-		{"Reg_Pay", constants.Reg.Hash(), constants.Pay.Hash(), "Reg + Pay should be invalid"},
-		{"BTC_Prove", constants.BTC.Hash(), constants.Prove.Hash(), "BTC + Prove should be invalid"},
+		{"Wallet_Pay", op.Wallet.Hash(), op.Pay.Hash(), "Wallet + Pay should be invalid"},
+		{"Wallet_Prove", op.Wallet.Hash(), op.Prove.Hash(), "Wallet + Prove should be invalid"},
+		{"XRP_KeyGenerate", op.XRP.Hash(), op.KeyGenerate.Hash(), "XRP + KeyGenerate should be invalid"},
+		{"XRP_TEEAttestation", op.XRP.Hash(), op.TEEAttestation.Hash(), "XRP + TEEAttestation should be invalid"},
+		{"FTDC_Pay", op.FTDC.Hash(), op.Pay.Hash(), "FTDC + Pay should be invalid"},
+		{"FTDC_KeyGenerate", op.FTDC.Hash(), op.KeyGenerate.Hash(), "FTDC + KeyGenerate should be invalid"},
+		{"Get_Pay", op.Get.Hash(), op.Pay.Hash(), "Get + Pay should be invalid"},
+		{"Policy_KeyGenerate", op.Policy.Hash(), op.KeyGenerate.Hash(), "Policy + KeyGenerate should be invalid"},
+		{"Reg_Pay", op.Reg.Hash(), op.Pay.Hash(), "Reg + Pay should be invalid"},
+		{"BTC_Prove", op.BTC.Hash(), op.Prove.Hash(), "BTC + Prove should be invalid"},
 	}
 
 	validCount := 0
@@ -386,8 +386,8 @@ func createBaseInstructionData(testName string, teeID common.Address) *instructi
 			TeeID:                  teeID,
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 constants.FTDC.Hash(),
-			OPCommand:              constants.Prove.Hash(),
+			OPType:                 op.FTDC.Hash(),
+			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        []byte("TEST_MESSAGE"),
 			AdditionalFixedMessage: hexutil.Bytes{},
 		},

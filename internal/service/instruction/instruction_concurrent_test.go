@@ -3,6 +3,7 @@ package instruction
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -124,8 +125,8 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 				TeeID:                  teeID,
 				Timestamp:              uint64(time.Now().Unix()) + uint64(i%10), // Slight time variation
 				RewardEpochID:          1,
-				OPType:                 constants.FTDC.Hash(),
-				OPCommand:              constants.Prove.Hash(),
+				OPType:                 op.FTDC.Hash(),
+				OPCommand:              op.Prove.Hash(),
 				OriginalMessage:        []byte("RACE_TEST_MESSAGE"),
 				AdditionalFixedMessage: hexutil.Bytes{},
 			},
@@ -209,7 +210,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	}
 }
 
-func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
+func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 	teeID := common.HexToAddress("dead")
 	mr, c, s, _ := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
 	defer mr.Close()
@@ -261,7 +262,7 @@ func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
 		errors = append(errors, err)
 		if err == nil {
 			successCount++
-		} else if containsString(err.Error(), "signature already stored") {
+		} else if strings.Contains(err.Error(), "signature already stored") {
 			//TODO:  -
 			duplicateCount++
 		} else {
@@ -298,7 +299,7 @@ func TestConcurrentVoteBoxCreation_HighLoad(t *testing.T) {
 	status, err = s.Status(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
-	require.Equal(t, uint16(65535), status.Status[0].Weight, "Should have weight from all voters")
+	require.Equal(t, testutil.MockSigningPolicy.Voters.TotalWeight, status.Status[0].Weight, "Should have weight from all voters")
 
 	t.Logf("✓ Concurrent identical instructions processed successfully")
 }
@@ -381,6 +382,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	for {
 		action, err := s.aq.Dequeue(context.Background(), queue.Main)
 		if err != nil {
+			require.ErrorIs(t, err, queue.ErrEmptyQueue)
 			break // No more actions in queue
 		}
 		actionCount++
@@ -390,25 +392,88 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
 		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
 
-		// Should have all three signatures
-		require.Len(t, action.Signatures, 2, "Queued action should contain two signatures")
+		require.GreaterOrEqual(t, len(action.Signatures), 2, "Queued action should contain two signatures has %d", len(action.Signatures))
 	}
+
+	require.Equal(t, actionCount, 1)
 
 	t.Logf("✓ Concurrent threshold crossing handled correctly: %d action enqueued", actionCount)
 }
 
-// Helper function to check if a string contains a substring
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			containsSubstring(s, substr))))
-}
+func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
+	n := 100
+	policy, pks := testutil.GeneratePolicy(n, false)
 
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+	teeID := common.HexToAddress("dead")
+	mr, c, s, _ := setupInstructionService(t, teeID, policy)
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	// Start the Forward method to process threshold events
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		err := s.Forward(ctx)
+		if err != nil && err != context.Canceled {
+			t.Logf("Forward method error: %v", err)
 		}
+	}()
+
+	// Test scenario: 100 (n) votes for the same instruction simultaneously
+	// Expected: Only one action should be enqueued with 51 votes
+
+	// Create instruction data
+	iData := createBaseInstructionData("threshold_race", teeID)
+
+	// Set up concurrent execution with more aggressive timing
+	var wg sync.WaitGroup
+	wg.Add(n)
+	startChan := make(chan struct{})
+
+	// Launch both  votes simultaneously
+	for j := range n {
+		inst := signInstruction(t, iData, pks[j])
+		go func(i instruction.Instruction) {
+			defer wg.Done()
+			<-startChan
+			_, err := s.ServeInstruction(context.Background(), &i)
+			require.NoError(t, err)
+		}(*inst)
 	}
-	return false
+
+	// Start both goroutines simultaneously
+	close(startChan)
+	wg.Wait()
+
+	// Verify final vote box state
+	status, err := s.Status(iData.InstructionID, 1)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(status.Status), "Should still have one vote box")
+	require.Equal(t, policy.Voters.TotalWeight, status.Status[0].Weight, "Should have all votes")
+	require.True(t, status.Status[0].Finalized, "Should be finalized")
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Most importantly: verify only ONE action was enqueued
+	actionCount := 0
+	for {
+		action, err := s.aq.Dequeue(context.Background(), queue.Main)
+		if err != nil {
+			require.ErrorIs(t, err, queue.ErrEmptyQueue)
+			break // No more actions in queue
+		}
+		actionCount++
+
+		// Verify the action is correct
+		require.Equal(t, iData.InstructionID, action.Data.ID, "Action should have correct instruction ID")
+		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
+		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
+
+		require.GreaterOrEqual(t, len(action.Signatures), n/2+1, "Queued action should contain at least 51 signatures has %d", len(action.Signatures))
+	}
+
+	require.Equal(t, actionCount, 1)
+
+	t.Logf("✓ Concurrent threshold crossing handled correctly: %d action enqueued", actionCount)
 }

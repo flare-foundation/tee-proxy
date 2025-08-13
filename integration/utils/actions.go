@@ -16,9 +16,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/tee-node/pkg/op"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
@@ -27,8 +26,8 @@ import (
 
 func BuildInstructionData(
 	t *testing.T,
-	opType constants.OPType,
-	opCommand constants.OPCommand,
+	opType op.Type,
+	opCommand op.Command,
 	originalMessage []byte,
 	timestamp uint64,
 	additionalFixedMessageRaw any,
@@ -44,8 +43,8 @@ func BuildInstructionData(
 func BuildInstructionDataWithId(
 	t *testing.T,
 	instructionId common.Hash,
-	opType constants.OPType,
-	opCommand constants.OPCommand,
+	opType op.Type,
+	opCommand op.Command,
 	originalMessage []byte,
 	timestamp uint64,
 	additionalFixedMessageRaw any,
@@ -223,7 +222,7 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 }
 
 // VerifyActionResponse Verifies the action response against expected values and checks the signature
-func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType constants.OPType, opCommand constants.OPCommand, teeId common.Address) {
+func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeId common.Address) {
 	require.True(t, res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
 	require.Equal(t, opType.Hash(), res.Result.OPType)
@@ -245,7 +244,7 @@ func VerifyVotingStatus(t *testing.T, votingStatus *voting.VoteStatus, nCosigner
 }
 
 // FetchAndVerifyActionResponse Fetches ActionResponse and verifies the signature
-func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, actionId common.Hash, submissionTag types.SubmissionTag, opType constants.OPType, opCommand constants.OPCommand, teeId common.Address) *types.ActionResponse {
+func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, actionId common.Hash, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeId common.Address) *types.ActionResponse {
 	t.Helper()
 
 	url := fmt.Sprintf("http://localhost:%d/action/%s/%s", port, handle, strings.TrimPrefix(actionId.String(), "0x"))
@@ -264,7 +263,7 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, action
 }
 
 // FetchAndVerifyRewardingData Fetches rewarding data and verifies the action response and vote sequence
-func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID common.Hash, opType constants.OPType, opCommand constants.OPCommand, receipts []*voting.SignedReceipt) {
+func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID common.Hash, opType op.Type, opCommand op.Command, receipts []*voting.SignedReceipt) {
 	res := FetchAndVerifyActionResponse(t, pc.ExtPort, "rewarding-data", instructionID, types.End, opType, opCommand, pc.TeeId)
 
 	rewData := new(types.RewardingData)

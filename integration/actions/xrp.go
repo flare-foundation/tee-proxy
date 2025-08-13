@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
@@ -39,11 +39,11 @@ type TransactionData struct {
 }
 
 func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, paymentInstruction payment.ITeePaymentsPaymentInstructionMessage, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) TransactionData {
-	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[constants.Pay]}.Pack(paymentInstruction)
+	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[op.Pay]}.Pack(paymentInstruction)
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, constants.XRP, constants.Pay, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.XRP, op.Pay, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -51,7 +51,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, constants.XRP, constants.Pay, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.XRP, op.Pay, pc.TeeId)
 
 	var txData map[string]any
 	err = json.Unmarshal(res.Result.Data, &txData)
@@ -100,7 +100,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	}
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, constants.XRP, constants.Pay, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.XRP, op.Pay, receipts)
 
 	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)

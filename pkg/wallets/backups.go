@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/flare-foundation/go-flare-common/pkg/tee/constants"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
 	"time"
@@ -66,7 +66,7 @@ func teeBackupAction(idPair IDPair) (*types.Action, error) {
 		return nil, err
 	}
 
-	return queue.PrepareDirectAction(constants.Get, constants.TEEBackup, msg)
+	return queue.PrepareDirectAction(op.Get, op.TEEBackup, msg)
 }
 
 func (s *Storage) createNewBackup(r *types.ActionResult) error {
