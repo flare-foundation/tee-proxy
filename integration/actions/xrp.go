@@ -102,7 +102,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.XRP, op.Pay, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return TransactionData{

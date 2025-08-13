@@ -18,7 +18,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
-	instructionService "github.com/flare-foundation/tee-proxy/internal/service/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/server"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -42,7 +42,7 @@ type ProxyConfig struct {
 	Aq          *queue.ActionQueues
 	Rs          *queue.ResponseStorage
 	Vc          *voting.Config
-	Vs          *voting.Storage
+	Vs          *instruction.Storage
 	Ws          *wallets.Storage
 	If          *info.Storage
 }
@@ -135,9 +135,9 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		MaxPendingRequests: 100,
 	}
 
-	vs := voting.NewStorage(vc, 3, metaObj, 3)
+	vs := instruction.NewStorage(vc, 3, metaObj, 3)
 
-	instService := instructionService.NewService(teeId, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
+	instService := instruction.NewService(teeId, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
 	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &actionService, &resultService, &infoStorage, &walletStorage)
 
 	wg.Add(1)
@@ -213,11 +213,11 @@ func GetTeeInfo(t *testing.T, pc *ProxyConfig) *types.TeeInfoResponse {
 	return &res
 }
 
-// GetVotingStatus Fetches VoteStatus until TestTimeConfig.Timeout every TestTimeConfig.Interval
-func GetVotingStatus(t *testing.T, pc *ProxyConfig, rewardEpochID uint32, instructionID common.Hash) *voting.VoteStatus {
+// GetVotingStatuses Fetches VoteStatus until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetVotingStatuses(t *testing.T, pc *ProxyConfig, rewardEpochID uint32, instructionID common.Hash) *voting.Statuses {
 	t.Helper()
 	url := fmt.Sprintf("http://localhost:%d/action/status/%d/%s", pc.ExtPort, rewardEpochID, instructionID.String()[2:])
-	var res voting.VoteStatus
+	var res voting.Statuses
 	makeRequests(t, url, &res)
 	return &res
 }

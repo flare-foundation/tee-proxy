@@ -91,7 +91,7 @@ func GenerateWallet(
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.Wallet, op.KeyGenerate, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return &walletExistenceProof
@@ -136,7 +136,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.Wallet, op.KeyDelete, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, iData.InstructionID)
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 }
 
@@ -259,7 +259,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionId), op.Wallet, op.KeyDataProviderRestore, receipts)
 
-	votingStatus := utils.GetVotingStatus(t, pc, rewardEpochId, common.BytesToHash(instructionId))
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, common.BytesToHash(instructionId))
 	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), testutil.TotalWeight/2)
 
 	return walletExistenceProof

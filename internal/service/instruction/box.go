@@ -1,4 +1,4 @@
-package voting
+package instruction
 
 import (
 	"encoding/json"
@@ -12,22 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
+	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
-
-type Status struct {
-	InstructionHash    common.Hash `json:"instructionHash"`
-	Finalized          bool        `json:"finalized"`
-	Deleted            bool        `json:"deleted"`
-	Start              uint64      `json:"start"`
-	End                uint64      `json:"end"`
-	Weight             uint16      `json:"weight"`
-	Threshold          uint16      `json:"threshold"`
-	Cosigners          uint16      `json:"cosigners"`
-	CosignersThreshold uint16      `json:"cosignersThreshold"`
-}
 
 type proposal struct {
 	instruction *instruction.DataFixed
@@ -61,6 +50,9 @@ type vote struct {
 
 // voteBox holds one voting process.
 type voteBox struct {
+	iID   common.Hash
+	iHash common.Hash
+
 	Proposer common.Address
 
 	proposal *proposal
@@ -74,7 +66,7 @@ type voteBox struct {
 	weight         uint16
 	cosignerWeight uint16
 
-	finalized bool
+	Finalized bool
 	deleted   bool
 
 	sync.RWMutex
@@ -98,7 +90,7 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 		VoteHash:       hash,
 		weight:         0,
 		cosignerWeight: 0,
-		finalized:      false,
+		Finalized:      false,
 		deleted:        false,
 	}
 
@@ -111,7 +103,7 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 		return nil, errors.New("already deleted")
 	}
 
-	if !vb.finalized {
+	if !vb.Finalized {
 		return nil, errors.New("not yet finalized")
 	}
 
@@ -151,16 +143,16 @@ func (vb *voteBox) Delete() {
 }
 
 // delete clears VoteBox and sets it's deleted status to true.
-func (vb *voteBox) Status(hash common.Hash) Status {
+func (vb *voteBox) Status(hash common.Hash) voting.Status {
 	var threshold, cosignersThreshold uint16 = 0, 0
 	if vb.proposal != nil {
 		threshold = vb.proposal.threshold
 		cosignersThreshold = vb.proposal.cosignerThreshold
 	}
 
-	return Status{
-		InstructionHash:    hash,
-		Finalized:          vb.finalized,
+	return voting.Status{
+		InstructionHash:    vb.iHash,
+		Finalized:          vb.Finalized,
 		Deleted:            vb.deleted,
 		Start:              uint64(vb.StartTime.Unix()),
 		End:                uint64(vb.EndTime.Unix()),
@@ -221,8 +213,8 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 		VoteHash:                      vb.VoteHash,
 	}
 
-	if !vb.finalized && vb.weight > vb.proposal.threshold && vb.cosignerWeight >= vb.proposal.cosignerThreshold {
-		vb.finalized = true
+	if !vb.Finalized && vb.weight > vb.proposal.threshold && vb.cosignerWeight >= vb.proposal.cosignerThreshold {
+		vb.Finalized = true
 		return receipt, true, nil
 	}
 
@@ -230,7 +222,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 }
 
 // startVoteBox
-func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round, id common.Hash) (*voteBox, error) {
+func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, round *Round) (*voteBox, error) {
 	eventTime := time.Unix(int64(data.Timestamp), 0)
 
 	allowedTime := eventTime.Add(-15 * time.Second) // confirm this number
@@ -241,7 +233,7 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 
 	t, err := s.meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get threshold for %v", id)
+		return nil, fmt.Errorf("cannot get threshold")
 	}
 
 	var threshold uint16
@@ -249,14 +241,14 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 	case t == -1:
 		threshold = round.policy.Threshold
 	case t < -1 || t > maxBIPS:
-		return nil, fmt.Errorf("invalid threshold %d for %v", t, id)
+		return nil, fmt.Errorf("invalid threshold %d", t)
 	default:
 		threshold = computeThreshold(round.policy.Voters.TotalWeight, t)
 	}
 
 	cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get cosigners for %v: %w", id, err)
+		return nil, fmt.Errorf("cannot get cosigners for %w", err)
 	}
 
 	if cosigners[signer] {

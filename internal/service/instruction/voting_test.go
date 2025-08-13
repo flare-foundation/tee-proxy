@@ -1,4 +1,4 @@
-package voting
+package instruction
 
 import (
 	"testing"
@@ -12,27 +12,14 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
+	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/stretchr/testify/require"
 
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 )
 
-type testMeta struct{}
-
-func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	return map[common.Address]bool{}, 0, nil
-}
-
-func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
-	return nil
-}
-
-func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
-	return -1, nil
-}
-
 func TestStorage(t *testing.T) {
-	s := NewStorage(&Config{
+	s := NewStorage(&voting.Config{
 		ProposalExpiration: 2 * time.Second,
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
@@ -87,15 +74,7 @@ func TestStorage(t *testing.T) {
 	_, err = s.AddVote(i, af, sf)
 	require.Error(t, err)
 
-	box := <-s.OutThreshold
-
-	require.True(t, box.finalized)
-	require.False(t, box.deleted)
-	require.Equal(t, uint16(4), box.weight)
-	require.Equal(t, uint16(0), box.cosignerWeight)
-
-	a, err := box.Action(types.Threshold)
-	require.NoError(t, err)
+	a := <-s.Out
 
 	require.Equal(t, a.Data.ID, i.InstructionID)
 
@@ -106,7 +85,7 @@ func TestStorage(t *testing.T) {
 }
 
 func TestFTDCMessageValidity(t *testing.T) {
-	s := NewStorage(&Config{
+	s := NewStorage(&voting.Config{
 		ProposalExpiration: 2 * time.Second,
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
@@ -154,7 +133,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 }
 
 func TestFTDCMessage(t *testing.T) {
-	s := NewStorage(&Config{
+	s := NewStorage(&voting.Config{
 		ProposalExpiration: 2 * time.Second,
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
@@ -208,7 +187,7 @@ func TestFTDCMessage(t *testing.T) {
 }
 
 func TestStorageConcurrent(t *testing.T) {
-	s := NewStorage(&Config{
+	s := NewStorage(&voting.Config{
 		ProposalExpiration: 2 * time.Second,
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
@@ -262,15 +241,7 @@ func TestStorageConcurrent(t *testing.T) {
 		require.Error(t, err3)
 	}()
 
-	box := <-s.OutThreshold
-
-	require.True(t, box.finalized, "finalized")
-	require.False(t, box.deleted, "deleted")
-	require.Equal(t, uint16(4), box.weight, "weight")
-	require.Equal(t, uint16(0), box.cosignerWeight, "weightCosigners")
-
-	a, err := box.Action(types.Threshold)
-	require.NoError(t, err)
+	a := <-s.Out
 
 	require.Equal(t, a.Data.ID, i.InstructionID, "ids")
 
@@ -281,7 +252,7 @@ func TestStorageConcurrent(t *testing.T) {
 }
 
 func TestAddingVoteAfterExpiry(t *testing.T) {
-	s := NewStorage(&Config{
+	s := NewStorage(&voting.Config{
 		ProposalExpiration: 100 * time.Millisecond,
 		MaxPendingRequests: 10,
 	}, 3, &testMeta{}, 3)
@@ -323,10 +294,6 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 
 	_, err = s.AddVote(i, a2, s2)
 	require.Error(t, err)
-
-	box := <-s.OutEnd
-	require.False(t, box.finalized)
-	require.Equal(t, 1, len(box.votes))
 }
 
 func TestComputeThresholdSigningPolicy(t *testing.T) {

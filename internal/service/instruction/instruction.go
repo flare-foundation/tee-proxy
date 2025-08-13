@@ -15,21 +15,20 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
-	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
 )
 
 type Service struct {
 	teeID common.Address
 
-	vs       *voting.Storage
+	vs       *Storage
 	policies <-chan policy.SigningPolicy
 
 	aq *queue.ActionQueues
 	pk *ecdsa.PrivateKey
 }
 
-func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, vs *voting.Storage) Service {
+func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, vs *Storage) Service {
 	return Service{
 		teeID:    teeID,
 		vs:       vs,
@@ -77,34 +76,11 @@ func (s *Service) Forward(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("instruction forwarding stopped %v", ctx.Err())
-		case box := <-s.vs.OutThreshold:
-			box.RLock()
-			a, err := box.Action(types.Threshold)
-			box.RUnlock()
+		case action := <-s.vs.Out:
+			err := s.aq.Enqueue(ctx, action, queue.Main)
 			if err != nil {
 				continue
 			}
-
-			err = s.aq.Enqueue(ctx, a, queue.Main)
-			if err != nil {
-				continue
-			}
-
-		case box := <-s.vs.OutEnd:
-			box.RLock()
-			a, err := box.Action(types.End)
-			box.RUnlock()
-			if err != nil {
-				continue
-			}
-
-			err = s.aq.Enqueue(ctx, a, queue.Main)
-			if err != nil {
-				continue
-			}
-			box.Lock()
-			box.Delete()
-			box.Unlock()
 		}
 	}
 }
@@ -122,7 +98,7 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 	}
 }
 
-func (s *Service) Status(instructionID common.Hash, rewardEpochID uint32) (*VoteStatus, error) {
+func (s *Service) Status(instructionID common.Hash, rewardEpochID uint32) (*voting.Statuses, error) {
 	r, exists := s.vs.Get(rewardEpochID)
 	if !exists {
 		return nil, fmt.Errorf("%w: round not stored", status.HTTP[404])
@@ -143,13 +119,8 @@ func (s *Service) Status(instructionID common.Hash, rewardEpochID uint32) (*Vote
 		status = append(status, s)
 	}
 
-	return &VoteStatus{
+	return &voting.Statuses{
 		InstructionID: instructionID,
 		Status:        status,
 	}, nil
-}
-
-type VoteStatus struct {
-	InstructionID common.Hash     `json:"instructionId"`
-	Status        []voting.Status `json:"status"`
 }

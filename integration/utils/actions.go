@@ -233,14 +233,14 @@ func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag
 }
 
 // VerifyVotingStatus Verifies number of cosigners, cosigners threshold, finalized and weight of the VoteStatus
-func VerifyVotingStatus(t *testing.T, votingStatus *voting.VoteStatus, nCosigners, cosignersThreshold, threshold uint16) {
-	require.Equal(t, 1, len(votingStatus.Status))
-	require.Equal(t, nCosigners, votingStatus.Status[0].Cosigners)
+func VerifyVotingStatus(t *testing.T, statuses *voting.Statuses, nCosigners, cosignersThreshold, threshold uint16) {
+	require.Equal(t, 1, len(statuses.Status))
+	require.Equal(t, nCosigners, statuses.Status[0].Cosigners)
 
-	require.Equal(t, cosignersThreshold, votingStatus.Status[0].CosignersThreshold)
-	require.True(t, votingStatus.Status[0].Finalized)
-	require.GreaterOrEqual(t, votingStatus.Status[0].Weight, threshold)
-	require.Equal(t, threshold, votingStatus.Status[0].Threshold)
+	require.Equal(t, cosignersThreshold, statuses.Status[0].CosignersThreshold)
+	require.True(t, statuses.Status[0].Finalized)
+	require.GreaterOrEqual(t, statuses.Status[0].Weight, threshold)
+	require.Equal(t, threshold, statuses.Status[0].Threshold)
 }
 
 // FetchAndVerifyActionResponse Fetches ActionResponse and verifies the signature

@@ -112,7 +112,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		MaxPendingRequests: 100,
 	}
 
-	vs := voting.NewStorage(vc, 3, meta, 10) //todo size
+	vs := instruction.NewStorage(vc, 3, meta, 10) //todo size
 	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, vs)
 	go instructionService.Forward(ctx)          //nolint:errcheck // todo
 	go instructionService.ListenToPolicies(ctx) //nolint:errcheck // todo

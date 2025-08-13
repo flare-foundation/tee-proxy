@@ -496,7 +496,7 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 		MaxPendingRequests: 0,
 	}
 
-	vs := voting.NewStorage(vCfg, 3, &testMeta{}, 3)
+	vs := NewStorage(vCfg, 3, &testMeta{}, 3)
 	vs.CreateRound(sp)
 
 	sk4, err := crypto.GenerateKey()

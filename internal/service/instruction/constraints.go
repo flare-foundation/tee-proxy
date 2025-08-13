@@ -1,4 +1,4 @@
-package voting
+package instruction
 
 import (
 	"fmt"
