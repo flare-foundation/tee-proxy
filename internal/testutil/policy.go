@@ -100,7 +100,7 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {
 	pks := make([]*ecdsa.PrivateKey, n)
 	addresses := make([]common.Address, n)
-	for j := range numberOfVoters {
+	for j := range n {
 		privKey, err := crypto.GenerateKey()
 		if err != nil {
 			panic("cannot generate key")
