@@ -30,7 +30,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 			CodeHash:     [32]byte{},
 			Platform:     [32]byte{},
 		},
-		Challenge: [32]byte(challenge.Bytes()),
+		Challenge: common.BigToHash(challenge),
 	}
 	originalMessageEncoded, err := abi.Arguments{verification.MessageArguments[op.TEEAttestation]}.Pack(originalMessage)
 	require.NoError(t, err)
