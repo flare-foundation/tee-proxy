@@ -22,8 +22,6 @@ var (
 	PrivKey3 *ecdsa.PrivateKey // has weight 3/7
 )
 
-const numberOfVoters = 100
-
 var MockSigningPolicy, MockPrivKeys = GeneratePolicy(100, true)
 
 const TotalWeight = 1<<16 - 1 // max uint16
@@ -97,6 +95,9 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 	return b, nil
 }
 
+// Generate policy creates a policy with n providers and returns the policy and providers private keys.
+//
+// If randomWeights is true, the weights are randomized, if not, the weights are uniform.
 func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {
 	pks := make([]*ecdsa.PrivateKey, n)
 	addresses := make([]common.Address, n)
