@@ -77,7 +77,7 @@ func TestFTDCMeta(t *testing.T) {
 	require.Equal(t, uint64(2), cst)
 
 	// consistency
-	hash, _, err := types.HashFTDCMessage(ar, []byte("todo"), ts)
+	hash, _, _, err := types.HashFTDCMessage(ar, []byte("todo"), ts)
 	require.NoError(t, err)
 
 	pk, err := crypto.GenerateKey()

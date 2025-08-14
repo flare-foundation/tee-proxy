@@ -108,7 +108,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 	require.NoError(t, err)
 
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
+	msgHash, _, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -156,7 +156,7 @@ func TestFTDCMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
+	msgHash, _, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)

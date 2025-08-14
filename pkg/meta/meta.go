@@ -133,7 +133,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Timestamp)
+	h, _, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Timestamp)
 	if err != nil {
 		return err
 	}
