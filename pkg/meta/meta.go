@@ -70,42 +70,6 @@ func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Addre
 	return cosigners, walletBackupMetadata.AdminsThreshold, nil
 }
 
-// xrpCosigners retrieves cosigners for payment instruction from wallets configurations.
-func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.Address]bool, uint64, error) {
-	cosigners := make(map[common.Address]bool)
-
-	originalMessage, err := types.ParsePaymentInstruction(data)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	wID := originalMessage.WalletId
-
-	wi, err := ws.WalletInfo(wID)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	for _, cs := range wi.ConfigConstants.Cosigners {
-		cosigners[cs] = true
-	}
-
-	cosignerThreshold := wi.ConfigConstants.CosignersThreshold
-
-	return cosigners, cosignerThreshold, nil
-}
-
-// ftdcCosigners retrieves cosigners and threshold from the instruction data.
-func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64) {
-	cosigners := make(map[common.Address]bool)
-
-	for _, cs := range data.Cosigners {
-		cosigners[cs] = true
-	}
-
-	return cosigners, data.CosignersThreshold
-}
-
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch data.OPCommand {
 	case op.Prove.Hash():
