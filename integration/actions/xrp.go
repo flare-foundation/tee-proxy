@@ -43,7 +43,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.XRP, op.Pay, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.XRP, op.Pay, originalMessageEncoded, timestamp, nil, nil, nil, 0, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)

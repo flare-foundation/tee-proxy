@@ -20,7 +20,7 @@ type Meta interface {
 	// Cosigners returns cosigners' addresses and the cosigners threshold.
 	//
 	// If no cosigners are set, empty list and threshold zero is returned.
-	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64, error)
+	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64)
 
 	// CheckConsistency validates validates instruction according to its opType.
 	//
@@ -40,19 +40,14 @@ func New(ws *wallets.Storage) Meta {
 	return &meta{ws}
 }
 
-func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	switch data.OPCommand {
-	case op.Pay.Hash(), op.Reissue.Hash():
-		return xrpCosigners(data, m.ws)
+func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64) {
+	cosigners := make(map[common.Address]bool)
 
-	case op.Prove.Hash():
-		return ftdcCosigners(data)
-
-	case op.KeyDataProviderRestore.Hash():
-		return keyDataProviderRestoreAdmins(data)
+	for _, cs := range data.Cosigners {
+		cosigners[cs] = true
 	}
 
-	return make(map[common.Address]bool), 0, nil
+	return cosigners, data.CosignersThreshold
 }
 
 func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
@@ -100,20 +95,15 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.
 	return cosigners, cosignerThreshold, nil
 }
 
-// ftdcCosigners retrieves cosigners and threshold from the header of the FTDC request.
-func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+// ftdcCosigners retrieves cosigners and threshold from the instruction data.
+func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64) {
 	cosigners := make(map[common.Address]bool)
 
-	ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	for _, cs := range ftdcReq.Header.Cosigners {
+	for _, cs := range data.Cosigners {
 		cosigners[cs] = true
 	}
 
-	return cosigners, ftdcReq.Header.CosignersThreshold, nil
+	return cosigners, data.CosignersThreshold
 }
 
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
@@ -133,7 +123,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Timestamp)
+	h, _, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return err
 	}

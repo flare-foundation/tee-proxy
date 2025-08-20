@@ -96,19 +96,18 @@ func TestFTDCMessageValidity(t *testing.T) {
 
 	ftdcReq := connector.IFtdcHubFtdcAttestationRequest{
 		Header: connector.IFtdcHubFtdcRequestHeader{
-			Cosigners:          []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)},
-			ThresholdBIPS:      5000,
-			SourceId:           crypto.Keccak256Hash([]byte("todo")),
-			AttestationType:    crypto.Keccak256Hash([]byte("todo")),
-			CosignersThreshold: 1,
+			ThresholdBIPS:   5000,
+			SourceId:        crypto.Keccak256Hash([]byte("todo")),
+			AttestationType: crypto.Keccak256Hash([]byte("todo")),
 		},
 		RequestBody: []byte("TODO"),
 	}
 	ftdcReqBytes, err := types.EncodeFTDCRequest(ftdcReq)
 	require.NoError(t, err)
-
+	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
+	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
+	msgHash, _, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -124,11 +123,13 @@ func TestFTDCMessageValidity(t *testing.T) {
 			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
+			Cosigners:              cosigners,
+			CosignersThreshold:     cosignersThreshold,
 		},
 		AdditionalVariableMessage: signature,
 	}
 
-	err = s.meta.CheckConsistency(i, ftdcReq.Header.Cosigners[0])
+	err = s.meta.CheckConsistency(i, i.Cosigners[0])
 	require.NoError(t, err)
 }
 
@@ -144,19 +145,18 @@ func TestFTDCMessage(t *testing.T) {
 
 	ftdcReq := connector.IFtdcHubFtdcAttestationRequest{
 		Header: connector.IFtdcHubFtdcRequestHeader{
-			Cosigners:          []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)},
-			ThresholdBIPS:      5000,
-			SourceId:           crypto.Keccak256Hash([]byte("todo")),
-			AttestationType:    crypto.Keccak256Hash([]byte("todo")),
-			CosignersThreshold: 1,
+			ThresholdBIPS:   5000,
+			SourceId:        crypto.Keccak256Hash([]byte("todo")),
+			AttestationType: crypto.Keccak256Hash([]byte("todo")),
 		},
 		RequestBody: []byte("TODO"),
 	}
 	ftdcReqBytes, err := types.EncodeFTDCRequest(ftdcReq)
 	require.NoError(t, err)
-
+	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
+	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], uint64(0))
+	msgHash, _, _, err := types.HashFTDCMessage(ftdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -172,11 +172,13 @@ func TestFTDCMessage(t *testing.T) {
 			OPCommand:              op.Prove.Hash(),
 			OriginalMessage:        ftdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
+			Cosigners:              cosigners,
+			CosignersThreshold:     cosignersThreshold,
 		},
 		AdditionalVariableMessage: signature,
 	}
 
-	rec, err := s.AddVote(i, ftdcReq.Header.Cosigners[0], signature)
+	rec, err := s.AddVote(i, cosigners[0], signature)
 	require.NoError(t, err)
 
 	hash, err := i.HashFixed()

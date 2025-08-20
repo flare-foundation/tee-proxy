@@ -28,14 +28,12 @@ func FtdcProve(
 	rewardEpochId uint32,
 ) *types.FTDCProveResponse {
 	cosignerAddresses, cosignerAndProvider := CosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
-
+	cosignersThreshold := uint64(len(cosignerAddresses))
 	originalMessage := connector.IFtdcHubFtdcAttestationRequest{
 		Header: connector.IFtdcHubFtdcRequestHeader{
-			AttestationType:    [32]byte{},
-			SourceId:           common.Hash{},
-			ThresholdBIPS:      uint16(TotalWeight * 0.6),
-			Cosigners:          cosignerAddresses,
-			CosignersThreshold: uint64(len(cosignerAddresses)),
+			AttestationType: [32]byte{},
+			SourceId:        common.Hash{},
+			ThresholdBIPS:   uint16(TotalWeight * 0.6),
 		},
 		RequestBody: make([]byte, 10),
 	}
@@ -47,10 +45,10 @@ func FtdcProve(
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys)
+	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys, cosignerAddresses, cosignersThreshold)
 	require.NoError(t, err)
 
-	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, cosignerAddresses, cosignersThreshold, pc.TeeId, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
@@ -68,7 +66,7 @@ func FtdcProve(
 	require.NoError(t, err)
 
 	// Verify FTDC response signatures
-	ftdcMsgHash, _, _, err := types.HashFTDCMessage(originalMessage, additionalFixedMessageEncoded, timestamp)
+	ftdcMsgHash, _, _, err := types.HashFTDCMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
 
 	err = teeUtils.VerifySignature(ftdcMsgHash.Bytes(), ftdcResponse.TEESignature, pc.TeeId)
@@ -104,7 +102,7 @@ func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provider
 }
 
 // GetAdditionalFixedMessage returns the additional fixed message, the variable messages (signatures) and the private keys for the provider and cosigner
-func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []byte, originalMessage connector.IFtdcHubFtdcAttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
+func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []byte, originalMessage connector.IFtdcHubFtdcAttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
 	additionalFixedMessage := verification.ITeeVerificationTeeAttestation{
 		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
 			TeeId:        pc.TeeId,
@@ -119,7 +117,7 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []
 	additionalFixedMessageEncoded, err := types.EncodeTeeAttestationRequest(&additionalFixedMessage)
 	require.NoError(t, err)
 
-	ftdcMsgHash, _, _, err := types.HashFTDCMessage(originalMessage, additionalFixedMessageEncoded, timestamp)
+	ftdcMsgHash, _, _, err := types.HashFTDCMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
 
 	variableMessages := make([]hexutil.Bytes, 0)

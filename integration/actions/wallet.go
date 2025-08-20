@@ -53,7 +53,7 @@ func GenerateWallet(
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.Wallet, op.KeyGenerate, originalMessageEncoded, timestamp, nil, nil, teeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Wallet, op.KeyGenerate, originalMessageEncoded, timestamp, nil, nil, nil, 0, teeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -110,7 +110,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.Wallet, op.KeyDelete, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Wallet, op.KeyDelete, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeId, rewardEpochId)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -164,6 +164,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	additionalFixedMessage := walletBackup.WalletBackupMetaData
 
 	adminAndProvider := make(map[common.Address]int)
+	adminAddresses := make([]common.Address, len(adminsPrivKeys))
 	for j, adminPrivKey := range adminsPrivKeys {
 		address := crypto.PubkeyToAddress(adminPrivKey.PublicKey)
 		for _, providerPrivKey := range providersPrivKeys {
@@ -171,7 +172,9 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 				adminAndProvider[address] = j
 			}
 		}
+		adminAddresses[j] = address
 	}
+	adminsThreshold := uint64(len(adminAddresses))
 
 	teeEciesPubKey := ecies.ImportECDSAPublic(pc.ProxyPubKey)
 	addVarMsgs := make([]interface{}, 0)
@@ -234,7 +237,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	for i, privKey := range privKeys {
 		timestamp := uint64(time.Now().Unix())
 		iData := utils.BuildInstructionDataWithId(t, common.BytesToHash(instructionId), op.Wallet, op.KeyDataProviderRestore,
-			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], pc.TeeId, rewardEpochId)
+			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], adminAddresses, adminsThreshold, pc.TeeId, rewardEpochId)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))
 		instructions = append(instructions, *iData)
 	}

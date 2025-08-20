@@ -24,8 +24,8 @@ import (
 
 type testMeta struct{}
 
-func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	return map[common.Address]bool{}, 0, nil
+func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64) {
+	return map[common.Address]bool{}, 0
 }
 
 func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {

@@ -245,10 +245,7 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 		threshold = computeThreshold(round.policy.Voters.TotalWeight, t)
 	}
 
-	cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
-	if err != nil {
-		return nil, fmt.Errorf("cannot get cosigners for %w", err)
-	}
+	cosigners, cosignerThreshold := s.meta.Cosigners(&data.DataFixed)
 
 	if cosigners[signer] {
 		round.limiter.Add(signer)
