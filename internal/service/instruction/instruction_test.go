@@ -24,8 +24,8 @@ import (
 
 type testMeta struct{}
 
-func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64) {
-	return map[common.Address]bool{}, 0
+func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	return map[common.Address]bool{}, 0, nil
 }
 
 func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
@@ -174,7 +174,7 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
 
 	// Get the status of the instruction
-	status, err := s.Status(i1.Data.InstructionID, 1)
+	status, err := s.Statuses(i1.Data.InstructionID, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, i1.Data.InstructionID, status.InstructionID)
@@ -194,7 +194,7 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
 
 	// Get the status of the instruction
-	status, err = s.Status(i2.Data.InstructionID, 1)
+	status, err = s.Statuses(i2.Data.InstructionID, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, i2.Data.InstructionID, status.InstructionID)
@@ -228,7 +228,7 @@ func TestStatus(t *testing.T) {
 	require.Equal(t, uint64(0), sr3.Receipt.Sequence)
 
 	// Get the status of the instruction
-	status, err = s.Status(i3.Data.InstructionID, 1)
+	status, err = s.Statuses(i3.Data.InstructionID, 1)
 	require.NoError(t, err)
 
 	require.Equal(t, i3.Data.InstructionID, status.InstructionID)
@@ -449,7 +449,7 @@ func TestVotingStorageErrors(t *testing.T) {
 				require.NoError(t, err)
 				return signInstruction(t, iData, randomKey) // Use key not in signing policy
 			},
-			expectedError:  "voter not registered",
+			expectedError:  "cannot initialize voting",
 			expectedStatus: "'forbidden'",
 		},
 		{

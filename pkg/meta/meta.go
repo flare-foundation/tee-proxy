@@ -2,6 +2,7 @@ package meta
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -20,7 +21,7 @@ type Meta interface {
 	// Cosigners returns cosigners' addresses and the cosigners threshold.
 	//
 	// If no cosigners are set, empty list and threshold zero is returned.
-	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64)
+	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64, error)
 
 	// CheckConsistency validates validates instruction according to its opType.
 	//
@@ -40,14 +41,57 @@ func New(ws *wallets.Storage) Meta {
 	return &meta{ws}
 }
 
-func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64) {
+func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	var cs map[common.Address]bool
+	var t uint64
+	var err error
+
 	cosigners := make(map[common.Address]bool)
 
-	for _, cs := range data.Cosigners {
-		cosigners[cs] = true
+	switch data.OPCommand {
+	case op.Pay.Hash(), op.Reissue.Hash():
+		cs, t, err = xrpCosigners(data, m.ws)
+	case op.KeyDataProviderRestore.Hash():
+		cs, t, err = keyDataProviderRestoreAdmins(data)
+
+	default:
+		for _, cs := range data.Cosigners {
+			cosigners[cs] = true
+		}
+
+		return cosigners, data.CosignersThreshold, nil
 	}
 
-	return cosigners, data.CosignersThreshold
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = checkCosigner(data.Cosigners, cs, data.CosignersThreshold, t)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return cs, t, nil
+}
+
+var errInvalidCosigners = errors.New("invalid cosigners")
+
+func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Address]bool, threshold, expectedThreshold uint64) error {
+	if len(cosigners) != len(expectedCosigners) {
+		return errInvalidCosigners
+	}
+
+	for _, cs := range cosigners {
+		if !expectedCosigners[cs] {
+			return errInvalidCosigners
+		}
+	}
+
+	if threshold != expectedThreshold {
+		return errors.New("invalid cosigner threshold")
+	}
+
+	return nil
 }
 
 func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
@@ -68,6 +112,31 @@ func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Addre
 	}
 
 	return cosigners, walletBackupMetadata.AdminsThreshold, nil
+}
+
+// xrpCosigners retrieves cosigners for payment instruction from wallets configurations.
+func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.Address]bool, uint64, error) {
+	cosigners := make(map[common.Address]bool)
+
+	originalMessage, err := types.ParsePaymentInstruction(data)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	wID := originalMessage.WalletId
+
+	wi, err := ws.WalletInfo(wID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for _, cs := range wi.ConfigConstants.Cosigners {
+		cosigners[cs] = true
+	}
+
+	cosignerThreshold := wi.ConfigConstants.CosignersThreshold
+
+	return cosigners, cosignerThreshold, nil
 }
 
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {

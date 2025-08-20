@@ -63,7 +63,8 @@ func TestFTDCMeta(t *testing.T) {
 	require.Equal(t, 7500, thrsh)
 
 	// cosigners
-	cs, cst := m.Cosigners(&data)
+	cs, cst, err := m.Cosigners(&data)
+	require.NoError(t, err)
 
 	require.True(t, cs[cos1])
 	require.True(t, cs[cos2])
@@ -115,7 +116,7 @@ func TestMetaGeneral(t *testing.T) {
 
 	require.Equal(t, -1, thrsh)
 
-	cs, cst := m.Cosigners(data)
+	cs, cst, err := m.Cosigners(data)
 	require.NoError(t, err)
 
 	require.Len(t, cs, 0)

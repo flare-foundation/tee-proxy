@@ -8,7 +8,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
-var ErrUnregistered = fmt.Errorf("%w: voter not registered", status.HTTP[403])
+var ErrCannotInitialize = fmt.Errorf("%w: cannot initialize voting", status.HTTP[403])
 var ErrLimitReached = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
 
 type Limiter struct {
@@ -69,7 +69,7 @@ func (l *Limiter) Increment(address common.Address) error {
 
 	state, exists := l.counter[address]
 	if !exists {
-		return ErrUnregistered
+		return ErrCannotInitialize
 	}
 
 	// Check if the validator has too many pending requests

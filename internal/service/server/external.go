@@ -152,7 +152,7 @@ func (e *External) statH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	result, err := e.instructionService.Status(id, reID)
+	result, err := e.instructionService.Statuses(id, reID)
 	if err != nil {
 		return err
 	}
