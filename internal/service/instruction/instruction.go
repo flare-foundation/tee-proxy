@@ -69,6 +69,7 @@ func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
 }
 
+// Forward listens to the out channel and enqueues received actions.
 func (s *Service) Forward(ctx context.Context) error {
 	// this can be done directly
 	for {
@@ -84,6 +85,7 @@ func (s *Service) Forward(ctx context.Context) error {
 	}
 }
 
+// ListenToPolicies listens to policy channel and creates a new round when a new policy arrives.
 func (s *Service) ListenToPolicies(ctx context.Context) error {
 	for {
 		select {
@@ -97,7 +99,8 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 	}
 }
 
-func (s *Service) Status(instructionID common.Hash, rewardEpochID uint32) (*voting.Statuses, error) {
+// Statuses returns the statuses for instructionID if it is present in the given rewardEpochID.
+func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*voting.Statuses, error) {
 	r, exists := s.vs.Get(rewardEpochID)
 	if !exists {
 		return nil, fmt.Errorf("%w: round not stored", status.HTTP[404])

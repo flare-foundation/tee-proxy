@@ -36,7 +36,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeId, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()

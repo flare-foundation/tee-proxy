@@ -32,12 +32,14 @@ func BuildInstructionData(
 	timestamp uint64,
 	additionalFixedMessageRaw any,
 	additionalVariableMessage any,
+	cosigners []common.Address,
+	cosignersThreshold uint64,
 	teeId common.Address,
 	rewardEpochId uint32,
 ) *instruction.Data {
 	instructionId, err := testutil.GenerateRandomBytes(32)
 	require.NoError(t, err)
-	return BuildInstructionDataWithId(t, common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, teeId, rewardEpochId)
+	return BuildInstructionDataWithId(t, common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, cosigners, cosignersThreshold, teeId, rewardEpochId)
 }
 
 func BuildInstructionDataWithId(
@@ -49,6 +51,8 @@ func BuildInstructionDataWithId(
 	timestamp uint64,
 	additionalFixedMessageRaw any,
 	additionalVariableMessage any,
+	cosigners []common.Address,
+	cosignersThreshold uint64,
 	teeId common.Address,
 	rewardEpochId uint32,
 ) *instruction.Data {
@@ -73,6 +77,8 @@ func BuildInstructionDataWithId(
 		OriginalMessage:        originalMessage,
 		AdditionalFixedMessage: additionalFixedMessage,
 		Timestamp:              timestamp,
+		Cosigners:              cosigners,
+		CosignersThreshold:     cosignersThreshold,
 	}
 
 	iData := &instruction.Data{

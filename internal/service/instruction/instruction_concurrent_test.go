@@ -78,7 +78,7 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 	require.NoError(t, errors[1], "Second instruction should succeed")
 
 	// Verify vote box state
-	status, err := s.Status(iData.InstructionID, 1)
+	status, err := s.Statuses(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
 	// PrivKey1 has weight 1, PrivKey2 has weight 3, so total should be 4
@@ -193,7 +193,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	// Verify that each instruction pair created exactly 2 vote boxes (one for each different hash)
 	// This is the critical test: ensuring no duplicate vote boxes were created due to race conditions
 	for i, pair := range instructionPairs {
-		status, err := s.Status(pair.baseData.InstructionID, 1)
+		status, err := s.Statuses(pair.baseData.InstructionID, 1)
 		require.NoError(t, err, "Failed to get status for pair %d", i)
 
 		// Should have exactly 2 vote boxes (one for each different AdditionalVariableMessage hash)
@@ -280,7 +280,7 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 	require.Greater(t, successCount, 0, "At least one instruction should succeed")
 
 	// Verify final state
-	status, err := s.Status(iData.InstructionID, 1)
+	status, err := s.Statuses(iData.InstructionID, 1)
 	require.NoError(t, err)
 
 	totalWeight := uint16(0)
@@ -296,7 +296,7 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 
 	t.Logf("Average weight per successful vote: %.2f", float64(totalWeight)/float64(successCount))
 
-	status, err = s.Status(iData.InstructionID, 1)
+	status, err = s.Statuses(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
 	require.Equal(t, testutil.MockSigningPolicy.Voters.TotalWeight, status.Status[0].Weight, "Should have weight from all voters")
@@ -333,7 +333,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	require.NoError(t, err, "First vote should succeed")
 
 	// Verify we're below threshold
-	status, err := s.Status(iData.InstructionID, 1)
+	status, err := s.Statuses(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should have one vote box")
 	require.Equal(t, uint16(1), status.Status[0].Weight, "Should have weight 1")
@@ -369,7 +369,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	wg.Wait()
 
 	// Verify final vote box state
-	status, err = s.Status(iData.InstructionID, 1)
+	status, err = s.Statuses(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should still have one vote box")
 	require.Equal(t, uint16(7), status.Status[0].Weight, "Should have combined weight (1+3+3=7)")
@@ -447,7 +447,7 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 	wg.Wait()
 
 	// Verify final vote box state
-	status, err := s.Status(iData.InstructionID, 1)
+	status, err := s.Statuses(iData.InstructionID, 1)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(status.Status), "Should still have one vote box")
 	require.Equal(t, policy.Voters.TotalWeight, status.Status[0].Weight, "Should have all votes")

@@ -2,6 +2,7 @@ package meta
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -41,18 +42,56 @@ func New(ws *wallets.Storage) Meta {
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	var cosigners map[common.Address]bool
+	var threshold uint64
+	var err error
+
 	switch data.OPCommand {
 	case op.Pay.Hash(), op.Reissue.Hash():
-		return xrpCosigners(data, m.ws)
-
-	case op.Prove.Hash():
-		return ftdcCosigners(data)
-
+		cosigners, threshold, err = xrpCosigners(data, m.ws)
 	case op.KeyDataProviderRestore.Hash():
-		return keyDataProviderRestoreAdmins(data)
+		cosigners, threshold, err = keyDataProviderRestoreAdmins(data)
+
+	default:
+		cosigners = make(map[common.Address]bool, len(data.Cosigners))
+
+		for _, cs := range data.Cosigners {
+			cosigners[cs] = true
+		}
+
+		return cosigners, data.CosignersThreshold, nil
 	}
 
-	return make(map[common.Address]bool), 0, nil
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = checkCosigner(data.Cosigners, cosigners, data.CosignersThreshold, threshold)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return cosigners, threshold, nil
+}
+
+var errInvalidCosigners = errors.New("invalid cosigners")
+
+func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Address]bool, threshold, expectedThreshold uint64) error {
+	if len(cosigners) != len(expectedCosigners) {
+		return errInvalidCosigners
+	}
+
+	for _, cs := range cosigners {
+		if !expectedCosigners[cs] {
+			return errInvalidCosigners
+		}
+	}
+
+	if threshold != expectedThreshold {
+		return errors.New("invalid cosigner threshold")
+	}
+
+	return nil
 }
 
 func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
@@ -100,22 +139,6 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Storage) (map[common.
 	return cosigners, cosignerThreshold, nil
 }
 
-// ftdcCosigners retrieves cosigners and threshold from the header of the FTDC request.
-func ftdcCosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	cosigners := make(map[common.Address]bool)
-
-	ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	for _, cs := range ftdcReq.Header.Cosigners {
-		cosigners[cs] = true
-	}
-
-	return cosigners, ftdcReq.Header.CosignersThreshold, nil
-}
-
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch data.OPCommand {
 	case op.Prove.Hash():
@@ -133,7 +156,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Timestamp)
+	h, _, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return err
 	}

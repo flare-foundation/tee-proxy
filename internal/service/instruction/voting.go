@@ -105,7 +105,7 @@ func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 		return
 	}
 
-	voters := make([]common.Address, 0, len(policy.Voters.VoterDataMap)) // todo: make this nicer
+	voters := make([]common.Address, 0, len(policy.Voters.VoterDataMap))
 	for voter := range policy.Voters.VoterDataMap {
 		voters = append(voters, voter)
 	}
@@ -124,7 +124,6 @@ func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 // AddVote adds vote to a correct vote box in a correct round and returns a receipt.
 // If a round does not exits an error is returned.
 // If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
-
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*voting.Receipt, error) {
 	id := data.InstructionID
 
@@ -194,14 +193,14 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		return nil, fmt.Errorf("%w, voting already ended %d", status.HTTP[400], id)
 	}
 
-	receipt, finished, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
+	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
 	if err != nil {
 		return nil, fmt.Errorf("adding vote from %s to %v: %v", signer, id, err)
 	}
 
 	receipt.InstructionHash = hash
 
-	// save box or boxes if they are not saved yet.
+	// save box and schedule ending if it is newly created.
 	if !existsB {
 		box.iID = id
 		box.iHash = hash
@@ -216,23 +215,27 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 			if box.Finalized {
 				a, err := box.Action(types.End)
 				if err != nil {
-					logger.Errorf("toto %v", err)
+					logger.Errorf("failed crating end action for %v, %v: %v", id, hash, err)
 				}
 				s.Out <- a
+			} else {
+				logger.Debug("closing non finalized box %v, %v", box.iID, box.iHash)
 			}
 			box.Delete()
 		}()
 	}
+
+	// save boxes if they are newly created.
 	if !existsBs {
 		round.Voting.M[id] = boxes
 	}
 
-	if finished {
+	if finalized {
 		round.limiter.Decrement(box.Proposer)
 
 		a, err := box.Action(types.Threshold)
 		if err != nil {
-			logger.Errorf("toto %v", err)
+			logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
 		}
 		s.Out <- a
 	}

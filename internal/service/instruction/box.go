@@ -232,7 +232,7 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 
 	t, err := s.meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get threshold")
+		return nil, fmt.Errorf("cannot get threshold %w", err)
 	}
 
 	var threshold uint16
@@ -247,11 +247,7 @@ func (s *Storage) startVoteBox(data *instruction.Data, signer common.Address, ro
 
 	cosigners, cosignerThreshold, err := s.meta.Cosigners(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get cosigners for %w", err)
-	}
-
-	if cosigners[signer] {
-		round.limiter.Add(signer)
+		return nil, fmt.Errorf("cannot get cosigners %w", err)
 	}
 
 	err = round.limiter.Increment(signer)
