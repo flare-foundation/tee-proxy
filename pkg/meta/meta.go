@@ -42,19 +42,19 @@ func New(ws *wallets.Storage) Meta {
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	var cs map[common.Address]bool
-	var t uint64
+	var cosigners map[common.Address]bool
+	var threshold uint64
 	var err error
-
-	cosigners := make(map[common.Address]bool)
 
 	switch data.OPCommand {
 	case op.Pay.Hash(), op.Reissue.Hash():
-		cs, t, err = xrpCosigners(data, m.ws)
+		cosigners, threshold, err = xrpCosigners(data, m.ws)
 	case op.KeyDataProviderRestore.Hash():
-		cs, t, err = keyDataProviderRestoreAdmins(data)
+		cosigners, threshold, err = keyDataProviderRestoreAdmins(data)
 
 	default:
+		cosigners = make(map[common.Address]bool, len(data.Cosigners))
+
 		for _, cs := range data.Cosigners {
 			cosigners[cs] = true
 		}
@@ -66,12 +66,12 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 		return nil, 0, err
 	}
 
-	err = checkCosigner(data.Cosigners, cs, data.CosignersThreshold, t)
+	err = checkCosigner(data.Cosigners, cosigners, data.CosignersThreshold, threshold)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return cs, t, nil
+	return cosigners, threshold, nil
 }
 
 var errInvalidCosigners = errors.New("invalid cosigners")
