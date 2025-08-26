@@ -88,7 +88,7 @@ func (s *Service) update(ctx context.Context, db *gorm.DB, logsC <-chan []databa
 			case <-ctx.Done():
 				return
 			case logs := <-logsC:
-				logger.Debugf("updating signing policy from %d")
+				logger.Debug("updating signing policy from")
 				action, p, err := policy.UpdatePolicyAction(ctx, db, s.addresses, logs[0], s.activePolicy)
 				if err != nil {
 					logger.Errorf("creating UPDATE_POLICY action: %s", err)

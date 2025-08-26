@@ -141,7 +141,7 @@ func (vb *voteBox) Delete() {
 	vb.deleted = true
 }
 
-// delete clears VoteBox and sets it's deleted status to true.
+// Status returns the current status of the box.
 func (vb *voteBox) Status(hash common.Hash) voting.Status {
 	var threshold, cosignersThreshold uint16 = 0, 0
 	if vb.proposal != nil {

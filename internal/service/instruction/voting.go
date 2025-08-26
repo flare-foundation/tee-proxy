@@ -190,7 +190,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	defer box.Unlock()
 
 	if box.deleted {
-		return nil, fmt.Errorf("%w, voting already ended %d", status.HTTP[400], id)
+		return nil, fmt.Errorf("%w, voting already ended %s", status.HTTP[400], id.String())
 	}
 
 	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)

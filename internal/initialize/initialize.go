@@ -18,7 +18,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/info"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
-	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -107,12 +106,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	meta := meta.New(&walletStorage)
 
-	vc := &voting.Config{
-		ProposalExpiration: 2 * time.Second,
-		MaxPendingRequests: 100,
-	}
-
-	vs := instruction.NewStorage(vc, 3, meta, 10) //todo size
+	vs := instruction.NewStorage(&cfg.Voting, 3, meta, 10) //todo size
 	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, vs)
 	go instructionService.Forward(ctx)          //nolint:errcheck // todo
 	go instructionService.ListenToPolicies(ctx) //nolint:errcheck // todo
@@ -132,6 +126,6 @@ func walletSyncTrigger(ctx context.Context, c chan bool) {
 
 		c <- true
 
-		time.Sleep(10 * time.Minute)
+		time.Sleep(60 * time.Minute)
 	}
 }
