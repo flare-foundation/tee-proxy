@@ -16,6 +16,8 @@ var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 
 func prepareHandler(f func(http.ResponseWriter, *http.Request) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
 		err := f(w, r)
 
 		if err != nil {

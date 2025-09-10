@@ -11,7 +11,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
-	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/ftdc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +38,7 @@ func TestFTDCMeta(t *testing.T) {
 		RequestBody: []byte("todo"), // Sample request body
 	}
 
-	encoded, err := types.EncodeFTDCRequest(ar)
+	encoded, err := ftdc.EncodeRequest(ar)
 	require.NoError(t, err)
 
 	ts := uint64(time.Now().Unix())
@@ -72,7 +72,7 @@ func TestFTDCMeta(t *testing.T) {
 	require.Equal(t, uint64(2), cst)
 
 	// consistency
-	hash, _, _, err := types.HashFTDCMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
+	hash, _, _, err := ftdc.HashMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
 	require.NoError(t, err)
 
 	pk, err := crypto.GenerateKey()

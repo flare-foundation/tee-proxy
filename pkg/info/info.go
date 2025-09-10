@@ -16,6 +16,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"gorm.io/gorm"
@@ -104,7 +105,7 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 		return err
 	}
 
-	err = s.actionQueues.Enqueue(ctx, action, queue.Read)
+	err = s.actionQueues.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
 		return err
 	}
@@ -115,7 +116,7 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !response.Result.Status {
+	if response.Result.Status != 1 {
 		return errors.New("action failed")
 	}
 

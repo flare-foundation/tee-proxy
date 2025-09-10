@@ -12,7 +12,9 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
+	"github.com/flare-foundation/tee-node/pkg/ftdc"
 	"github.com/flare-foundation/tee-node/pkg/types"
+
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -26,7 +28,7 @@ func FtdcProve(
 	pc *utils.ProxyConfig,
 	providerPrivKeys, cosignerPrivKeys []*ecdsa.PrivateKey,
 	rewardEpochId uint32,
-) *types.FTDCProveResponse {
+) *ftdc.ProveResponse {
 	cosignerAddresses, cosignerAndProvider := CosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
 	cosignersThreshold := uint64(len(cosignerAddresses))
 	originalMessage := connector.IFtdcHubFtdcAttestationRequest{
@@ -38,7 +40,7 @@ func FtdcProve(
 		RequestBody: make([]byte, 10),
 	}
 
-	originalMessageEncoded, err := types.EncodeFTDCRequest(originalMessage)
+	originalMessageEncoded, err := ftdc.EncodeRequest(originalMessage)
 	require.NoError(t, err)
 
 	challenge, err := testutil.GenerateRandomBytes(32)
@@ -61,12 +63,12 @@ func FtdcProve(
 	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
 	require.NoError(t, err)
 
-	var ftdcResponse types.FTDCProveResponse
+	var ftdcResponse ftdc.ProveResponse
 	err = json.Unmarshal(res.Result.Data, &ftdcResponse)
 	require.NoError(t, err)
 
 	// Verify FTDC response signatures
-	ftdcMsgHash, _, _, err := types.HashFTDCMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
+	ftdcMsgHash, _, _, err := ftdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
 
 	err = teeUtils.VerifySignature(ftdcMsgHash.Bytes(), ftdcResponse.TEESignature, pc.TeeId)
@@ -117,7 +119,7 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []
 	additionalFixedMessageEncoded, err := types.EncodeTeeAttestationRequest(&additionalFixedMessage)
 	require.NoError(t, err)
 
-	ftdcMsgHash, _, _, err := types.HashFTDCMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
+	ftdcMsgHash, _, _, err := ftdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
 
 	variableMessages := make([]hexutil.Bytes, 0)

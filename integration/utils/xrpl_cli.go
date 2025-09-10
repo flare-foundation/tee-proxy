@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,16 +22,16 @@ type MultisigResult struct {
 }
 
 // CreateMultisigWallet calls the TypeScript CLI to create a multisig wallet
-func CreateMultisigWallet(t *testing.T, walletAddresses []string, quorum int) *MultisigResult {
+func CreateMultisigWallet(t *testing.T, scriptsPath string, walletAddresses []string, quorum int) *MultisigResult {
 	t.Helper()
 
 	// Get the path to the scripts directory
-	workDir, err := filepath.Abs("./scripts")
+	workDir, err := filepath.Abs(scriptsPath)
 	require.NoError(t, err, "Failed to get scripts directory path")
 
 	// Check if scripts directory exists
 	if _, err := os.Stat(workDir); os.IsNotExist(err) {
-		t.Fatalf("Scripts directory does not exist: %s", workDir)
+		logger.Fatalf("Scripts directory does not exist: %s", workDir)
 	}
 
 	// Prepare command arguments
@@ -44,9 +45,9 @@ func CreateMultisigWallet(t *testing.T, walletAddresses []string, quorum int) *M
 	// Capture output
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Logf("Command failed: %v", err)
-		t.Logf("Output: %s", string(output))
-		t.Fatalf("Failed to execute CLI command: %v", err)
+		logger.Errorf("Command failed: %v", err)
+		logger.Errorf("Output: %s", string(output))
+		logger.Fatalf("Failed to execute CLI command: %v", err)
 	}
 
 	// Parse the JSON output
@@ -65,7 +66,7 @@ func CreateMultisigWallet(t *testing.T, walletAddresses []string, quorum int) *M
 	}
 
 	if jsonLine == "" {
-		t.Fatalf("No valid JSON output found. Output: %s", outputStr)
+		logger.Fatalf("No valid JSON output found. Output: %s", outputStr)
 	}
 
 	err = json.Unmarshal([]byte(jsonLine), &result)
@@ -73,9 +74,9 @@ func CreateMultisigWallet(t *testing.T, walletAddresses []string, quorum int) *M
 
 	// Check if the operation was successful
 	if !result.Success {
-		t.Fatalf("CLI operation failed: %s", result.Error)
+		logger.Fatalf("CLI operation failed: %s", result.Error)
 	}
 
-	t.Logf("Created multisig wallet: %s with balance: %d", result.MultisigAddress, result.Balance)
+	logger.Infof("Created multisig wallet: %s with balance: %d", result.MultisigAddress, result.Balance)
 	return &result
 }

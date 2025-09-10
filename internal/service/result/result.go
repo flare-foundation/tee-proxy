@@ -40,7 +40,7 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 	return nil
 }
 
-// Serve returns response for actionID with tag "threshold" if present.
+// Store stores response into database.
 func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r)
@@ -53,7 +53,7 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 		}
 	}
 
-	if r.Result.Status {
+	if r.Result.Status == 1 {
 		switch r.Result.OPCommand {
 		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDelete.Hash():
 			select {
@@ -72,7 +72,7 @@ func (s *Service) Serve(ctx context.Context, actionID common.Hash) (*types.Actio
 	return s.rs.GetResponse(ctx, actionID, types.Threshold)
 }
 
-// Serve returns response for actionID with tag "end" if present.
+// ServeRewards returns response for actionID with tag "end" if present.
 func (s *Service) ServeRewards(ctx context.Context, actionID common.Hash) (*types.ActionResponse, error) {
 	return s.rs.GetResponse(ctx, actionID, types.End)
 }

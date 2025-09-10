@@ -7,6 +7,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/policy"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -41,7 +42,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int) error
 
 	logger.Infof("initialized for policy %d", p.RewardEpochID)
 
-	return s.aq.Enqueue(ctx, action, queue.Main)
+	return s.aq.Enqueue(ctx, action, processorutils.Direct)
 }
 
 func (s *Service) Run(ctx context.Context, db *gorm.DB) (<-chan cpolicy.SigningPolicy, error) {
@@ -99,7 +100,7 @@ func (s *Service) update(ctx context.Context, db *gorm.DB, logsC <-chan []databa
 
 				out <- *p
 
-				err = s.aq.Enqueue(ctx, action, queue.Read)
+				err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 				if err != nil {
 					logger.Errorf("enqueueing UPDATE_POLICY action: %s", err)
 					continue

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
@@ -91,10 +92,10 @@ func (i *Internal) resH(w http.ResponseWriter, r *http.Request) error {
 func (i *Internal) deqH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
-	queueID := queue.QueueID(r.PathValue("queueID"))
+	queueID := processorutils.QueueID(r.PathValue("queueID"))
 
 	switch queueID {
-	case queue.Main, queue.Read:
+	case processorutils.Direct, processorutils.Main:
 		value, err := i.actionService.DequeueAction(ctx, queueID)
 		if errors.Is(err, queue.ErrEmptyQueue) {
 			return json.NewEncoder(w).Encode(nil)

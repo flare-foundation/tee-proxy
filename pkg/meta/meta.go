@@ -11,9 +11,10 @@ import (
 
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 
-	"github.com/flare-foundation/tee-node/pkg/backup"
+	"github.com/flare-foundation/tee-node/pkg/ftdc"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
+	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
 )
 
 // Meta provides meta data for the instructions.
@@ -150,13 +151,13 @@ func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) err
 
 // ftdcCheckConsistency checks that signer of the ftdc message is the same as the signer of the whole instruction.
 func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
-	ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+	ftdcReq, err := ftdc.DecodeRequest(data.OriginalMessage)
 	if err != nil {
 		return err
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, err := types.HashFTDCMessage(ftdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
+	h, _, _, err := ftdc.HashMessage(ftdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return err
 	}
@@ -172,7 +173,7 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 
 func (*meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
 	if data.OPType == op.FTDC.Hash() && data.OPCommand == op.Prove.Hash() { // OPType == "F_FTDC", OPCommand == "PROVE"
-		ftdcReq, err := types.DecodeFTDCRequest(data.OriginalMessage)
+		ftdcReq, err := ftdc.DecodeRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err
 		}

@@ -1,5 +1,6 @@
 
 import {
+  AccountSet, AccountSetAsfFlags,
   Client,
   SignerListSet,
 } from "xrpl";
@@ -51,6 +52,25 @@ async function CreateMultisig(walletAddresses: string[], quorum: number) {
   // console.log("Multi-Sig Account Setup Complete");
   // console.log("Main Account:", mainWallet.address);
   // console.log("Signers:", walletAddresses);
+
+  const accountSetTx: AccountSet = {
+    TransactionType: "AccountSet",
+    Account: mainWallet.address,
+    SetFlag: AccountSetAsfFlags.asfDisableMaster, // This disables the master key
+  };
+
+  const preparedAccountSet = await client.autofill(accountSetTx);
+  const signedAccountSet = mainWallet.sign(preparedAccountSet);
+  const accountSetResult = await client.submitAndWait(signedAccountSet.tx_blob);
+
+  console.log("Master Key Disabled Result:", accountSetResult);
+
+  console.log("Multi-Sig Account Setup Complete with Master Key Disabled");
+  console.log("Main Account:", mainWallet.address);
+  console.log("Signers:", walletAddresses);
+  console.log("⚠️  WARNING: Master key is now disabled. Only multisig transactions are possible.");
+
+  await client.disconnect();
 
   await client.disconnect();
 

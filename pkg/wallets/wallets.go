@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/wallets"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -20,18 +22,13 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
 
-type IDPair = types.WalletKeyIDPair
-
-type KeyData struct {
-	Info  *wallet.ITeeWalletKeyManagerKeyExistence `json:"info"`
-	Proof *types.WalletSignedKeyExistenceProof     `json:"proof"`
-}
+type IDPair = wallets.KeyIDPair
 
 type Storage struct {
 	KeysForWallet map[common.Hash][]uint64
 	Keys          map[IDPair]*KeyData
 
-	Backups map[IDPair]*types.WalletGetBackupResponse // todo align this with docs
+	Backups map[IDPair]*wallets.TEEBackupResponse // todo align this with docs
 
 	aq *queue.ActionQueues
 	rs *queue.ResponseStorage
@@ -42,7 +39,7 @@ type Storage struct {
 func NewStorage(aq *queue.ActionQueues, rs *queue.ResponseStorage) Storage {
 	kfw := make(map[common.Hash][]uint64)
 	k := make(map[IDPair]*KeyData)
-	b := make(map[IDPair]*types.WalletGetBackupResponse)
+	b := make(map[IDPair]*wallets.TEEBackupResponse)
 
 	return Storage{
 		KeysForWallet: kfw,
@@ -81,7 +78,7 @@ func (s *Storage) RunInfo(ctx context.Context, trigger <-chan bool, newKeys <-ch
 	}
 }
 
-func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSignedKeyExistenceProof, error) {
+func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedKeyExistenceProof, error) {
 	s.RLock()
 	defer s.RUnlock()
 	id := IDPair{WalletID: walletID, KeyID: keyID}
@@ -93,20 +90,7 @@ func (s *Storage) KeyProof(walletID common.Hash, keyID uint64) (*types.WalletSig
 	return info.Proof, nil
 }
 
-func (s *Storage) KeyData(walletID common.Hash, keyID uint64) (*KeyData, error) {
-	s.RLock()
-	defer s.RUnlock()
-
-	id := IDPair{WalletID: walletID, KeyID: keyID}
-	info, exists := s.Keys[id]
-	if !exists {
-		return nil, fmt.Errorf("%w: key data not found", status.HTTP[404])
-	}
-
-	return info, nil
-}
-
-func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
+func (s *Storage) WalletInfo(walletID common.Hash) (*KeyExistence, error) {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -120,7 +104,7 @@ func (s *Storage) WalletInfo(walletID common.Hash) (*wallet.ITeeWalletKeyManager
 		return nil, err
 	}
 
-	return data.Info, nil
+	return &data.Info, nil
 }
 
 // sync enqueues KEY_INFO action, waits for the response, and updated keys storage according to it.
@@ -132,7 +116,7 @@ func (s *Storage) sync(ctx context.Context) error {
 		return err
 	}
 
-	err = s.aq.Enqueue(ctx, action, queue.Read)
+	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
 		return err
 	}
@@ -170,20 +154,20 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*KeyDa
 			return nil, nil, err
 		}
 
-		k, exists := keysForWallet[info.WalletId]
+		k, exists := keysForWallet[info.WalletID]
 		if !exists {
 			k = make([]uint64, 0)
-			keysForWallet[info.WalletId] = k
+			keysForWallet[info.WalletID] = k
 		}
-		keysForWallet[info.WalletId] = append(k, info.KeyId)
+		keysForWallet[info.WalletID] = append(k, info.KeyID)
 
 		id := IDPair{
-			WalletID: info.WalletId,
-			KeyID:    info.KeyId,
+			WalletID: info.WalletID,
+			KeyID:    info.KeyID,
 		}
 
 		keyData := &KeyData{
-			Info:  info,
+			Info:  *info,
 			Proof: proof,
 		}
 		keys[id] = keyData
@@ -205,16 +189,16 @@ func (s *Storage) update(action *types.ActionResult) error {
 	s.Lock()
 	defer s.Unlock()
 
-	keys, exists := s.KeysForWallet[info.WalletId]
+	keys, exists := s.KeysForWallet[info.WalletID]
 	if !exists {
 		keys = make([]uint64, 0)
-		s.KeysForWallet[info.WalletId] = keys
+		s.KeysForWallet[info.WalletID] = keys
 	}
-	s.KeysForWallet[info.WalletId] = append(keys, info.KeyId)
+	s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)
 
 	id := IDPair{
-		WalletID: info.WalletId,
-		KeyID:    info.KeyId,
+		WalletID: info.WalletID,
+		KeyID:    info.KeyID,
 	}
 
 	keyData, exists := s.Keys[id]
@@ -223,7 +207,7 @@ func (s *Storage) update(action *types.ActionResult) error {
 		s.Keys[id] = keyData
 	}
 	keyData.Proof = keyInfo
-	keyData.Info = info
+	keyData.Info = *info
 
 	return nil
 }
@@ -233,8 +217,8 @@ func keyInfoAction() (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Get, op.KeyInfo, nil)
 }
 
-func parseKeyInfoActionResult(r *types.ActionResult) ([]*types.WalletSignedKeyExistenceProof, error) {
-	if !r.Status {
+func parseKeyInfoActionResult(r *types.ActionResult) ([]*wallets.SignedKeyExistenceProof, error) {
+	if r.Status != 1 {
 		return nil, errors.New("invalid action result")
 	}
 
@@ -246,7 +230,7 @@ func parseKeyInfoActionResult(r *types.ActionResult) ([]*types.WalletSignedKeyEx
 		return nil, errors.New("invalid action opCommand")
 	}
 
-	var res = make([]*types.WalletSignedKeyExistenceProof, 0)
+	var res = make([]*wallets.SignedKeyExistenceProof, 0)
 	err := json.Unmarshal(r.Data, &res)
 	if err != nil {
 		return nil, err
@@ -256,8 +240,8 @@ func parseKeyInfoActionResult(r *types.ActionResult) ([]*types.WalletSignedKeyEx
 }
 
 // parseNewKeyActionResult parses action result data for "KEY_GENERATE" or "KEY_DATA_PROVIDER_RESTORE" action.
-func parseNewKeyActionResult(r *types.ActionResult) (*types.WalletSignedKeyExistenceProof, error) {
-	if !r.Status {
+func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistenceProof, error) {
+	if r.Status != 1 {
 		return nil, errors.New("invalid action result status")
 	}
 
@@ -269,7 +253,7 @@ func parseNewKeyActionResult(r *types.ActionResult) (*types.WalletSignedKeyExist
 		return nil, errors.New("invalid action result opCommand")
 	}
 
-	res := new(types.WalletSignedKeyExistenceProof)
+	res := new(wallets.SignedKeyExistenceProof)
 	err := json.Unmarshal(r.Data, res)
 	if err != nil {
 		return nil, err
@@ -278,8 +262,8 @@ func parseNewKeyActionResult(r *types.ActionResult) (*types.WalletSignedKeyExist
 	return res, nil
 }
 
-func parse(proof *types.WalletSignedKeyExistenceProof) (*wallet.ITeeWalletKeyManagerKeyExistence, error) {
-	var out = new(wallet.ITeeWalletKeyManagerKeyExistence)
+func parse(proof *wallets.SignedKeyExistenceProof) (*KeyExistence, error) {
+	var out = new(KeyExistence)
 
 	err := structs.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistence, out)
 	if err != nil {

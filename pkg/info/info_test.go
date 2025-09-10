@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/stretchr/testify/require"
@@ -54,7 +55,7 @@ func TestInsertBlock(t *testing.T) {
 	}()
 
 	time.Sleep(15 * time.Millisecond)
-	a, err := aq.Dequeue(t.Context(), queue.Read)
+	a, err := aq.Dequeue(t.Context(), processorutils.Direct)
 	require.NoError(t, err)
 	require.Equal(t, types.Submit, a.Data.SubmissionTag)
 	require.Equal(t, types.Direct, a.Data.Type)
@@ -84,7 +85,7 @@ func TestInsertBlock(t *testing.T) {
 		Result: types.ActionResult{
 			ID:            a.Data.ID,
 			SubmissionTag: a.Data.SubmissionTag,
-			Status:        true,
+			Status:        1,
 			OPType:        op.Get.Hash(),
 			OPCommand:     op.TEEInfo.Hash(),
 			Version:       "1.0.0",

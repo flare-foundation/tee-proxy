@@ -115,5 +115,19 @@ func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 		return nil, errors.New("invalid string for private key")
 	}
 
+	pkB = prefixTo32Bytes(pkB)
+
 	return crypto.ToECDSA(pkB)
+}
+
+func prefixTo32Bytes(s []byte) []byte {
+	if len(s) >= 32 {
+		return s
+	}
+
+	rs := make([]byte, 32-len(s), 32)
+
+	rs = append(rs, s...)
+
+	return rs
 }

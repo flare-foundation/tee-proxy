@@ -19,7 +19,7 @@ func TestCreateMultisigWallet(t *testing.T) {
 	quorum := 2 // Require 2 out of 3 signatures
 
 	// Create the multisig wallet
-	result := integrationUtils.CreateMultisigWallet(t, walletAddresses, quorum)
+	result := integrationUtils.CreateMultisigWallet(t, "./scripts", walletAddresses, quorum)
 
 	// Verify the result
 	require.NotEmpty(t, result.MultisigAddress, "Multisig address should not be empty")

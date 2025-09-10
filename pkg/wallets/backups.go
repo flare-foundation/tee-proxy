@@ -9,7 +9,9 @@ import (
 
 	"time"
 
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/wallets"
 )
 
 func (s *Storage) MakeBackups(ctx context.Context, epochID uint32) error {
@@ -42,7 +44,7 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	err = s.aq.Enqueue(ctx, action, queue.Read)
+	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
 		return err
 	}
@@ -70,7 +72,7 @@ func teeBackupAction(idPair IDPair) (*types.Action, error) {
 }
 
 func (s *Storage) createNewBackup(r *types.ActionResult) error {
-	var b *types.WalletGetBackupResponse
+	var b *wallets.TEEBackupResponse
 	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
 		return err

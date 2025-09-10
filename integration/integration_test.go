@@ -58,7 +58,8 @@ func TestProxyTeeIntegration(t *testing.T) {
 		}
 	}
 
-	go teeServer.StartServer()
+	go teeServer.StartServerPMW(teePort)
+	time.Sleep(time.Second)
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
 	integrationUtils.SetProxyUrlOnTee(t, teePort, proxyUrl)
 
