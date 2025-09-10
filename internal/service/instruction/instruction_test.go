@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -106,7 +107,7 @@ func TestVoting(t *testing.T) {
 	require.True(t, pubKey2.X.Cmp(sk4.X) == 0 && pubKey2.Y.Cmp(sk4.Y) == 0)
 
 	time.Sleep(2000 * time.Millisecond)
-	a, err := s.aq.Dequeue(t.Context(), queue.Main)
+	a, err := s.aq.Dequeue(t.Context(), processorutils.Main)
 	require.NoError(t, err)
 	require.Equal(t, a.Data.ID, iData.InstructionID)
 	require.Equal(t, a.Data.SubmissionTag, types.Threshold)

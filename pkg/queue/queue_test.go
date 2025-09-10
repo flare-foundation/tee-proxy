@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/stretchr/testify/require"
 )
@@ -36,10 +37,10 @@ func TestActionQueues(t *testing.T) {
 		Signatures:                 []hexutil.Bytes{},
 	}
 
-	err := q.Enqueue(ctx, action, Main)
+	err := q.Enqueue(ctx, action, processorutils.Main)
 	require.NoError(t, err)
 
-	retrievedAction, err := q.Dequeue(ctx, Main)
+	retrievedAction, err := q.Dequeue(ctx, processorutils.Main)
 	require.NoError(t, err)
 
 	require.Equal(t, *action, *retrievedAction)

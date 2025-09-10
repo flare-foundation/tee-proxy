@@ -65,7 +65,7 @@ func TestXRPIntegration(t *testing.T) {
 		}
 	}
 
-	go teeServer.StartServer()
+	go teeServer.StartServerPMW(intPort)
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
 	integrationUtils.SetProxyUrlOnTee(t, teePort, proxyUrl)
 
@@ -106,7 +106,7 @@ func TestXRPIntegration(t *testing.T) {
 	}
 	wg.Wait()
 
-	multisigResult := integrationUtils.CreateMultisigWallet(t, walletAddresses, 2)
+	multisigResult := integrationUtils.CreateMultisigWallet(t, "./scripts", walletAddresses, 2)
 	require.True(t, multisigResult.Success, "creating multisig wallet")
 	require.Greater(t, multisigResult.Balance, 0, "multisig wallet balance should be greater than 0")
 	logger.Info("Created multisig wallet: %s with balance: %d", multisigResult.MultisigAddress, multisigResult.Balance)

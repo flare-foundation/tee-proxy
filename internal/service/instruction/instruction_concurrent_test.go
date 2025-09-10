@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
@@ -380,7 +381,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	// Most importantly: verify only ONE action was enqueued
 	actionCount := 0
 	for {
-		action, err := s.aq.Dequeue(context.Background(), queue.Main)
+		action, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
 			require.ErrorIs(t, err, queue.ErrEmptyQueue)
 			break // No more actions in queue
@@ -458,7 +459,7 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 	// Most importantly: verify only ONE action was enqueued
 	actionCount := 0
 	for {
-		action, err := s.aq.Dequeue(context.Background(), queue.Main)
+		action, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
 			require.ErrorIs(t, err, queue.ErrEmptyQueue)
 			break // No more actions in queue

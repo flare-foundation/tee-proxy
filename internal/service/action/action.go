@@ -5,6 +5,7 @@ import (
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
@@ -16,7 +17,7 @@ func NewService(aq *queue.ActionQueues) Service {
 	return Service{aq}
 }
 
-func (s *Service) DequeueAction(ctx context.Context, id queue.QueueID) (*types.Action, error) {
+func (s *Service) DequeueAction(ctx context.Context, id processorutils.QueueID) (*types.Action, error) {
 	action, err := s.aq.Dequeue(ctx, id)
 	if err != nil {
 		return nil, err

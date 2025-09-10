@@ -188,13 +188,46 @@ func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, pk *ecd
 
 func VerifyReceipts(t *testing.T, receipts []*voting.SignedReceipt, iData *instruction.Data) {
 	t.Helper()
-	VerifyReceiptsForMultipleInstructions(t, receipts, []instruction.Data{*iData})
+
+	sort.Slice(receipts, func(i, j int) bool {
+		return receipts[i].Receipt.Sequence < receipts[j].Receipt.Sequence
+	})
+
+	insHash, err := iData.HashFixed()
+	require.NoError(t, err)
+
+	initHash, err := iData.InitialVoteHash()
+	require.NoError(t, err)
+
+	currentHash := initHash
+	for i, receipt := range receipts {
+		require.LessOrEqual(t, receipt.Receipt.Timestamp, uint64(time.Now().Unix()))
+		require.GreaterOrEqual(t, receipt.Receipt.Timestamp, uint64(time.Now().Unix()-1))
+
+		require.Equal(t, receipt.Receipt.Sequence, uint64(i))
+		require.Equal(t, receipt.Receipt.InstructionHash, insHash)
+
+		nextHash, err := instruction.NextVoteHash(currentHash, uint64(i), receipt.Receipt.Signature, iData.AdditionalVariableMessage, receipt.Receipt.Timestamp)
+		require.NoError(t, err)
+		require.Equal(t, receipt.Receipt.VoteHash, nextHash)
+
+		currentHash = nextHash
+	}
 }
 
 func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.SignedReceipt, insts []instruction.Data) {
 	t.Helper()
 
+	require.Equal(t, len(receipts), len(insts))
+
+	if len(receipts) == 0 {
+		return
+	}
+
 	sort.Slice(receipts, func(i, j int) bool {
+		return receipts[i].Receipt.Sequence < receipts[j].Receipt.Sequence
+	})
+	sort.Slice(insts, func(i, j int) bool {
 		return receipts[i].Receipt.Sequence < receipts[j].Receipt.Sequence
 	})
 
@@ -210,18 +243,11 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 		require.GreaterOrEqual(t, receipt.Receipt.Timestamp, uint64(time.Now().Unix()-1))
 
 		require.Equal(t, receipt.Receipt.Sequence, uint64(i))
-		require.Equal(t, receipt.Receipt.InstructionHash[:], insHash[:])
+		require.Equal(t, receipt.Receipt.InstructionHash, insHash)
 
-		var iData *instruction.Data
-		if len(insts) > 1 {
-			iData = &insts[i]
-		} else {
-			iData = &insts[0]
-		}
-
-		nextHash, err := instruction.NextVoteHash(currentHash, uint64(i), receipt.Receipt.Signature, iData.AdditionalVariableMessage, receipt.Receipt.Timestamp)
+		nextHash, err := instruction.NextVoteHash(currentHash, uint64(i), receipt.Receipt.Signature, insts[i].AdditionalVariableMessage, receipt.Receipt.Timestamp)
 		require.NoError(t, err)
-		require.Equal(t, receipt.Receipt.VoteHash[:], nextHash[:])
+		require.Equal(t, receipt.Receipt.VoteHash, nextHash)
 
 		currentHash = nextHash
 	}
@@ -229,7 +255,7 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 
 // VerifyActionResponse Verifies the action response against expected values and checks the signature
 func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeId common.Address) {
-	require.True(t, res.Result.Status)
+	require.Equal(t, uint8(1), res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
@@ -257,7 +283,7 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, action
 	var res types.ActionResponse
 	makeRequests(t, url, &res)
 
-	require.True(t, res.Result.Status)
+	require.Equal(t, uint8(1), res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)

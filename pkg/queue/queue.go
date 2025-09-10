@@ -9,15 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
-)
-
-type QueueID string
-
-const (
-	Read QueueID = "read"
-	Main QueueID = "main"
 )
 
 var ErrInvalidQueueID = fmt.Errorf("%w: invalid queue id", status.HTTP[400])
@@ -32,9 +26,9 @@ func (id *StoringID) String() string {
 }
 
 type ActionQueues struct {
-	actions   *Storage[*types.Action]
-	readQueue *Storage[*StoringID]
-	mainQueue *Storage[*StoringID]
+	actions     *Storage[*types.Action]
+	directQueue *Storage[*StoringID]
+	mainQueue   *Storage[*StoringID]
 }
 
 type ResponseStorage struct {
@@ -43,13 +37,13 @@ type ResponseStorage struct {
 
 func NewActionQueues(client *redis.Client) *ActionQueues {
 	return &ActionQueues{
-		actions:   NewStore[*types.Action](Actions, client),
-		readQueue: NewStore[*StoringID](ReadQueue, client),
-		mainQueue: NewStore[*StoringID](MainQueue, client),
+		actions:     NewStore[*types.Action](Actions, client),
+		directQueue: NewStore[*StoringID](ReadQueue, client),
+		mainQueue:   NewStore[*StoringID](MainQueue, client),
 	}
 }
 
-func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID QueueID) error {
+func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID processorutils.QueueID) error {
 	id := StoringID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
 
 	err := as.actions.Set(ctx, id.String(), action)
@@ -58,10 +52,10 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 	}
 
 	switch queueID {
-	case Main:
+	case processorutils.Main:
 		err = as.mainQueue.Enqueue(ctx, &id)
-	case Read:
-		err = as.readQueue.Enqueue(ctx, &id)
+	case processorutils.Direct:
+		err = as.directQueue.Enqueue(ctx, &id)
 	default:
 		return ErrInvalidQueueID
 	}
@@ -72,14 +66,14 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 var ErrEmptyQueue = fmt.Errorf("%w: empty queue", status.HTTP[404])
 
 // Dequeue dequeues action from indicated queue. If no action is available, wrapped ErrEmptyQueue is dequeued.
-func (as *ActionQueues) Dequeue(ctx context.Context, id QueueID) (*types.Action, error) {
+func (as *ActionQueues) Dequeue(ctx context.Context, id processorutils.QueueID) (*types.Action, error) {
 	var queue *Storage[*StoringID]
 
 	switch id {
-	case Main:
+	case processorutils.Main:
 		queue = as.mainQueue
-	case Read:
-		queue = as.readQueue
+	case processorutils.Direct:
+		queue = as.directQueue
 	default:
 		return nil, ErrInvalidQueueID
 	}
@@ -108,11 +102,24 @@ func NewResultStorage(client *redis.Client) *ResponseStorage {
 	}
 }
 
-// StoreResponse stores response with identifier actionID:submissionTag for 2 weeks.
-func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.ActionResponse) error {
-	id := StoringID{ActionID: result.Result.ID, SubmissionTag: result.Result.SubmissionTag}
+// StoreResponse stores response with identifier actionID:submissionTag for 2 weeks for end and threshold actions, or half an hour for submit actions.
+func (rs *ResponseStorage) StoreResponse(ctx context.Context, response *types.ActionResponse) error {
+	id := StoringID{ActionID: response.Result.ID, SubmissionTag: response.Result.SubmissionTag}
 
-	err := rs.s.SetWithTTL(ctx, id.String(), result, 14*24*time.Hour)
+	storingDuration := 14 * 24 * time.Hour
+	if response.Result.SubmissionTag == types.Submit {
+		storingDuration = 30 * time.Minute
+	}
+
+	// do not override final result with an intermediate result
+	if response.Result.Status >= 2 {
+		res, err := rs.s.Get(ctx, id.String())
+		if err == nil && res.Result.Status < 2 {
+			return nil
+		}
+	}
+
+	err := rs.s.SetWithTTL(ctx, id.String(), response, storingDuration)
 	if err != nil {
 		return fmt.Errorf("storing response %s: %v", id.String(), err)
 	}
@@ -124,7 +131,7 @@ func (rs *ResponseStorage) StoreResponse(ctx context.Context, result *types.Acti
 func (rs *ResponseStorage) GetResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
 	id := StoringID{ActionID: actionID, SubmissionTag: submissionTag}
 
-	result, err := rs.s.Get(ctx, id.String())
+	response, err := rs.s.Get(ctx, id.String())
 	if errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
 	}
@@ -133,7 +140,7 @@ func (rs *ResponseStorage) GetResponse(ctx context.Context, actionID common.Hash
 		return nil, fmt.Errorf("reading response for %s: %w", id.String(), err)
 	}
 
-	return result, nil
+	return response, nil
 }
 
 // WaitOnResponse waits on the response for the actionID with submissionTag until timeout runs out.

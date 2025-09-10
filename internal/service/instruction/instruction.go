@@ -14,6 +14,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/utils"
 )
 
@@ -77,7 +78,7 @@ func (s *Service) Forward(ctx context.Context) error {
 		case <-ctx.Done():
 			return fmt.Errorf("instruction forwarding stopped %v", ctx.Err())
 		case action := <-s.vs.Out:
-			err := s.aq.Enqueue(ctx, action, queue.Main)
+			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
 				continue
 			}

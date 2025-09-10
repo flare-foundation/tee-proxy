@@ -11,7 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/tee-node/pkg/backup"
+	"github.com/flare-foundation/tee-node/pkg/wallets"
+	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
+
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -64,7 +66,7 @@ func GenerateWallet(
 
 	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.Wallet, op.KeyGenerate, teeId)
 
-	var swe types.WalletSignedKeyExistenceProof
+	var swe wallets.SignedKeyExistenceProof
 
 	err = json.Unmarshal(res.Result.Data, &swe)
 	require.NoError(t, err)
@@ -81,8 +83,8 @@ func GenerateWallet(
 
 	walletInfo := utils.GetWalletInfo(t, pc, walletId, keyId)
 	require.NoError(t, err)
-	require.Equal(t, walletExistenceProof.WalletId, walletInfo.Info.WalletId)
-	require.Equal(t, walletExistenceProof.KeyId, walletInfo.Info.KeyId)
+	require.Equal(t, common.Hash(walletExistenceProof.WalletId), walletInfo.Info.WalletID)
+	require.Equal(t, walletExistenceProof.KeyId, walletInfo.Info.KeyID)
 	require.Equal(t, walletExistenceProof.AddressStr, walletInfo.Info.AddressStr)
 	require.Equal(t, op.XRP.Hash(), common.BytesToHash(originalMessage.OpType[:]))
 	require.Equal(t, originalMessage.ConfigConstants, walletExistenceProof.ConfigConstants)
@@ -98,12 +100,12 @@ func GenerateWallet(
 }
 
 // DeleteWallet Send KEY_DELETE instruction, verifies response and checks that the wallet is deleted from proxy wallet storage
-func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64,
+func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, keyID uint64,
 	privKeys []*ecdsa.PrivateKey, rewardEpochId uint32, nonce *big.Int) {
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyDelete{
 		TeeId:    pc.TeeId,
-		WalletId: walletId,
-		KeyId:    keyId,
+		WalletId: walletID,
+		KeyId:    keyID,
 		Nonce:    nonce,
 	}
 	originalMessageEncoded, err := abi.Arguments{commonwallet.MessageArguments[op.KeyDelete]}.Pack(originalMessage)
@@ -127,10 +129,10 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 	time.Sleep(1500 * time.Millisecond)
 
 	// Check that the wallet is removed from proxy
-	_, err = pc.Ws.WalletInfo(walletId)
+	_, err = pc.Ws.WalletInfo(walletID)
 	require.Error(t, err)
 
-	_, err = pc.Ws.KeyData(walletId, keyId)
+	_, err = pc.Ws.KeyData(walletID, keyID)
 	require.Error(t, err)
 
 	<-endOfVotingTicker.C
@@ -141,7 +143,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId 
 }
 
 // RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies ITeeWalletKeyManagerKeyExistence proof and cheks that recovered wallet is in proxy wallet storage
-func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64, providersPrivKeys, adminsPrivKeys []*ecdsa.PrivateKey,
+func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, keyID uint64, providersPrivKeys, adminsPrivKeys []*ecdsa.PrivateKey,
 	rewardEpochId uint32, nonce *big.Int, walletBackup *backup.WalletBackup) *commonwallet.ITeeWalletKeyManagerKeyExistence {
 	originalMessage := commonwallet.ITeeWalletBackupManagerKeyDataProviderRestore{
 		TeeId:     pc.TeeId,
@@ -149,8 +151,8 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 		Nonce:     nonce,
 		BackupId: commonwallet.ITeeWalletBackupManagerBackupId{
 			TeeId:         pc.TeeId,
-			WalletId:      walletId,
-			KeyId:         keyId,
+			WalletId:      walletID,
+			KeyId:         keyID,
 			OpType:        op.XRP.Hash(),
 			PublicKey:     append(walletBackup.PublicKey.X[:], walletBackup.PublicKey.Y[:]...),
 			RewardEpochId: big.NewInt(int64(rewardEpochId)),
@@ -177,7 +179,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	adminsThreshold := uint64(len(adminAddresses))
 
 	teeEciesPubKey := ecies.ImportECDSAPublic(pc.ProxyPubKey)
-	addVarMsgs := make([]interface{}, 0)
+	addVarMsgs := make([]any, 0)
 	privKeys := make([]*ecdsa.PrivateKey, 0)
 	// Recover providers shares
 	for i, privKey := range providersPrivKeys {
@@ -231,21 +233,21 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 
-	instructionId, _ := testutil.GenerateRandomBytes(32)
+	instructionID, _ := testutil.GenerateRandomBytes(32)
 	receipts := make([]*voting.SignedReceipt, 0)
 	instructions := make([]instruction.Data, 0)
 	for i, privKey := range privKeys {
 		timestamp := uint64(time.Now().Unix())
-		iData := utils.BuildInstructionDataWithId(t, common.BytesToHash(instructionId), op.Wallet, op.KeyDataProviderRestore,
+		iData := utils.BuildInstructionDataWithId(t, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore,
 			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], adminAddresses, adminsThreshold, pc.TeeId, rewardEpochId)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))
 		instructions = append(instructions, *iData)
 	}
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", common.BytesToHash(instructionId), types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", common.BytesToHash(instructionID), types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeId)
 
-	walletExistenceProof, err := types.ExtractKeyExistence(res.Result.Data)
+	walletExistenceProof, err := wallets.ExtractKeyExistence(res.Result.Data)
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
@@ -253,16 +255,16 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId
 	wst <- true
 
 	// Check that wallet is actually on the tee
-	walletInfo := utils.GetWalletInfo(t, pc, walletId, keyId)
+	walletInfo := utils.GetWalletInfo(t, pc, walletID, keyID)
 	require.NoError(t, err)
-	require.Equal(t, walletId, walletInfo.Info.WalletId)
-	require.Equal(t, keyId, walletInfo.Info.KeyId)
+	require.Equal(t, walletID, walletInfo.Info.WalletID)
+	require.Equal(t, keyID, walletInfo.Info.KeyID)
 	require.Equal(t, true, walletExistenceProof.Restored)
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionId), op.Wallet, op.KeyDataProviderRestore, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore, receipts)
 
-	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, common.BytesToHash(instructionId))
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, common.BytesToHash(instructionID))
 	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), testutil.TotalWeight/2)
 
 	return walletExistenceProof
