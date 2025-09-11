@@ -15,8 +15,8 @@ const (
 	Actions KeyPrefix = "Action"
 	Results KeyPrefix = "Results"
 
-	ReadQueue KeyPrefix = "ReadQueue"
-	MainQueue KeyPrefix = "MainQueue"
+	DirectQueue KeyPrefix = "DirectQueue"
+	MainQueue   KeyPrefix = "MainQueue"
 )
 
 type Storage[T any] struct {

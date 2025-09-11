@@ -10,13 +10,12 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
+	"github.com/flare-foundation/tee-node/pkg/ftdc"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/stretchr/testify/require"
 
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
-
-	"github.com/flare-foundation/tee-node/pkg/ftdc"
 )
 
 func TestStorage(t *testing.T) {
@@ -107,8 +106,8 @@ func TestFTDCMessageValidity(t *testing.T) {
 	require.NoError(t, err)
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
-	responseBody := crypto.Keccak256([]byte("todo"))
-	msgHash, _, _, err := ftdc.HashMessage(ftdcReq, responseBody, cosigners, cosignersThreshold, uint64(0))
+	responseBody := crypto.Keccak256Hash([]byte("todo"))
+	msgHash, _, _, err := ftdc.HashMessage(ftdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
