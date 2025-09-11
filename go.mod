@@ -5,7 +5,7 @@ go 1.24.4
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.16.3
-	github.com/flare-foundation/go-flare-common v1.2.1-0.20250826082212-1617e28e2ee6
+	github.com/flare-foundation/go-flare-common v1.2.1-0.20250911123944-12afe51580d1
 	github.com/flare-foundation/tee-node v0.0.1
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
