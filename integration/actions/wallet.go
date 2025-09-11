@@ -11,9 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
-	"github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
-
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -22,6 +20,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	commonwallet "github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/flare-foundation/tee-proxy/integration/utils"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/stretchr/testify/require"

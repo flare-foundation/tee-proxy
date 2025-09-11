@@ -38,7 +38,7 @@ type ResponseStorage struct {
 func NewActionQueues(client *redis.Client) *ActionQueues {
 	return &ActionQueues{
 		actions:     NewStore[*types.Action](Actions, client),
-		directQueue: NewStore[*StoringID](ReadQueue, client),
+		directQueue: NewStore[*StoringID](DirectQueue, client),
 		mainQueue:   NewStore[*StoringID](MainQueue, client),
 	}
 }
