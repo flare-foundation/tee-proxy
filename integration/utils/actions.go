@@ -115,38 +115,38 @@ func SetProxyUrlOnTee(t *testing.T, port uint, proxyUrl string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func SignAndSendInstruction(t *testing.T, iData *instruction.Data, pk *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
+func SignAndSendInstruction(t *testing.T, iData *instruction.Data, privKey *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
 	t.Helper()
-	return SignAndSendInstructions(t, iData, []*ecdsa.PrivateKey{pk}, port)[0]
+	return SignAndSendInstructions(t, iData, []*ecdsa.PrivateKey{privKey}, port)[0]
 }
 
-func SignAndSendInstructions(t *testing.T, iData *instruction.Data, pkeys []*ecdsa.PrivateKey, port uint) []*voting.SignedReceipt {
+func SignAndSendInstructions(t *testing.T, iData *instruction.Data, privKeys []*ecdsa.PrivateKey, port uint) []*voting.SignedReceipt {
 	t.Helper()
 
 	var responses []*voting.SignedReceipt
-	for _, pk := range pkeys {
-		response := signAndSendSingleInstruction(t, iData, pk, port)
+	for _, key := range privKeys {
+		response := signAndSendSingleInstruction(t, iData, key, port)
 		responses = append(responses, response)
 	}
 
 	return responses
 }
 
-func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data, additionalVariableMessage []hexutil.Bytes, pkeys []*ecdsa.PrivateKey, port uint) ([]*voting.SignedReceipt, []instruction.Data) {
+func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data, additionalVariableMessage []hexutil.Bytes, privKeys []*ecdsa.PrivateKey, port uint) ([]*voting.SignedReceipt, []instruction.Data) {
 	t.Helper()
 
 	if len(additionalVariableMessage) > 0 {
-		require.Equal(t, len(additionalVariableMessage), len(pkeys))
+		require.Equal(t, len(additionalVariableMessage), len(privKeys))
 	}
 
 	instructions := make([]instruction.Data, 0)
 	var receipts []*voting.SignedReceipt
-	for i, pk := range pkeys {
+	for i, key := range privKeys {
 		iData := *iData
 
 		iData.AdditionalVariableMessage = additionalVariableMessage[i]
 
-		r := signAndSendSingleInstruction(t, &iData, pk, port)
+		r := signAndSendSingleInstruction(t, &iData, key, port)
 		receipts = append(receipts, r)
 		instructions = append(instructions, iData)
 	}
@@ -154,13 +154,13 @@ func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data
 	return receipts, instructions
 }
 
-func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, pk *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
+func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, priv *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
 	t.Helper()
 
 	h, err := iData.HashForSigning()
 	require.NoError(t, err)
 
-	sig, err := instruction.SignInstructionHash(h, pk)
+	sig, err := instruction.SignInstructionHash(h, priv)
 	require.NoError(t, err)
 
 	inst := &instruction.Instruction{

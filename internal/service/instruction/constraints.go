@@ -35,6 +35,7 @@ var restore = sizeConstraint{
 	additionalVariableMessage: 1024 * 1024,
 }
 
+// constraints returns instruction size constraints for opCommand.
 func constraints(opCommand common.Hash) (sizeConstraint, error) {
 	oc := op.HashToOPCommand(opCommand)
 

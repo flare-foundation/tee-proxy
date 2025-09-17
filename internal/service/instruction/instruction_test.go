@@ -40,7 +40,7 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 func TestVoting(t *testing.T) {
 	teeID := common.HexToAddress("dead")
 
-	mr, c, s, sk4 := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
@@ -92,19 +92,11 @@ func TestVoting(t *testing.T) {
 
 	sr1, err := s.ServeInstruction(t.Context(), i1)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
+	require.Equal(t, uint64(0), sr1.Sequence)
 
 	sr2, err := s.ServeInstruction(t.Context(), i2)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
-
-	pubKey1, err := sr1.RecoverPubKey()
-	require.NoError(t, err)
-	require.True(t, pubKey1.X.Cmp(sk4.X) == 0 && pubKey1.Y.Cmp(sk4.Y) == 0)
-
-	pubKey2, err := sr2.RecoverPubKey()
-	require.NoError(t, err)
-	require.True(t, pubKey2.X.Cmp(sk4.X) == 0 && pubKey2.Y.Cmp(sk4.Y) == 0)
+	require.Equal(t, uint64(1), sr2.Sequence)
 
 	time.Sleep(2000 * time.Millisecond)
 	a, err := s.aq.Dequeue(t.Context(), processorutils.Main)
@@ -172,7 +164,7 @@ func TestStatus(t *testing.T) {
 
 	sr1, err := s.ServeInstruction(t.Context(), i1)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0), sr1.Receipt.Sequence)
+	require.Equal(t, uint64(0), sr1.Sequence)
 
 	// Get the status of the instruction
 	status, err := s.Statuses(i1.Data.InstructionID, 1)
@@ -192,7 +184,7 @@ func TestStatus(t *testing.T) {
 	sr2, err := s.ServeInstruction(t.Context(), i2)
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(1), sr2.Receipt.Sequence)
+	require.Equal(t, uint64(1), sr2.Sequence)
 
 	// Get the status of the instruction
 	status, err = s.Statuses(i2.Data.InstructionID, 1)
@@ -226,7 +218,7 @@ func TestStatus(t *testing.T) {
 	sr3, err := s.ServeInstruction(t.Context(), i3)
 	require.NoError(t, err)
 
-	require.Equal(t, uint64(0), sr3.Receipt.Sequence)
+	require.Equal(t, uint64(0), sr3.Sequence)
 
 	// Get the status of the instruction
 	status, err = s.Statuses(i3.Data.InstructionID, 1)
@@ -511,7 +503,7 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
 		aq:       aq,
-		pk:       sk4,
+		privKey:  sk4,
 	}
 
 	return mr, c, s, sk4

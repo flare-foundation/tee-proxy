@@ -99,14 +99,14 @@ func GenerateRandomBytes(n int) ([]byte, error) {
 //
 // If randomWeights is true, the weights are randomized, if not, the weights are uniform.
 func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {
-	pks := make([]*ecdsa.PrivateKey, n)
+	privKeys := make([]*ecdsa.PrivateKey, n)
 	addresses := make([]common.Address, n)
 	for j := range n {
 		privKey, err := crypto.GenerateKey()
 		if err != nil {
 			panic("cannot generate key")
 		}
-		pks[j] = privKey
+		privKeys[j] = privKey
 		addresses[j] = crypto.PubkeyToAddress(privKey.PublicKey)
 	}
 
@@ -145,5 +145,5 @@ func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.
 
 	sp := policy.NewSigningPolicy(&event, nil)
 
-	return sp, pks
+	return sp, privKeys
 }

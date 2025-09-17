@@ -403,7 +403,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 
 func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 	n := 100
-	policy, pks := testutil.GeneratePolicy(n, false)
+	policy, privKeys := testutil.GeneratePolicy(n, false)
 
 	teeID := common.HexToAddress("dead")
 	mr, c, s, _ := setupInstructionService(t, teeID, policy)
@@ -434,7 +434,7 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 
 	// Launch both  votes simultaneously
 	for j := range n {
-		inst := signInstruction(t, iData, pks[j])
+		inst := signInstruction(t, iData, privKeys[j])
 		go func(i instruction.Instruction) {
 			defer wg.Done()
 			<-startChan

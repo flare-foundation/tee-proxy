@@ -2,12 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
+	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
@@ -32,6 +36,8 @@ type External struct {
 
 	info   *info.Storage
 	wallet *wallets.Storage
+
+	privKey *ecdsa.PrivateKey
 }
 
 func NewExternal(port string,
@@ -39,7 +45,9 @@ func NewExternal(port string,
 	actionService *action.Service,
 	resultService *result.Service,
 	info *info.Storage,
-	wallet *wallets.Storage) *External {
+	wallet *wallets.Storage,
+	privateKey *ecdsa.PrivateKey,
+) *External {
 	addr := fmt.Sprintf(":%s", port)
 
 	server := &http.Server{
@@ -58,6 +66,7 @@ func NewExternal(port string,
 		server:             server,
 		info:               info,
 		wallet:             wallet,
+		privKey:            privateKey,
 	}
 
 	e.registerRoutes()
@@ -76,6 +85,20 @@ func (e *External) Close(ctx context.Context) error {
 	return e.server.Shutdown(ctx)
 }
 
+// registerRoutes adds routs to the server.
+func (e *External) registerRoutes() {
+	mux := http.NewServeMux()
+	e.server.Handler = mux
+
+	mux.HandleFunc("POST /instruction", prepareHandler(e.instH))
+	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resH))
+	mux.HandleFunc(fmt.Sprintf("GET /action/rewarding-data/{%s}", actionID), prepareHandler(e.rewH))
+	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statH))
+	mux.HandleFunc("GET /info", prepareHandler(e.infoH))
+	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walH))
+}
+
+// instH handles instructions. It adds it to the voting process and returns a signed receipt.
 func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
@@ -92,7 +115,12 @@ func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	err = json.NewEncoder(w).Encode(receipt)
+	signedReceipt, err := receipt.Sign(e.privKey)
+	if err != nil {
+		return err
+	}
+
+	err = json.NewEncoder(w).Encode(signedReceipt)
 	if err != nil {
 		return err
 	}
@@ -100,6 +128,7 @@ func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// resH handles servers action response. It fetches action response and signs it.
 func (e *External) resH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
@@ -108,12 +137,17 @@ func (e *External) resH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	result, err := e.resultService.Serve(ctx, id)
+	response, err := e.resultService.Serve(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	err = json.NewEncoder(w).Encode(result)
+	response.ProxySignature, err = crypto.Sign(accounts.TextHash(crypto.Keccak256(response.Result.Data)), e.privKey)
+	if err != nil {
+		return err
+	}
+
+	err = json.NewEncoder(w).Encode(response)
 	if err != nil {
 		return err
 	}
@@ -121,6 +155,7 @@ func (e *External) resH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// rewH serves action reward responses.
 func (e *External) rewH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
@@ -141,6 +176,7 @@ func (e *External) rewH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// statH serves statuses of actions for instructionID.
 func (e *External) statH(w http.ResponseWriter, r *http.Request) error {
 	id, err := hashParam(r, instructionID)
 	if err != nil {
@@ -165,7 +201,7 @@ func (e *External) statH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// decide on the response type
+// infoH serves latest signed tee info.
 func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	e.info.RLock()
 	defer e.info.RUnlock()
@@ -176,7 +212,22 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
 	}
 
-	err := json.NewEncoder(w).Encode(result)
+	h, err := result.TeeInfo.Hash()
+	if err != nil {
+		return err
+	}
+
+	sig, err := crypto.Sign(accounts.TextHash(h), e.privKey)
+	if err != nil {
+		return err
+	}
+
+	info := types.SignedTeeInfoResponse{
+		TeeInfoResponse: *result,
+		ProxySignature:  sig,
+	}
+
+	err = json.NewEncoder(w).Encode(info)
 	if err != nil {
 		return err
 	}
@@ -184,6 +235,7 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// walH serves key info for wallet.
 func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
 	wID, err := hashParam(r, walletID)
 	if err != nil {
@@ -205,16 +257,4 @@ func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return nil
-}
-
-func (e *External) registerRoutes() {
-	mux := http.NewServeMux()
-	e.server.Handler = mux
-
-	mux.HandleFunc("POST /instruction", prepareHandler(e.instH))
-	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resH))
-	mux.HandleFunc(fmt.Sprintf("GET /action/rewarding-data/{%s}", actionID), prepareHandler(e.rewH))
-	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statH))
-	mux.HandleFunc("GET /info", prepareHandler(e.infoH))
-	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walH))
 }

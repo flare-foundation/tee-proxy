@@ -39,7 +39,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		MinSleepTime:       1 * time.Second,
 	})
 
-	pk, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)
+	privKey, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)
 	if err != nil {
 		panic(err)
 	}
@@ -107,11 +107,11 @@ func Initialize(ctx context.Context, cfgPath string) {
 	meta := meta.New(&walletStorage)
 
 	vs := instruction.NewStorage(&cfg.Voting, 3, meta, 10) //todo size
-	instructionService := instruction.NewService(teeID, pk, policyChan, actionQueues, vs)
+	instructionService := instruction.NewService(teeID, privKey, policyChan, actionQueues, vs)
 	go instructionService.Forward(ctx)          //nolint:errcheck // todo
 	go instructionService.ListenToPolicies(ctx) //nolint:errcheck // todo
 
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage)
+	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage, privKey)
 
 	go externalServer.Serve() //nolint:errcheck // todo
 

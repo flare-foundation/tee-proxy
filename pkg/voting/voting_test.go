@@ -23,10 +23,10 @@ func TestReceipt(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, common.Hash{}, h)
 
-	pk, err := crypto.GenerateKey()
+	sk, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	sr, err := r.Sign(pk)
+	sr, err := r.Sign(sk)
 	require.NoError(t, err)
 
 	require.Equal(t, r, sr.Receipt)
@@ -34,7 +34,7 @@ func TestReceipt(t *testing.T) {
 	pub, err := sr.RecoverPubKey()
 	require.NoError(t, err)
 
-	require.Equal(t, pk.PublicKey, *pub)
+	require.Equal(t, sk.PublicKey, *pub)
 }
 
 func TestConfig(t *testing.T) {

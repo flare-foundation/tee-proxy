@@ -53,10 +53,10 @@ func TestStorage(t *testing.T) {
 	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
 	require.NoError(t, err)
 
-	pk, err := crypto.GenerateKey()
+	sk, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	af := crypto.PubkeyToAddress(pk.PublicKey)
-	sf, err := instruction.SignInstructionHash(h, pk)
+	af := crypto.PubkeyToAddress(sk.PublicKey)
+	sf, err := instruction.SignInstructionHash(h, sk)
 	require.NoError(t, err)
 
 	r1, err := s.AddVote(i, a1, s1)
@@ -224,10 +224,10 @@ func TestStorageConcurrent(t *testing.T) {
 	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
 	require.NoError(t, err)
 
-	pk, err := crypto.GenerateKey()
+	privKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
-	af := crypto.PubkeyToAddress(pk.PublicKey)
-	sf, err := instruction.SignInstructionHash(h, pk)
+	af := crypto.PubkeyToAddress(privKey.PublicKey)
+	sf, err := instruction.SignInstructionHash(h, privKey)
 	require.NoError(t, err)
 
 	go func() {

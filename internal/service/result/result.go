@@ -69,7 +69,12 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 
 // Serve returns response for actionID with tag "threshold" if present.
 func (s *Service) Serve(ctx context.Context, actionID common.Hash) (*types.ActionResponse, error) {
-	return s.rs.GetResponse(ctx, actionID, types.Threshold)
+	res, err := s.rs.GetResponse(ctx, actionID, types.Threshold)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
 }
 
 // ServeRewards returns response for actionID with tag "end" if present.
@@ -78,8 +83,7 @@ func (s *Service) ServeRewards(ctx context.Context, actionID common.Hash) (*type
 }
 
 func recoverSigner(ar *types.ActionResponse) (common.Address, error) {
-	hash := crypto.Keccak256(ar.Result.Data)
-	hash = accounts.TextHash(hash)
+	hash := accounts.TextHash(crypto.Keccak256(ar.Result.Data))
 
 	pub, err := crypto.SigToPub(hash, ar.Signature)
 	if err != nil {
