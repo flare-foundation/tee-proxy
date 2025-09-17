@@ -122,7 +122,7 @@ func (s *Storage) CreateRound(policy *policy.SigningPolicy) {
 }
 
 // AddVote adds vote to a correct vote box in a correct round and returns a receipt.
-// If a round does not exits an error is returned.
+// If a round does not exits, an error is returned.
 // If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*voting.Receipt, error) {
 	id := data.InstructionID

@@ -24,30 +24,28 @@ type Service struct {
 	vs       *Storage
 	policies <-chan policy.SigningPolicy
 
-	aq *queue.ActionQueues
-	pk *ecdsa.PrivateKey
+	aq      *queue.ActionQueues
+	privKey *ecdsa.PrivateKey
 }
 
-func NewService(teeID common.Address, pk *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, vs *Storage) Service {
+func NewService(teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, vs *Storage) Service {
 	return Service{
 		teeID:    teeID,
 		vs:       vs,
 		policies: policiesChan,
 		aq:       aq,
-		pk:       pk,
+		privKey:  privKey,
 	}
 }
 
-func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.SignedReceipt, error) {
-	r, err := s.process(i)
-	if err != nil {
-		return nil, err
-	}
-
-	return r.Sign(s.pk)
-}
-
-func (s *Service) process(i *instruction.Instruction) (*voting.Receipt, error) {
+// ServeInstruction accepts instruction, processes it, and returns the receipt.
+//
+// It checks that:
+//   - correct teeID is set
+//   - has a valid opType, opCommand pair
+//
+// Additional checks are done by the voting storage.
+func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.Receipt, error) {
 	if i.Data.TeeID != s.teeID {
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}

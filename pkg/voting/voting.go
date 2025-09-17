@@ -63,13 +63,13 @@ type SignedReceipt struct {
 }
 
 // Sign signs the receipt with the private key and returns signed receipt.
-func (r *Receipt) Sign(pk *ecdsa.PrivateKey) (*SignedReceipt, error) {
+func (r *Receipt) Sign(sk *ecdsa.PrivateKey) (*SignedReceipt, error) {
 	h, err := r.Hash()
 	if err != nil {
 		return nil, err
 	}
 
-	sig, err := crypto.Sign(accounts.TextHash(h[:]), pk)
+	sig, err := crypto.Sign(accounts.TextHash(h[:]), sk)
 	if err != nil {
 		return nil, err
 	}

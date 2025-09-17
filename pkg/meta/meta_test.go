@@ -75,10 +75,10 @@ func TestFTDCMeta(t *testing.T) {
 	hash, _, _, err := ftdc.HashMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
 	require.NoError(t, err)
 
-	pk, err := crypto.GenerateKey()
+	sk, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	sig, err := crypto.Sign(accounts.TextHash(hash[:]), pk)
+	sig, err := crypto.Sign(accounts.TextHash(hash[:]), sk)
 	require.NoError(t, err)
 
 	i := &instruction.Data{
@@ -86,7 +86,7 @@ func TestFTDCMeta(t *testing.T) {
 		AdditionalVariableMessage: sig,
 	}
 
-	adr := crypto.PubkeyToAddress(pk.PublicKey)
+	adr := crypto.PubkeyToAddress(sk.PublicKey)
 
 	err = m.CheckConsistency(i, adr)
 	require.NoError(t, err)

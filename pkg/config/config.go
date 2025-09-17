@@ -101,23 +101,23 @@ func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 	if len(variableName) == 0 {
 		variableName = defaultPrivateKeyVariable
 	}
-	pkStr := os.Getenv(variableName)
+	skStr := os.Getenv(variableName)
 
-	if len(pkStr) == 0 {
+	if len(skStr) == 0 {
 		return nil, errors.New("private key not set")
 	}
 
-	pkStr, _ = strings.CutPrefix(pkStr, "0x")
-	pkStr, _ = strings.CutPrefix(pkStr, "0X")
+	skStr, _ = strings.CutPrefix(skStr, "0x")
+	skStr, _ = strings.CutPrefix(skStr, "0X")
 
-	pkB, err := hex.DecodeString(pkStr)
+	skB, err := hex.DecodeString(skStr)
 	if err != nil {
 		return nil, errors.New("invalid string for private key")
 	}
 
-	pkB = prefixTo32Bytes(pkB)
+	skB = prefixTo32Bytes(skB)
 
-	return crypto.ToECDSA(pkB)
+	return crypto.ToECDSA(skB)
 }
 
 func prefixTo32Bytes(s []byte) []byte {
