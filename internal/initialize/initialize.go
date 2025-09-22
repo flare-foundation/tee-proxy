@@ -18,6 +18,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/info"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -44,12 +45,12 @@ func Initialize(ctx context.Context, cfgPath string) {
 		panic(err)
 	}
 
-	redisClient := queue.NewClient(cfg.RedisPort)
+	redisClient := storage.NewClient(cfg.RedisPort)
 
 	actionQueues := queue.NewActionQueues(redisClient)
 	responseStorage := queue.NewResultStorage(redisClient)
 
-	walletStorage := wallets.NewStorage(actionQueues, responseStorage)
+	walletStorage := wallets.NewStorage(actionQueues, responseStorage, redisClient)
 	actionService := action.NewService(actionQueues)
 	resultService := result.NewService(responseStorage)
 
@@ -59,7 +60,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	walletSyncCue := make(chan bool, 1)
 
-	go walletStorage.RunInfo(ctx, walletSyncCue, resultService.WalletSync)
+	go walletStorage.RunInfo(ctx, walletSyncCue, resultService.BackupTrigger, resultService.WalletSync)
 
 	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.StorageTiming)
 

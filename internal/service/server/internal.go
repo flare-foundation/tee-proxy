@@ -14,8 +14,8 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/action"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -97,7 +97,7 @@ func (i *Internal) deqH(w http.ResponseWriter, r *http.Request) error {
 	switch queueID {
 	case processorutils.Main, processorutils.Direct:
 		value, err := i.actionService.DequeueAction(ctx, queueID)
-		if errors.Is(err, queue.ErrEmptyQueue) {
+		if errors.Is(err, storage.ErrEmptyQueue) {
 			return json.NewEncoder(w).Encode(nil)
 		}
 		if err != nil {

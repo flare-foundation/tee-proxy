@@ -1,4 +1,4 @@
-package queue
+package storage
 
 import (
 	"context"
@@ -9,19 +9,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type KeyPrefix string
-
-const (
-	Actions KeyPrefix = "Action"
-	Results KeyPrefix = "Results"
-
-	DirectQueue KeyPrefix = "DirectQueue"
-	MainQueue   KeyPrefix = "MainQueue"
-)
-
 type Storage[T any] struct {
 	client    *redis.Client
-	keyPrefix KeyPrefix
+	keyPrefix string
 }
 
 func NewClient(host string) *redis.Client {
@@ -29,7 +19,7 @@ func NewClient(host string) *redis.Client {
 		Addr: host})
 }
 
-func NewStore[T any](keyPrefix KeyPrefix, client *redis.Client) *Storage[T] {
+func New[T any](keyPrefix string, client *redis.Client) *Storage[T] {
 	return &Storage[T]{
 		client:    client,
 		keyPrefix: keyPrefix,
@@ -96,6 +86,8 @@ func (s *Storage[T]) Enqueue(ctx context.Context, item T) error {
 	return s.client.LPush(ctx, s.prefix(""), data).Err()
 }
 
+var ErrEmptyQueue = errors.New("empty queue")
+
 // Dequeue dequeues an item from the queue. If no item is available, ErrEmptyQueue returned.
 func (s *Storage[T]) Dequeue(ctx context.Context) (T, error) {
 	var t T
@@ -129,5 +121,5 @@ func (s *Storage[T]) Clear(ctx context.Context) error {
 
 // prefix prefixes key with keyPrefix-.
 func (s *Storage[T]) prefix(key string) string {
-	return string(s.keyPrefix) + "-" + key
+	return s.keyPrefix + "-" + key
 }

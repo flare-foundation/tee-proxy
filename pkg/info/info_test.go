@@ -9,6 +9,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/common"
@@ -35,7 +36,7 @@ func TestInsertBlock(t *testing.T) {
 	}
 
 	mr := miniredis.RunT(t)
-	c := queue.NewClient(mr.Addr())
+	c := storage.NewClient(mr.Addr())
 	aq := queue.NewActionQueues(c)
 	rs := queue.NewResultStorage(c)
 

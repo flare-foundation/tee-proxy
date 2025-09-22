@@ -25,6 +25,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/info"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -88,12 +89,12 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	mr := miniredis.RunT(t)
 	db := mockDB(t)
 
-	c := queue.NewClient(mr.Addr())
+	c := storage.NewClient(mr.Addr())
 	aq := queue.NewActionQueues(c)
 	rs := queue.NewResultStorage(c)
 
 	// Setup action and result services
-	walletStorage := wallets.NewStorage(aq, rs)
+	walletStorage := wallets.NewStorage(aq, rs, c)
 	actionService := action.NewService(aq)
 	resultService := result.NewService(rs)
 

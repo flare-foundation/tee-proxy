@@ -10,12 +10,13 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
 
 func TestActionQueues(t *testing.T) {
 	mr := miniredis.RunT(t)
-	c := NewClient(mr.Addr())
+	c := storage.NewClient(mr.Addr())
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck

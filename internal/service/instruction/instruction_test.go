@@ -16,6 +16,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -482,7 +483,7 @@ func TestVotingStorageErrors(t *testing.T) {
 
 func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service, *ecdsa.PrivateKey) {
 	mr := miniredis.RunT(t)
-	c := queue.NewClient(mr.Addr())
+	c := storage.NewClient(mr.Addr())
 
 	vCfg := &voting.Config{
 		ProposalExpiration: 0,

@@ -2,11 +2,15 @@ package wallets
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"golang.org/x/sync/errgroup"
 
 	"time"
 
@@ -14,28 +18,29 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/wallets"
 )
 
-func (s *Storage) MakeBackups(ctx context.Context, epochID uint32) error {
-	// todo clear old keys
+const expirationTime = 8 * 24 * time.Hour
+
+func (s *Storage) MakeBackups(ctx context.Context) error {
+	var eg errgroup.Group
 
 	for key := range s.Keys {
-		create := s.shouldCreateNewBackup(key, epochID)
-		if create {
-			err := s.makeBackup(ctx, key)
-			if err != nil {
-				return err
-			}
-		}
+		eg.Go(func() error { return s.makeBackup(ctx, key) })
 	}
-	return nil
+
+	return eg.Wait()
 }
 
-func (s *Storage) shouldCreateNewBackup(id IDPair, activeEpochID uint32) bool {
-	latestBackup, exists := s.Backups[id]
-	if !exists {
-		return true
+func (s *Storage) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets.TEEBackupResponse, error) {
+	return s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
+}
+
+func (s *Storage) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallets.TEEBackupResponse, error) {
+	idHash, err := s.index.Get(ctx, toKey(idPair))
+	if err != nil {
+		return nil, err
 	}
 
-	return latestBackup.BackupID.RewardEpochID < activeEpochID
+	return s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 }
 
 func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
@@ -54,7 +59,7 @@ func (s *Storage) makeBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	err = s.createNewBackup(&result.Result)
+	err = s.createNewBackup(ctx, &result.Result)
 	if err != nil {
 		return err
 	}
@@ -71,16 +76,30 @@ func teeBackupAction(idPair IDPair) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Get, op.TEEBackup, msg)
 }
 
-func (s *Storage) createNewBackup(r *types.ActionResult) error {
+func (s *Storage) createNewBackup(ctx context.Context, r *types.ActionResult) error {
 	var b *wallets.TEEBackupResponse
 	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
 		return err
 	}
 
-	idPair := IDPair{WalletID: b.BackupID.WalletID, KeyID: b.BackupID.KeyID}
+	idHash := b.BackupID.Hash()
 
-	s.Backups[idPair] = b
+	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, expirationTime)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	idPair := IDPair{
+		WalletID: b.BackupID.WalletID,
+		KeyID:    b.BackupID.KeyID,
+	}
+
+	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, expirationTime)
+
+	return err
+}
+
+func toKey(pair IDPair) string {
+	return fmt.Sprintf("%s-%d", hex.EncodeToString(pair.WalletID[:]), pair.KeyID)
 }

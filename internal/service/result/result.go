@@ -20,7 +20,8 @@ type Service struct {
 	rs *queue.ResponseStorage
 
 	// A channel to trigger of wallet storage update
-	WalletSync chan *types.ActionResult
+	WalletSync    chan *types.ActionResult
+	BackupTrigger chan bool
 
 	teeID common.Address
 }
@@ -60,6 +61,12 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 			case s.WalletSync <- &r.Result:
 			default:
 				logger.Error("wallet synchronization channel full")
+			}
+		case op.UpdatePolicy.Hash():
+			select {
+			case s.BackupTrigger <- true:
+			default:
+				logger.Error("backup trigger channel full")
 			}
 		}
 	}
