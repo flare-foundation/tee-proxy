@@ -39,6 +39,7 @@ type ProxyConfig struct {
 	ExtPort     uint
 	IntPort     uint
 	TeeId       common.Address
+	TeePubKey   *ecdsa.PublicKey
 	ProxyPubKey *ecdsa.PublicKey
 	Aq          *queue.ActionQueues
 	Rs          *queue.ResponseStorage
@@ -125,8 +126,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
 	require.NoError(t, err)
-	teeId := crypto.PubkeyToAddress(*teePub)
-	err = resultService.SetIdentity(teeId)
+	teeID := crypto.PubkeyToAddress(*teePub)
+	err = resultService.SetIdentity(teeID)
 	require.NoError(t, err)
 
 	metaObj := meta.New(&walletStorage)
@@ -138,7 +139,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	vs := instruction.NewStorage(vc, 3, metaObj, 3)
 
-	instService := instruction.NewService(teeId, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
+	instService := instruction.NewService(teeID, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
 	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &actionService, &resultService, &infoStorage, &walletStorage, proxyPk)
 
 	wg.Add(1)
@@ -169,7 +170,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	return &ProxyConfig{
 		ExtPort:     externalPort,
 		IntPort:     internalPort,
-		TeeId:       teeId,
+		TeeId:       teeID,
+		TeePubKey:   teePub,
 		ProxyPubKey: teePub,
 		Aq:          aq,
 		Rs:          rs,

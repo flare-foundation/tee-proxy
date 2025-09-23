@@ -101,7 +101,6 @@ func TestXRPIntegration(t *testing.T) {
 
 			walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeId, walletIds[i], keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
 			require.False(t, walletProof.Restored, "getting wallet response")
-			walletAddresses[i] = walletProof.AddressStr
 		}(i)
 	}
 	wg.Wait()

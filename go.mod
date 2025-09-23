@@ -5,11 +5,12 @@ go 1.25.1
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.16.3
-	github.com/flare-foundation/go-flare-common v1.2.1-0.20250911123944-12afe51580d1
+	github.com/flare-foundation/go-flare-common v1.2.1-0.20250923114700-34c08111292b
 	github.com/flare-foundation/tee-node v0.0.1
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
 	github.com/xrpscan/xrpl-go v0.2.10
+	golang.org/x/sync v0.17.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.0
 )
@@ -61,7 +62,6 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.42.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
-	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect

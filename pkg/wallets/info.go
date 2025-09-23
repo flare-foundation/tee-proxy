@@ -16,19 +16,17 @@ type KeyData struct {
 }
 
 type KeyExistence struct {
-	TeeID             common.Address  `json:"teeId"`
-	WalletID          common.Hash     `json:"walletId"`
-	KeyID             uint64          `json:"keyId"`
-	OPType            common.Hash     `json:"opType"`
-	PublicKey         hexutil.Bytes   `json:"publicKye"`
-	ProofOfPossession hexutil.Bytes   `json:"proofOfPossession"`
-	Nonce             *big.Int        `json:"nonce"`
-	PauseNonce        *big.Int        `json:"pauseNonce"`
-	Status            uint8           `json:"status"`
-	Restored          bool            `json:"restore"`
-	AddressStr        string          `json:"addressStr"`
-	ConfigConstants   ConfigConstants `json:"configConstants"`
-	ConfigSettings    ConfigSettings  `json:"configSettings"`
+	TeeID           common.Address  `json:"teeId"`
+	WalletID        common.Hash     `json:"walletId"`
+	KeyID           uint64          `json:"keyId"`
+	KeyType         common.Hash     `json:"keyType"`
+	SigningAlgo     common.Hash     `json:"signingAlgo"`
+	PublicKey       hexutil.Bytes   `json:"publicKye"`
+	Nonce           *big.Int        `json:"nonce"`
+	Restored        bool            `json:"restore"`
+	ConfigConstants ConfigConstants `json:"configConstants"`
+	SettingsVersion common.Hash     `json:"settingsVersion"`
+	Settings        hexutil.Bytes   `json:"settings"`
 }
 
 type PublicKey struct {
@@ -41,7 +39,6 @@ type ConfigConstants struct {
 	AdminsThreshold    uint64           `json:"adminsThreshold"`
 	Cosigners          []common.Address `json:"cosigners"`
 	CosignersThreshold uint64           `json:"cosignersThreshold"`
-	OPTypeConstants    hexutil.Bytes    `json:"opTypeConstants"`
 }
 
 type ConfigSettings struct {

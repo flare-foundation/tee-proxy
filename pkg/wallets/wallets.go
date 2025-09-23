@@ -80,9 +80,7 @@ func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan boo
 				logger.Errorf("wallet key update: %w", err)
 				continue
 			}
-
 			logger.Debug("wallet key update done")
-
 		case <-backupTrigger:
 			logger.Debug("backup triggered")
 			err := s.MakeBackups(ctx)
@@ -203,6 +201,7 @@ func (s *Storage) update(ctx context.Context, action *types.ActionResult) error 
 	if err != nil {
 		return err
 	}
+
 	s.Lock()
 	defer s.Unlock()
 
