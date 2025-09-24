@@ -12,9 +12,18 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
-var ErrInvalidQueueID = fmt.Errorf("%w: invalid queue id", status.HTTP[400])
+const (
+	Actions = "Action"
+	Results = "Results"
+
+	DirectQueue = "DirectQueue"
+	MainQueue   = "MainQueue"
+)
+
+var ErrInvalidQueueID = errors.New("invalid queue id")
 
 type StoringID struct {
 	ActionID      common.Hash
@@ -26,20 +35,20 @@ func (id *StoringID) String() string {
 }
 
 type ActionQueues struct {
-	actions     *Storage[*types.Action]
-	directQueue *Storage[*StoringID]
-	mainQueue   *Storage[*StoringID]
+	actions     *storage.Storage[*types.Action]
+	directQueue *storage.Storage[*StoringID]
+	mainQueue   *storage.Storage[*StoringID]
 }
 
 type ResponseStorage struct {
-	s *Storage[*types.ActionResponse]
+	s *storage.Storage[*types.ActionResponse]
 }
 
 func NewActionQueues(client *redis.Client) *ActionQueues {
 	return &ActionQueues{
-		actions:     NewStore[*types.Action](Actions, client),
-		directQueue: NewStore[*StoringID](DirectQueue, client),
-		mainQueue:   NewStore[*StoringID](MainQueue, client),
+		actions:     storage.New[*types.Action](Actions, client),
+		directQueue: storage.New[*StoringID](DirectQueue, client),
+		mainQueue:   storage.New[*StoringID](MainQueue, client),
 	}
 }
 
@@ -63,11 +72,9 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 	return err
 }
 
-var ErrEmptyQueue = fmt.Errorf("%w: empty queue", status.HTTP[404])
-
 // Dequeue dequeues action from indicated queue. If no action is available, wrapped ErrEmptyQueue is dequeued.
 func (as *ActionQueues) Dequeue(ctx context.Context, id processorutils.QueueID) (*types.Action, error) {
-	var queue *Storage[*StoringID]
+	var queue *storage.Storage[*StoringID]
 
 	switch id {
 	case processorutils.Main:
@@ -98,7 +105,7 @@ func (as *ActionQueues) QueueLength(ctx context.Context) (int64, error) {
 
 func NewResultStorage(client *redis.Client) *ResponseStorage {
 	return &ResponseStorage{
-		NewStore[*types.ActionResponse](Results, client),
+		storage.New[*types.ActionResponse](Results, client),
 	}
 }
 

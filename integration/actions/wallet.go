@@ -38,12 +38,12 @@ func GenerateWallet(
 	rewardEpochId uint32,
 ) *commonwallet.ITeeWalletKeyManagerKeyExistence {
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyGenerate{
-		TeeId:    teeId,
-		WalletId: walletId,
-		KeyId:    keyId,
-		OpType:   op.XRP.Hash(),
+		TeeId:       teeId,
+		WalletId:    walletId,
+		KeyId:       keyId,
+		KeyType:     wallets.XRPType,
+		SigningAlgo: wallets.XRPAlgo,
 		ConfigConstants: commonwallet.ITeeWalletKeyManagerKeyConfigConstants{
-			OpTypeConstants:    make([]byte, 0),
 			AdminsPublicKeys:   adminWalletPublicKeys,
 			AdminsThreshold:    uint64(len(adminWalletPublicKeys)),
 			Cosigners:          make([]common.Address, 0), // todo: add cosigners
@@ -65,6 +65,7 @@ func GenerateWallet(
 
 	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.Wallet, op.KeyGenerate, teeId)
 
+	require.Equal(t, uint8(1), res.Result.Status, res.Result.Log)
 	var swe wallets.SignedKeyExistenceProof
 
 	err = json.Unmarshal(res.Result.Data, &swe)
@@ -76,16 +77,18 @@ func GenerateWallet(
 	wst := make(chan bool, 1)
 
 	nkc := make(chan *types.ActionResult, 1)
+	btrig := make(chan bool, 1)
 
-	go pc.Ws.RunInfo(t.Context(), wst, nkc)
+	go pc.Ws.RunInfo(t.Context(), wst, btrig, nkc)
 	nkc <- &res.Result
+
+	time.Sleep(500 * time.Millisecond)
 
 	walletInfo := utils.GetWalletInfo(t, pc, walletId, keyId)
 	require.NoError(t, err)
 	require.Equal(t, common.Hash(walletExistenceProof.WalletId), walletInfo.Info.WalletID)
 	require.Equal(t, walletExistenceProof.KeyId, walletInfo.Info.KeyID)
-	require.Equal(t, walletExistenceProof.AddressStr, walletInfo.Info.AddressStr)
-	require.Equal(t, op.XRP.Hash(), common.BytesToHash(originalMessage.OpType[:]))
+	// require.Equal(t, op.XRP.Hash(), common.BytesToHash(originalMessage.OpType[:]))
 	require.Equal(t, originalMessage.ConfigConstants, walletExistenceProof.ConfigConstants)
 	require.Equal(t, false, walletExistenceProof.Restored)
 
@@ -122,7 +125,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, key
 	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.Wallet, op.KeyDelete, pc.TeeId)
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunInfo(t.Context(), wst, nil)
+	go pc.Ws.RunInfo(t.Context(), wst, nil, nil)
 	wst <- true
 
 	time.Sleep(1500 * time.Millisecond)
@@ -141,18 +144,33 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, key
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 }
 
-// RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies ITeeWalletKeyManagerKeyExistence proof and cheks that recovered wallet is in proxy wallet storage
-func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, keyID uint64, providersPrivKeys, adminsPrivKeys []*ecdsa.PrivateKey,
-	rewardEpochId uint32, nonce *big.Int, walletBackup *backup.WalletBackup) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+// RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies ITeeWalletKeyManagerKeyExistence proof and checks that recovered wallet is in proxy wallet storage.
+func RecoverWallet(
+	t *testing.T,
+	pc *utils.ProxyConfig,
+	walletID common.Hash,
+	keyID uint64,
+	providersPrivKeys, adminsPrivKeys []*ecdsa.PrivateKey,
+	rewardEpochId uint32,
+	nonce *big.Int,
+	walletBackup *backup.WalletBackup,
+) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+	tpk := types.PubKeyToStruct(pc.TeePubKey)
+	teePK := commonwallet.PublicKey{
+		X: tpk.X,
+		Y: tpk.Y,
+	}
+
 	originalMessage := commonwallet.ITeeWalletBackupManagerKeyDataProviderRestore{
-		TeeId:     pc.TeeId,
-		BackupUrl: "blabla",
-		Nonce:     nonce,
+		TeePublicKey: teePK,
+		BackupUrl:    "blabla",
+		Nonce:        nonce,
 		BackupId: commonwallet.ITeeWalletBackupManagerBackupId{
 			TeeId:         pc.TeeId,
 			WalletId:      walletID,
 			KeyId:         keyID,
-			OpType:        op.XRP.Hash(),
+			KeyType:       wallets.XRPType,
+			SigningAlgo:   wallets.XRPAlgo,
 			PublicKey:     append(walletBackup.PublicKey.X[:], walletBackup.PublicKey.Y[:]...),
 			RewardEpochId: big.NewInt(int64(rewardEpochId)),
 			RandomNonce:   new(big.Int).SetBytes(walletBackup.RandomNonce[:]),
@@ -250,7 +268,7 @@ func RecoverWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, ke
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunInfo(t.Context(), wst, nil)
+	go pc.Ws.RunInfo(t.Context(), wst, nil, nil)
 	wst <- true
 
 	// Check that wallet is actually on the tee

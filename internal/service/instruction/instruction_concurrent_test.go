@@ -16,7 +16,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -383,7 +383,7 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	for {
 		action, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
-			require.ErrorIs(t, err, queue.ErrEmptyQueue)
+			require.ErrorIs(t, err, storage.ErrEmptyQueue)
 			break // No more actions in queue
 		}
 		actionCount++
@@ -461,7 +461,7 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 	for {
 		action, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
-			require.ErrorIs(t, err, queue.ErrEmptyQueue)
+			require.ErrorIs(t, err, storage.ErrEmptyQueue)
 			break // No more actions in queue
 		}
 		actionCount++

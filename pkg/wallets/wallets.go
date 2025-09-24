@@ -11,9 +11,11 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -28,7 +30,8 @@ type Storage struct {
 	KeysForWallet map[common.Hash][]uint64
 	Keys          map[IDPair]*KeyData
 
-	Backups map[IDPair]*wallets.TEEBackupResponse // todo align this with docs
+	index   *storage.Storage[common.Hash]
+	backups *storage.Storage[*wallets.TEEBackupResponse]
 
 	aq *queue.ActionQueues
 	rs *queue.ResponseStorage
@@ -36,21 +39,26 @@ type Storage struct {
 	sync.RWMutex
 }
 
-func NewStorage(aq *queue.ActionQueues, rs *queue.ResponseStorage) Storage {
+func NewStorage(aq *queue.ActionQueues, rs *queue.ResponseStorage, client *redis.Client) Storage {
 	kfw := make(map[common.Hash][]uint64)
 	k := make(map[IDPair]*KeyData)
-	b := make(map[IDPair]*wallets.TEEBackupResponse)
+
+	bp := storage.New[*wallets.TEEBackupResponse]("backup", client)
+	in := storage.New[common.Hash]("backupIndex", client)
 
 	return Storage{
 		KeysForWallet: kfw,
 		Keys:          k,
-		Backups:       b,
-		aq:            aq,
-		rs:            rs,
+
+		index:   in,
+		backups: bp,
+
+		aq: aq,
+		rs: rs,
 	}
 }
 
-func (s *Storage) RunInfo(ctx context.Context, trigger <-chan bool, newKeys <-chan *types.ActionResult) {
+func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan bool, newKeys <-chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -67,13 +75,20 @@ func (s *Storage) RunInfo(ctx context.Context, trigger <-chan bool, newKeys <-ch
 			logger.Debug("wallet sync done")
 		case newKeyAction := <-newKeys:
 			logger.Debug("wallet key update start")
-			err := s.update(newKeyAction)
+			err := s.update(ctx, newKeyAction)
 			if err != nil {
 				logger.Errorf("wallet key update: %w", err)
 				continue
 			}
-
 			logger.Debug("wallet key update done")
+		case <-backupTrigger:
+			logger.Debug("backup triggered")
+			err := s.MakeBackups(ctx)
+			if err != nil {
+				logger.Errorf("error creating backup. First error: %w", err)
+				continue
+			}
+			logger.Debug("backups done")
 		}
 	}
 }
@@ -176,7 +191,7 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*KeyDa
 	return keysForWallet, keys, nil
 }
 
-func (s *Storage) update(action *types.ActionResult) error {
+func (s *Storage) update(ctx context.Context, action *types.ActionResult) error {
 	keyInfo, err := parseNewKeyActionResult(action)
 	if err != nil {
 		return err
@@ -186,6 +201,7 @@ func (s *Storage) update(action *types.ActionResult) error {
 	if err != nil {
 		return err
 	}
+
 	s.Lock()
 	defer s.Unlock()
 
@@ -209,7 +225,7 @@ func (s *Storage) update(action *types.ActionResult) error {
 	keyData.Proof = keyInfo
 	keyData.Info = *info
 
-	return nil
+	return s.makeBackup(ctx, id)
 }
 
 // keyInfoAction prepares direct action with opType F_GET and opCommand KEY_INFO.

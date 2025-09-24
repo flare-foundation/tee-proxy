@@ -25,6 +25,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/info"
 	"github.com/flare-foundation/tee-proxy/pkg/meta"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -38,6 +39,7 @@ type ProxyConfig struct {
 	ExtPort     uint
 	IntPort     uint
 	TeeId       common.Address
+	TeePubKey   *ecdsa.PublicKey
 	ProxyPubKey *ecdsa.PublicKey
 	Aq          *queue.ActionQueues
 	Rs          *queue.ResponseStorage
@@ -88,12 +90,12 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	mr := miniredis.RunT(t)
 	db := mockDB(t)
 
-	c := queue.NewClient(mr.Addr())
+	c := storage.NewClient(mr.Addr())
 	aq := queue.NewActionQueues(c)
 	rs := queue.NewResultStorage(c)
 
 	// Setup action and result services
-	walletStorage := wallets.NewStorage(aq, rs)
+	walletStorage := wallets.NewStorage(aq, rs, c)
 	actionService := action.NewService(aq)
 	resultService := result.NewService(rs)
 
@@ -124,8 +126,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
 	require.NoError(t, err)
-	teeId := crypto.PubkeyToAddress(*teePub)
-	err = resultService.SetIdentity(teeId)
+	teeID := crypto.PubkeyToAddress(*teePub)
+	err = resultService.SetIdentity(teeID)
 	require.NoError(t, err)
 
 	metaObj := meta.New(&walletStorage)
@@ -137,7 +139,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	vs := instruction.NewStorage(vc, 3, metaObj, 3)
 
-	instService := instruction.NewService(teeId, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
+	instService := instruction.NewService(teeID, proxyPk, make(chan policy.SigningPolicy, 1), aq, vs)
 	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &actionService, &resultService, &infoStorage, &walletStorage, proxyPk)
 
 	wg.Add(1)
@@ -168,7 +170,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	return &ProxyConfig{
 		ExtPort:     externalPort,
 		IntPort:     internalPort,
-		TeeId:       teeId,
+		TeeId:       teeID,
+		TeePubKey:   teePub,
 		ProxyPubKey: teePub,
 		Aq:          aq,
 		Rs:          rs,

@@ -26,6 +26,7 @@ const (
 	keyID         = "keyID"
 	rewardEpochID = "rewardEpochID"
 	walletID      = "walletID"
+	backupIDHash  = "backupIDHash"
 )
 
 type External struct {
@@ -96,6 +97,8 @@ func (e *External) registerRoutes() {
 	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statH))
 	mux.HandleFunc("GET /info", prepareHandler(e.infoH))
 	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walH))
+	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.bacH))
+	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.bacLH))
 }
 
 // instH handles instructions. It adds it to the voting process and returns a signed receipt.
@@ -253,6 +256,52 @@ func (e *External) walH(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	err = json.NewEncoder(w).Encode(walletInfo)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// bacH serves backup with backupIDHash.
+func (e *External) bacH(w http.ResponseWriter, r *http.Request) error {
+	idHash, err := hashParam(r, backupIDHash)
+	if err != nil {
+		return err
+	}
+
+	backupResponse, err := e.wallet.FetchBackup(r.Context(), idHash)
+	if err != nil {
+		return err
+	}
+
+	err = json.NewEncoder(w).Encode(backupResponse)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// bacLH serves latest backup for pair walletID, keyID
+func (e *External) bacLH(w http.ResponseWriter, r *http.Request) error {
+	wID, err := hashParam(r, walletID)
+	if err != nil {
+		return err
+	}
+
+	kID, err := uint64Param(r, keyID)
+	if err != nil {
+		return err
+	}
+
+	backupResponse, err := e.wallet.FetchLatestBackup(r.Context(), wallets.IDPair{
+		WalletID: wID,
+		KeyID:    kID,
+	})
+	if err != nil {
+		return err
+	}
+
+	err = json.NewEncoder(w).Encode(backupResponse)
 	if err != nil {
 		return err
 	}

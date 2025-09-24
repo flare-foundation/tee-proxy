@@ -96,23 +96,23 @@ func (a Ports) validate() error {
 
 // PrivateKeyFromEnv extracts ecdsa private key from env variable.
 //
-// Private key should be 32 bytes long hex string. It can be 0x or 0
+// Private key should be 32 bytes long hex string, but it can be shorter. It can be 0x or 0X prefixed or not.
 func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 	if len(variableName) == 0 {
 		variableName = defaultPrivateKeyVariable
 	}
 	skStr := os.Getenv(variableName)
 
-	if len(skStr) == 0 {
-		return nil, errors.New("private key not set")
-	}
-
 	skStr, _ = strings.CutPrefix(skStr, "0x")
 	skStr, _ = strings.CutPrefix(skStr, "0X")
 
+	if len(skStr)%2 != 0 {
+		skStr = "0" + skStr
+	}
+
 	skB, err := hex.DecodeString(skStr)
 	if err != nil {
-		return nil, errors.New("invalid string for private key")
+		return nil, fmt.Errorf("invalid string for private key")
 	}
 
 	skB = prefixTo32Bytes(skB)
