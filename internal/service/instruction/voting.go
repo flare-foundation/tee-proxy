@@ -219,7 +219,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 				}
 				s.Out <- a
 			} else {
-				logger.Debug("closing non finalized box %v, %v", box.iID, box.iHash)
+				logger.Debugf("closing non finalized box %v, %v", box.iID, box.iHash)
 			}
 			box.Delete()
 		}()
