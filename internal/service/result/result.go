@@ -28,8 +28,9 @@ type Service struct {
 
 func NewService(rs *queue.ResponseStorage) Service {
 	wst := make(chan *types.ActionResult, 10)
+	btt := make(chan bool, 1)
 
-	return Service{rs: rs, WalletSync: wst}
+	return Service{rs: rs, WalletSync: wst, BackupTrigger: btt}
 }
 
 func (s *Service) SetIdentity(teeID common.Address) error {
