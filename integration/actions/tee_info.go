@@ -24,7 +24,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 
 	originalMessage := verification.ITeeVerificationTeeAttestation{
 		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
-			TeeId:        pc.TeeId,
+			TeeId:        pc.TeeID,
 			InitialTeeId: common.Address{},
 			Url:          "bla",
 			CodeHash:     [32]byte{},
@@ -36,14 +36,14 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.Reg, op.TEEAttestation, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Reg, op.TEEAttestation, pc.TeeID)
 
 	var teeInfoResponse types.TeeInfoResponse
 	err = json.Unmarshal(res.Result.Data, &teeInfoResponse)
@@ -53,7 +53,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.NoError(t, err)
 
 	receivedTeeId := crypto.PubkeyToAddress(*teePubKey)
-	require.Equal(t, receivedTeeId, pc.TeeId)
+	require.Equal(t, receivedTeeId, pc.TeeID)
 
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.Reg, op.TEEAttestation, receipts)

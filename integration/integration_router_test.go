@@ -64,7 +64,7 @@ const MyCommand op.Command = "MyCommand"
 
 func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) {
 	timestamp := uint64(time.Now().Unix())
-	iData := integrationUtils.BuildInstructionData(t, MyOp, MyCommand, []byte("asdfasdf"), timestamp, nil, nil, nil, 0, pc.TeeId, rewardEpochId)
+	iData := integrationUtils.BuildInstructionData(t, MyOp, MyCommand, []byte("asdfasdf"), timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
@@ -72,10 +72,10 @@ func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privK
 
 	integrationUtils.VerifyReceipts(t, receipts, iData)
 
-	res := integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeId)
+	res := integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID)
 	require.Equal(t, "successfully posted to extension", string(res.Result.Data))
 
 	time.Sleep(1 * time.Second)
-	res = integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeId)
+	res = integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID)
 	require.Equal(t, "Action (type: instruction) processed successfully", res.Result.Log)
 }

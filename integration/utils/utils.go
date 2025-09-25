@@ -38,7 +38,7 @@ import (
 type ProxyConfig struct {
 	ExtPort     uint
 	IntPort     uint
-	TeeId       common.Address
+	TeeID       common.Address
 	TeePubKey   *ecdsa.PublicKey
 	ProxyPubKey *ecdsa.PublicKey
 	Aq          *queue.ActionQueues
@@ -170,7 +170,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	return &ProxyConfig{
 		ExtPort:     externalPort,
 		IntPort:     internalPort,
-		TeeId:       teeID,
+		TeeID:       teeID,
 		TeePubKey:   teePub,
 		ProxyPubKey: teePub,
 		Aq:          aq,

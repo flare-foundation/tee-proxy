@@ -99,7 +99,7 @@ func TestXRPIntegration(t *testing.T) {
 			defer wg.Done()
 			walletIds[i] = common.HexToHash(fmt.Sprintf("0x%x", i))
 
-			walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeId, walletIds[i], keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
+			walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeID, walletIds[i], keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
 			require.False(t, walletProof.Restored, "getting wallet response")
 		}(i)
 	}
@@ -116,7 +116,7 @@ func TestXRPIntegration(t *testing.T) {
 
 	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         [32]byte{}, // add wallet id in loop
-		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeId, KeyId: keyId}},
+		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyId}},
 		SenderAddress:    multisigResult.MultisigAddress,
 		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
 		Amount:           big.NewInt(1_000_000),
@@ -137,7 +137,7 @@ func TestXRPIntegration(t *testing.T) {
 
 			paymentInstruction.WalletId = walletIds[i]
 
-			txData := intactions.SignTransaction(t, cfg, cfg.TeeId, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
+			txData := intactions.SignTransaction(t, cfg, cfg.TeeID, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
 			signers = append(signers, txData.Signers...)
 			tx = txData.Tx
 			txHash = txData.TxHash

@@ -79,13 +79,13 @@ func TestProxyTeeIntegration(t *testing.T) {
 
 	var walletId = common.HexToHash("0xabcdef")
 	var keyId = uint64(1)
-	walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeId, walletId, keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
+	walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeID, walletId, keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
 	require.False(t, walletProof.Restored, "getting wallet response")
 	logger.Info("Created wallet proof")
 
 	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         walletId,
-		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeId, KeyId: keyId}},
+		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyId}},
 		SenderAddress:    "rN5N6fJbc8xyViPDeQFMQMpYfVHuxSGV2G",
 		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
 		Amount:           big.NewInt(1000000000),
@@ -95,10 +95,10 @@ func TestProxyTeeIntegration(t *testing.T) {
 		SubNonce:         0,
 		BatchEndTs:       0,
 	}
-	intactions.SignTransaction(t, cfg, cfg.TeeId, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
+	intactions.SignTransaction(t, cfg, cfg.TeeID, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
 	logger.Info("Signed transaction")
 
-	walletBackup := intactions.GetBackup(t, cfg, walletId, keyId, cfg.TeeId)
+	walletBackup := intactions.GetBackup(t, cfg, walletId, keyId, cfg.TeeID)
 	logger.Info("Got backup")
 
 	nonce := big.NewInt(1)

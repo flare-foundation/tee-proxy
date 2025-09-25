@@ -20,6 +20,7 @@ import (
 
 const expirationTime = 8 * 24 * time.Hour
 
+// MakeBackups creates backups for all stored keys.
 func (s *Storage) MakeBackups(ctx context.Context) error {
 	var eg errgroup.Group
 
@@ -30,10 +31,12 @@ func (s *Storage) MakeBackups(ctx context.Context) error {
 	return eg.Wait()
 }
 
+// FetchBackup fetches backup for backupIDHash
 func (s *Storage) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets.TEEBackupResponse, error) {
 	return s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 }
 
+// FetchLatestBackup fetches latest backup for id pair.
 func (s *Storage) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallets.TEEBackupResponse, error) {
 	idHash, err := s.index.Get(ctx, toKey(idPair))
 	if err != nil {
