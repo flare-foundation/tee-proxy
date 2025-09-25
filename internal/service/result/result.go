@@ -57,7 +57,7 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 
 	if r.Result.Status == 1 {
 		switch r.Result.OPCommand {
-		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDelete.Hash():
+		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash():
 			select {
 			case s.WalletSync <- &r.Result:
 			default:
