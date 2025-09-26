@@ -15,7 +15,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/voting"
 )
 
-const defaultPrivateKeyVariable = "PRIVATE_KEY"
+const DefaultPrivateKeyVariable = "PRIVATE_KEY"
 
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
@@ -99,7 +99,7 @@ func (a Ports) validate() error {
 // Private key should be 32 bytes long hex string, but it can be shorter. It can be 0x or 0X prefixed or not.
 func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 	if len(variableName) == 0 {
-		variableName = defaultPrivateKeyVariable
+		variableName = DefaultPrivateKeyVariable
 	}
 	skStr := os.Getenv(variableName)
 

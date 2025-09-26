@@ -3,7 +3,7 @@ package info
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -94,6 +94,7 @@ func action(challenge common.Hash) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Get, op.TEEInfo, msg)
 }
 
+// updateInfo updates the latest info by sending a TEE_INFO action to the TEE and waiting for the response.
 func (s *Storage) updateInfo(ctx context.Context) error {
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
@@ -117,7 +118,7 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 		return err
 	}
 	if response.Result.Status != 1 {
-		return errors.New("action failed")
+		return fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
 	}
 
 	result := new(types.TeeInfoResponse)
