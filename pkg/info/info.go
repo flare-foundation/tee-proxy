@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Storage holds the latest TEE info and manages updating it.
 type Storage struct {
 	Latest *types.TeeInfoResponse
 
@@ -44,6 +45,7 @@ func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage, 
 	}
 }
 
+// Run starts the periodic update of TEE info.
 func (s *Storage) Run(ctx context.Context) error {
 	errCount := 0
 
@@ -69,7 +71,7 @@ func (s *Storage) Run(ctx context.Context) error {
 	}
 }
 
-// FetchInfo info updates info and returns the update.
+// FetchInfo updates info and returns the update.
 func (s *Storage) FetchInfo(ctx context.Context) (*types.TeeInfoResponse, error) {
 	err := s.updateInfo(ctx)
 	if err != nil {
