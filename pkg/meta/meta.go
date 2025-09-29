@@ -98,7 +98,7 @@ func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Addr
 func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
 	cosigners := make(map[common.Address]bool)
 
-	var walletBackupMetadata backup.WalletBackupMetaData // Note: Is this correct?
+	var walletBackupMetadata backup.WalletBackupMetaData
 	err := json.Unmarshal(data.AdditionalFixedMessage, &walletBackupMetadata)
 	if err != nil {
 		return nil, 0, err
