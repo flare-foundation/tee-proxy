@@ -3,7 +3,7 @@ package info
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Storage holds the latest TEE info and manages updating it.
 type Storage struct {
 	Latest *types.TeeInfoResponse
 
@@ -44,6 +45,7 @@ func NewStorage(db *gorm.DB, aq *queue.ActionQueues, rs *queue.ResponseStorage, 
 	}
 }
 
+// Run starts the periodic update of TEE info.
 func (s *Storage) Run(ctx context.Context) error {
 	errCount := 0
 
@@ -69,7 +71,7 @@ func (s *Storage) Run(ctx context.Context) error {
 	}
 }
 
-// FetchInfo info updates info and returns the update.
+// FetchInfo updates info and returns the update.
 func (s *Storage) FetchInfo(ctx context.Context) (*types.TeeInfoResponse, error) {
 	err := s.updateInfo(ctx)
 	if err != nil {
@@ -94,6 +96,7 @@ func action(challenge common.Hash) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Get, op.TEEInfo, msg)
 }
 
+// updateInfo updates the latest info by sending a TEE_INFO action to the TEE and waiting for the response.
 func (s *Storage) updateInfo(ctx context.Context) error {
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
@@ -117,7 +120,7 @@ func (s *Storage) updateInfo(ctx context.Context) error {
 		return err
 	}
 	if response.Result.Status != 1 {
-		return errors.New("action failed")
+		return fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
 	}
 
 	result := new(types.TeeInfoResponse)

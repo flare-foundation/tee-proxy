@@ -25,12 +25,12 @@ import (
 func Initialize(ctx context.Context, cfgPath string) {
 	cfg, err := config.Read(cfgPath)
 	if err != nil {
-		panic(err)
+		logger.Panicf("reading config: %v", err)
 	}
 
 	db, err := database.Connect(&cfg.DB)
 	if err != nil {
-		panic(err)
+		logger.Panicf("connecting to database: %v", err)
 	}
 
 	database.WaitCIndexerToSync(ctx, db, database.SyncParams{
@@ -42,7 +42,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	privKey, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)
 	if err != nil {
-		panic(err)
+		logger.Panicf("loading private key from env variable %s (default is %s): %v", cfg.PrivateKeyVariable, config.DefaultPrivateKeyVariable, err)
 	}
 
 	redisClient := storage.NewClient(cfg.RedisPort)
@@ -66,21 +66,21 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	initialInfo, err := infoStorage.FetchInfo(ctx)
 	if err != nil {
-		panic(err)
+		logger.Panicf("fetching initial TEE info: %v", err)
 	}
 
 	go infoStorage.Run(ctx) //nolint:errcheck // todo
 
 	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
 	if err != nil {
-		panic(err)
+		logger.Panicf("parsing TEE public key: %v", err)
 	}
 
 	teeID := crypto.PubkeyToAddress(*teePub)
 
 	err = resultService.SetIdentity(teeID)
 	if err != nil {
-		panic(err)
+		logger.Panicf("setting TEE identity: %v", err)
 	}
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)
@@ -89,20 +89,20 @@ func Initialize(ctx context.Context, cfgPath string) {
 		logger.Infof("starting signing policy updates from epoch %d", initialInfo.TeeInfo.LastSigningPolicyID)
 		err = policyService.SetInitialPolicy(ctx, db, initialInfo.TeeInfo.LastSigningPolicyID)
 		if err != nil {
-			panic(err)
+			logger.Panicf("setting initial signing policy: %v", err)
 		}
 		walletSyncCue <- true
 	} else {
 		logger.Info("initializing signing policy")
 		err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset)
 		if err != nil {
-			panic(err)
+			logger.Panicf("initializing signing policy: %v", err)
 		}
 	}
 
 	policyChan, err := policyService.Run(ctx, db)
 	if err != nil {
-		panic(err)
+		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
 	meta := meta.New(&walletStorage)

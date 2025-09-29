@@ -100,7 +100,7 @@ func (as *ActionQueues) Dequeue(ctx context.Context, id processorutils.QueueID) 
 
 // QueueLength returns the number of elements in the main queue.
 func (as *ActionQueues) QueueLength(ctx context.Context) (int64, error) {
-	return as.mainQueue.GetQueueLength(ctx)
+	return as.mainQueue.QueueLength(ctx)
 }
 
 func NewResultStorage(client *redis.Client) *ResponseStorage {

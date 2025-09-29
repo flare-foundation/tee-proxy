@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// GenerateWallet Sends KEY_GENERATE instruction for wallet with specified admins, verifies ITeeWalletKeyManagerKeyExistence proof  and checks that wallet is present in proxy wallet storage
+// GenerateWallet Sends KEY_GENERATE instruction for wallet with specified admins, verifies ITeeWalletKeyManagerKeyExistence proof and checks that wallet is present in proxy wallet storage.
 func GenerateWallet(
 	t *testing.T,
 	pc *utils.ProxyConfig,
@@ -171,9 +171,9 @@ func RecoverWallet(
 			KeyId:         keyID,
 			KeyType:       wallets.XRPType,
 			SigningAlgo:   wallets.XRPAlgo,
-			PublicKey:     append(walletBackup.PublicKey.X[:], walletBackup.PublicKey.Y[:]...),
-			RewardEpochId: big.NewInt(int64(rewardEpochId)),
-			RandomNonce:   new(big.Int).SetBytes(walletBackup.RandomNonce[:]),
+			PublicKey:     walletBackup.PublicKey,
+			RewardEpochId: rewardEpochId,
+			RandomNonce:   walletBackup.RandomNonce,
 		},
 	}
 

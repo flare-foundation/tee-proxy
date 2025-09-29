@@ -12,7 +12,7 @@ import (
 
 // PrepareDirectAction prepares an action with direct instruction.
 //
-// With type "direct" and tag "submit".
+// With type "direct" and submission tag "submit".
 // todo: find a better place.
 func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*types.Action, error) {
 	id, err := randID()
