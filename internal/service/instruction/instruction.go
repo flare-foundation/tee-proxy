@@ -70,7 +70,6 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 // Forward listens to the out channel and enqueues received actions.
 func (s *Service) Forward(ctx context.Context) error {
-	// this can be done directly
 	for {
 		select {
 		case <-ctx.Done():
