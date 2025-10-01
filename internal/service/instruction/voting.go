@@ -219,15 +219,17 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 					a, err := box.Action(types.Threshold)
 					if err != nil {
 						logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+					} else {
+						s.Out <- a
 					}
-					s.Out <- a
 				}
 
 				a, err := box.Action(types.End)
 				if err != nil {
 					logger.Errorf("failed crating end action for %v, %v: %v", id, hash, err)
+				} else {
+					s.Out <- a
 				}
-				s.Out <- a
 			} else {
 				logger.Debugf("closing non finalized box %v, %v", box.iID, box.iHash)
 			}
@@ -250,8 +252,9 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 			a, err := box.Action(types.Threshold)
 			if err != nil {
 				logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+			} else {
+				s.Out <- a
 			}
-			s.Out <- a
 		}
 	}
 
