@@ -16,6 +16,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 )
 
 const maxBIPS = 10000
@@ -213,11 +214,22 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 			defer box.Unlock()
 
 			if box.Finalized {
+				// send threshold action for KeyDataProviderRestore at the end of voting
+				if data.OPType == op.Wallet.Hash() && data.OPCommand == op.KeyDataProviderRestore.Hash() {
+					a, err := box.Action(types.Threshold)
+					if err != nil {
+						logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+					} else {
+						s.Out <- a
+					}
+				}
+
 				a, err := box.Action(types.End)
 				if err != nil {
 					logger.Errorf("failed crating end action for %v, %v: %v", id, hash, err)
+				} else {
+					s.Out <- a
 				}
-				s.Out <- a
 			} else {
 				logger.Debugf("closing non finalized box %v, %v", box.iID, box.iHash)
 			}
@@ -233,11 +245,17 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	if finalized {
 		round.limiter.Decrement(box.Proposer)
 
-		a, err := box.Action(types.Threshold)
-		if err != nil {
-			logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+		switch {
+		case data.OPType == op.Wallet.Hash() && data.OPCommand == op.KeyDataProviderRestore.Hash():
+			// only sent "threshold" action at the end of voting if finalized
+		default:
+			a, err := box.Action(types.Threshold)
+			if err != nil {
+				logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+			} else {
+				s.Out <- a
+			}
 		}
-		s.Out <- a
 	}
 
 	return &receipt, nil
