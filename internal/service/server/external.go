@@ -93,7 +93,6 @@ func (e *External) registerRoutes() {
 
 	mux.HandleFunc("POST /instruction", prepareHandler(e.instH))
 	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resH))
-	mux.HandleFunc(fmt.Sprintf("GET /action/rewarding-data/{%s}", actionID), prepareHandler(e.rewH))
 	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statH))
 	mux.HandleFunc("GET /info", prepareHandler(e.infoH))
 	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walH))
@@ -135,12 +134,22 @@ func (e *External) instH(w http.ResponseWriter, r *http.Request) error {
 func (e *External) resH(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 
+	err := r.ParseForm()
+	if err != nil {
+		return fmt.Errorf("%w: %v", status.HTTP[400], err)
+	}
+
 	id, err := hashParam(r, actionID)
 	if err != nil {
 		return err
 	}
 
-	response, err := e.resultService.Serve(ctx, id)
+	st, err := submissionTagParam(r)
+	if err != nil {
+		return err
+	}
+
+	response, err := e.resultService.Serve(ctx, id, st)
 	if err != nil {
 		return err
 	}
@@ -151,27 +160,6 @@ func (e *External) resH(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	err = json.NewEncoder(w).Encode(response)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// rewH serves action reward responses.
-func (e *External) rewH(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-
-	id, err := hashParam(r, actionID)
-	if err != nil {
-		return err
-	}
-	result, err := e.resultService.ServeRewards(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	err = json.NewEncoder(w).Encode(result)
 	if err != nil {
 		return err
 	}
@@ -306,4 +294,24 @@ func (e *External) bacLH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	return nil
+}
+
+func submissionTagParam(r *http.Request) (types.SubmissionTag, error) {
+	submissionTags, exists := r.Form["submissionTag"]
+	if !exists {
+		return types.Threshold, nil
+	}
+
+	if len(submissionTags) != 1 {
+		return types.Threshold, fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
+	}
+
+	st := types.SubmissionTag(submissionTags[0])
+
+	switch st {
+	case types.End, types.Submit, types.Threshold:
+		return st, nil
+	default:
+		return st, fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
+	}
 }

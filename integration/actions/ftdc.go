@@ -50,7 +50,7 @@ func FtdcProve(
 	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys, cosignerAddresses, cosignersThreshold)
 	require.NoError(t, err)
 
-	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, cosignerAddresses, cosignersThreshold, pc.TeeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, cosignerAddresses, cosignersThreshold, pc.TeeID, rewardEpochId)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
@@ -58,9 +58,9 @@ func FtdcProve(
 
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.FTDC, op.Prove, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.FTDC, op.Prove, pc.TeeID)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeId)
+	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeID)
 	require.NoError(t, err)
 
 	var ftdcResponse ftdc.ProveResponse
@@ -71,7 +71,7 @@ func FtdcProve(
 	ftdcMsgHash, _, _, err := ftdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
 
-	err = teeUtils.VerifySignature(ftdcMsgHash.Bytes(), ftdcResponse.TEESignature, pc.TeeId)
+	err = teeUtils.VerifySignature(ftdcMsgHash.Bytes(), ftdcResponse.TEESignature, pc.TeeID)
 	require.NoError(t, err)
 
 	require.Equal(t, len(ftdcResponse.CosignerSignatures), len(cosignerPrivKeys))
@@ -107,7 +107,7 @@ func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provider
 func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []byte, originalMessage connector.IFtdcHubFtdcAttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
 	additionalFixedMessage := verification.ITeeVerificationTeeAttestation{
 		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
-			TeeId:        pc.TeeId,
+			TeeId:        pc.TeeID,
 			InitialTeeId: common.Address{},
 			Url:          "blabla",
 			CodeHash:     [32]byte{},

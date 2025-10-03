@@ -51,7 +51,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, "result", iData.InstructionID, types.Threshold, op.XRP, op.Pay, pc.TeeId)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.XRP, op.Pay, pc.TeeID)
 
 	var txData map[string]any
 	err = json.Unmarshal(res.Result.Data, &txData)

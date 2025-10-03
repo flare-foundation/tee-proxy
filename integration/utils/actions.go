@@ -276,10 +276,10 @@ func VerifyVotingStatus(t *testing.T, statuses *voting.Statuses, nCosigners, cos
 }
 
 // FetchAndVerifyActionResponse Fetches ActionResponse and verifies the signature
-func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, actionId common.Hash, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeId common.Address) *types.ActionResponse {
+func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeID common.Address) *types.ActionResponse {
 	t.Helper()
 
-	url := fmt.Sprintf("http://localhost:%d/action/%s/%s", port, handle, strings.TrimPrefix(actionId.String(), "0x"))
+	url := fmt.Sprintf("http://localhost:%d/action/result/%s?submissionTag=%s", port, strings.TrimPrefix(actionID.String(), "0x"), submissionTag)
 	var res types.ActionResponse
 	makeRequests(t, url, &res)
 
@@ -288,7 +288,7 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, action
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
 
-	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
+	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeID)
 	require.NoError(t, err)
 
 	return &res
@@ -296,13 +296,13 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, handle string, action
 
 // FetchAndVerifyRewardingData Fetches rewarding data and verifies the action response and vote sequence
 func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID common.Hash, opType op.Type, opCommand op.Command, receipts []*voting.SignedReceipt) {
-	res := FetchAndVerifyActionResponse(t, pc.ExtPort, "rewarding-data", instructionID, types.End, opType, opCommand, pc.TeeId)
+	res := FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.End, opType, opCommand, pc.TeeID)
 
 	rewData := new(types.RewardingData)
 	err := json.Unmarshal(res.Result.Data, &rewData)
 	require.NoError(t, err)
 	require.Equal(t, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]), rewData.VoteSequence.VoteHash)
 
-	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeId)
+	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeID)
 	require.NoError(t, err)
 }

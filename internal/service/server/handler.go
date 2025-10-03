@@ -18,8 +18,9 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error) http.Handl
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		err := f(w, r)
+		// r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
+		err := f(w, r)
 		if err != nil {
 			handleError(w, err)
 		}
