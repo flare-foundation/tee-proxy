@@ -55,7 +55,7 @@ func NewActionQueues(client *redis.Client) *ActionQueues {
 func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID processorutils.QueueID) error {
 	id := StoringID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
 
-	err := as.actions.Set(ctx, id.String(), action)
+	err := as.actions.SetWithTTL(ctx, id.String(), action, 30*24*time.Hour)
 	if err != nil {
 		return err
 	}
@@ -94,6 +94,8 @@ func (as *ActionQueues) Dequeue(ctx context.Context, id processorutils.QueueID) 
 	if errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("queued action not found: %s", storingID.String())
 	}
+
+	as.actions.Remove(ctx, storingID.String()) //errcheck // error can only happen if context is canceled
 
 	return action, err
 }

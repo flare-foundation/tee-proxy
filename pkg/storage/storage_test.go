@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestStorage(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := NewClient(mr.Addr())
 
-	s := New[TestStruct]("test", c)
+	s := New[TestStruct]("testMain", c)
 
 	t.Run("Ping", func(t *testing.T) {
 		t.Parallel()
@@ -139,7 +140,7 @@ func TestClearDatabase(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := NewClient(mr.Addr())
 
-	s := New[TestStruct]("test", c)
+	s := New[TestStruct]("testClear", c)
 
 	items := []TestStruct{
 		{ID: "1", Name: "Test1"},
@@ -158,4 +159,37 @@ func TestClearDatabase(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, mr.Keys(), 0)
+}
+
+func TestRemove(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := NewClient(mr.Addr())
+
+	s := New[TestStruct]("testRemove", c)
+
+	item1 := TestStruct{ID: "1", Name: "Test1"}
+	item2 := TestStruct{ID: "2", Name: "Test2"}
+
+	err := s.Set(t.Context(), item1.ID, item1)
+	require.NoError(t, err)
+
+	err = s.Set(t.Context(), item2.ID, item2)
+	require.NoError(t, err)
+
+	err = s.Remove(t.Context(), item1.ID)
+	require.NoError(t, err)
+
+	_, err = s.Get(t.Context(), item1.ID)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, redis.Nil))
+
+	err = s.Remove(t.Context(), item1.ID)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	cancel()
+	err = s.Remove(ctx, item2.ID)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.Canceled))
 }
