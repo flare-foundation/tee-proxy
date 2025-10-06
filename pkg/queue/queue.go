@@ -95,6 +95,8 @@ func (as *ActionQueues) Dequeue(ctx context.Context, id processorutils.QueueID) 
 		return nil, fmt.Errorf("queued action not found: %s", storingID.String())
 	}
 
+	as.actions.Remove(ctx, storingID.String()) //errcheck // error can not happen because ee check that there is an item to remove.
+
 	return action, err
 }
 
