@@ -35,8 +35,8 @@ func TestNewKey(t *testing.T) {
 		KeyId:       0,
 		ConfigConstants: wallet.ITeeWalletKeyManagerKeyConfigConstants{
 			AdminsPublicKeys: []wallet.PublicKey{{
-				X: common.BigToHash(adminKey.PublicKey.X),
-				Y: common.BigToHash(adminKey.PublicKey.Y),
+				X: common.BigToHash(adminKey.X),
+				Y: common.BigToHash(adminKey.Y),
 			}},
 			AdminsThreshold:    1,
 			Cosigners:          []common.Address{},
@@ -66,7 +66,7 @@ func TestNewKey(t *testing.T) {
 
 	aResult := &types.ActionResult{
 		ID:                     common.Hash{},
-		SubmissionTag:          types.Submit,
+		SubmissionTag:          types.Threshold,
 		Status:                 1,
 		Log:                    "",
 		OPType:                 op.Wallet.Hash(),
@@ -78,11 +78,12 @@ func TestNewKey(t *testing.T) {
 
 	str := NewStorage(nil, nil, nil)
 
-	IDPair, err := str.update(aResult)
+	idPair, added, err := str.update(aResult)
 	require.NoError(t, err)
 
-	require.Equal(t, walletID, IDPair.WalletID)
-	require.Equal(t, uint64(0), IDPair.KeyID)
+	require.True(t, added)
+	require.Equal(t, walletID, idPair.WalletID)
+	require.Equal(t, uint64(0), idPair.KeyID)
 
 	sResult, err := str.WalletInfo(walletID)
 	require.NoError(t, err)
@@ -106,5 +107,28 @@ func TestNewKey(t *testing.T) {
 
 	//wallet does not exist
 	_, err = str.WalletInfo(common.BytesToHash([]byte("nonexistent")))
+	require.Error(t, err)
+
+	keyIDEncoded, err := json.Marshal(idPair)
+	require.NoError(t, err)
+
+	aResultDelete := &types.ActionResult{
+		ID:                     common.Hash{},
+		SubmissionTag:          types.Threshold,
+		Status:                 1,
+		Log:                    "",
+		OPType:                 op.Wallet.Hash(),
+		OPCommand:              op.KeyDelete.Hash(),
+		AdditionalResultStatus: hexutil.Bytes{},
+		Version:                "",
+		Data:                   keyIDEncoded,
+	}
+
+	idPairDelete, added, err := str.update(aResultDelete)
+	require.NoError(t, err)
+	require.False(t, added)
+	require.Equal(t, idPair, idPairDelete)
+
+	_, err = str.WalletInfo(walletID)
 	require.Error(t, err)
 }

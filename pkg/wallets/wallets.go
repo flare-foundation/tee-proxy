@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -58,7 +59,7 @@ func NewStorage(aq *queue.ActionQueues, rs *queue.ResponseStorage, client *redis
 	}
 }
 
-func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan bool, newKeys <-chan *types.ActionResult) {
+func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -73,21 +74,31 @@ func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan boo
 			}
 
 			logger.Debug("wallet sync done")
-		case newKeyAction := <-newKeys:
+		case keyAction := <-keyActions:
 			logger.Debug("wallet key update start")
-			id, err := s.update(newKeyAction)
+			id, added, err := s.update(keyAction)
 			if err != nil {
 				logger.Errorf("wallet key update: %w", err)
 				continue
 			}
-			logger.Debug("wallet key update done, starting backup for id: %v", id)
-			go func() {
-				err := s.makeBackup(ctx, id)
-				if err != nil {
-					logger.Errorf("making backup for %v: %v", id, err)
-				}
-				logger.Debug("backup done for %v", id)
-			}()
+
+			action := "added"
+			if !added {
+				action = "removed"
+			}
+			logger.Debug("walletID: %v keyID: %d %s", id.WalletID, id.KeyID, action)
+
+			if added {
+				go func() {
+					logger.Debug("starting backup for %v", id)
+
+					err := s.makeBackup(ctx, id)
+					if err != nil {
+						logger.Errorf("making backup for %v: %v", id, err)
+					}
+					logger.Debug("backup done for %v", id)
+				}()
+			}
 
 		case <-backupTrigger:
 			logger.Debug("backup triggered")
@@ -199,7 +210,32 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*KeyDa
 	return keysForWallet, keys, nil
 }
 
-func (s *Storage) update(action *types.ActionResult) (IDPair, error) {
+func (s *Storage) update(action *types.ActionResult) (IDPair, bool, error) {
+	if action.Status != 1 {
+		return IDPair{}, false, errors.New("key update action not successful")
+	}
+
+	switch action.OPCommand {
+	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash():
+		id, err := s.updateAdd(action)
+		if err != nil {
+			return IDPair{}, true, err
+		}
+		return id, true, err
+
+	case op.KeyDelete.Hash():
+		id, err := s.updateRemove(action)
+		if err != nil {
+			return IDPair{}, false, err
+		}
+		return id, false, err
+
+	default:
+		return IDPair{}, false, fmt.Errorf("unsupported action op command for key update %v", action.OPCommand)
+	}
+}
+
+func (s *Storage) updateAdd(action *types.ActionResult) (IDPair, error) {
 	keyInfo, err := parseNewKeyActionResult(action)
 	if err != nil {
 		return IDPair{}, err
@@ -234,6 +270,26 @@ func (s *Storage) update(action *types.ActionResult) (IDPair, error) {
 	keyData.Info = *info
 
 	return id, nil
+}
+
+func (s *Storage) updateRemove(action *types.ActionResult) (IDPair, error) {
+	idPair := IDPair{}
+	err := json.Unmarshal(action.Data, &idPair)
+	if err != nil {
+		return idPair, err
+	}
+
+	delete(s.Keys, idPair)
+
+	s.KeysForWallet[idPair.WalletID] = slices.DeleteFunc(s.KeysForWallet[idPair.WalletID], func(k uint64) bool {
+		return k == idPair.KeyID
+	})
+
+	if len(s.KeysForWallet[idPair.WalletID]) == 0 {
+		delete(s.KeysForWallet, idPair.WalletID)
+	}
+
+	return idPair, nil
 }
 
 // keyInfoAction prepares direct action with opType F_GET and opCommand KEY_INFO.
