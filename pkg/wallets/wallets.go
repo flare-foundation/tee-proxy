@@ -75,12 +75,20 @@ func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan boo
 			logger.Debug("wallet sync done")
 		case newKeyAction := <-newKeys:
 			logger.Debug("wallet key update start")
-			err := s.update(ctx, newKeyAction)
+			id, err := s.update(newKeyAction)
 			if err != nil {
 				logger.Errorf("wallet key update: %w", err)
 				continue
 			}
-			logger.Debug("wallet key update done")
+			logger.Debug("wallet key update done, starting backup for id: %v", id)
+			go func() {
+				err := s.makeBackup(ctx, id)
+				if err != nil {
+					logger.Errorf("making backup for %v: %v", id, err)
+				}
+				logger.Debug("backup done for %v", id)
+			}()
+
 		case <-backupTrigger:
 			logger.Debug("backup triggered")
 			err := s.MakeBackups(ctx)
@@ -191,15 +199,15 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*KeyDa
 	return keysForWallet, keys, nil
 }
 
-func (s *Storage) update(ctx context.Context, action *types.ActionResult) error {
+func (s *Storage) update(action *types.ActionResult) (IDPair, error) {
 	keyInfo, err := parseNewKeyActionResult(action)
 	if err != nil {
-		return err
+		return IDPair{}, err
 	}
 
 	info, err := parse(keyInfo)
 	if err != nil {
-		return err
+		return IDPair{}, err
 	}
 
 	s.Lock()
@@ -225,7 +233,7 @@ func (s *Storage) update(ctx context.Context, action *types.ActionResult) error 
 	keyData.Proof = keyInfo
 	keyData.Info = *info
 
-	return s.makeBackup(ctx, id)
+	return id, nil
 }
 
 // keyInfoAction prepares direct action with opType F_GET and opCommand KEY_INFO.
