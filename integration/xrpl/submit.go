@@ -4,6 +4,7 @@ import (
 
 	// "1inch-tee-node/pkg/xrpl/utils"
 
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -18,6 +19,7 @@ type XRPLResponse struct {
 	EngineResultCode    int    `json:"engine_result_code"`
 	EngineResultMessage string `json:"engine_result_message"`
 	TransactionHash     string `json:"hash"`
+	TransactionSequence uint64 `json:"Sequence"`
 }
 
 // ExtractTransactionResult extracts the transaction result from an XRPL response
@@ -48,6 +50,13 @@ func ExtractTransactionResult(response map[string]interface{}) (*XRPLResponse, e
 	txJson, ok := result["tx_json"].(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid response format: missing tx_json")
+	}
+
+	// Extract sequence
+	if sequenceValue, exists := txJson["Sequence"]; exists {
+		if sequence, ok := sequenceValue.(float64); ok {
+			xrplResp.TransactionSequence = uint64(sequence)
+		}
 	}
 
 	// Check what type the hash field is
@@ -114,7 +123,8 @@ func SubmitMultisignedTx(client *xrplclient.Client, tx map[string]any, multisigS
 		return nil, fmt.Errorf("failed to extract transaction result: %w", err)
 	}
 
-	fmt.Printf("✅ Transaction submitted successfully! txResponse: %+v\n", txResponse)
+	b, _ := json.MarshalIndent(txResponse, "", "  ")
+	fmt.Println("✅ Transaction submitted successfully!\n", string(b))
 
 	return txResponse, nil
 }
