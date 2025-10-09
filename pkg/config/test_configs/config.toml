@@ -22,7 +22,7 @@ voter_registry = "0x0000000000000000000000000000000000000003"
 internal = "6661"
 external = "6662"
 
-[storage_timing]
+[info_timing]
 cycle_internal = 10
 cycle_queue_response_wait = 2
 

@@ -62,7 +62,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	go walletStorage.RunInfo(ctx, walletSyncCue, resultService.BackupTrigger, resultService.WalletSync)
 
-	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.StorageTiming)
+	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.InfoTiming)
 
 	initialInfo, err := infoStorage.FetchInfo(ctx)
 	if err != nil {

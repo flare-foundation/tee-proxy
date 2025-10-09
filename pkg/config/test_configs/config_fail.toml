@@ -21,7 +21,7 @@ external = "6662"
 t0 = 1658429955
 vote_epoch = 90
 
-[storage_timing]
+[info_timing]
 cycle_internal = 10
 cycle_queue_response_wait = 2
 

@@ -23,11 +23,11 @@ type Proxy struct {
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
 	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
 	Ports                      Ports           `toml:"ports"`                         // Servers ports.
-	StorageTiming              StorageTiming   `toml:"storage_timing"`                // Storage timing
+	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
 	Voting                     voting.Config   `toml:"voting"`                        // Instruction voting configurations.
 	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for current - n.
-	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"`
+	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 }
 
 type Addresses struct {
@@ -43,7 +43,9 @@ type Ports struct {
 
 // Read reads Proxy configurations from toml file at path and validates them.
 func Read(path string) (Proxy, error) {
-	c := Proxy{}
+	c := Proxy{
+		SigningPolicyFetchInterval: 10 * time.Minute,
+	}
 
 	err := toml.ReadTo(path, &c, false)
 	if err != nil {
@@ -60,7 +62,7 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
-	err = c.StorageTiming.validate()
+	err = c.InfoTiming.validate()
 	if err != nil {
 		return c, err
 	}
