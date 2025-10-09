@@ -109,7 +109,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		wg.Done()
 	}()
 
-	infoStorage := info.NewStorage(db, aq, rs, &config.StorageTiming{
+	infoStorage := info.NewStorage(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 	})

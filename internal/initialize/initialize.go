@@ -62,7 +62,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	go walletStorage.RunInfo(ctx, walletSyncCue, resultService.BackupTrigger, resultService.WalletSync)
 
-	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.StorageTiming)
+	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.InfoTiming)
 
 	initialInfo, err := infoStorage.FetchInfo(ctx)
 	if err != nil {
@@ -100,7 +100,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		}
 	}
 
-	policyChan, err := policyService.Run(ctx, db)
+	policyChan, err := policyService.Run(ctx, db, cfg.SigningPolicyFetchInterval)
 	if err != nil {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}

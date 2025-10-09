@@ -79,7 +79,7 @@ func TestPrivateKeyFromEnv(t *testing.T) {
 }
 
 func TestValidateStorageTiming(t *testing.T) {
-	var timing = StorageTiming{
+	var timing = InfoTiming{
 		CycleInternal:          100 * time.Second,
 		CycleQueueResponseWait: 4 * time.Second,
 	}

@@ -121,6 +121,7 @@ func SigningPolicyInitializedEventsListener(
 	db *gorm.DB,
 	relayAddress common.Address,
 	startPolicyID uint32,
+	fetchInterval time.Duration,
 ) (<-chan []database.Log, error) {
 	out := make(chan []database.Log, 1)
 
@@ -152,7 +153,7 @@ func SigningPolicyInitializedEventsListener(
 				continue
 			}
 
-			time.Sleep(10 * time.Minute)
+			time.Sleep(fetchInterval)
 		}
 	}()
 

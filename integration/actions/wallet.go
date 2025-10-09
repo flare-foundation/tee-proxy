@@ -251,10 +251,10 @@ func RecoverWallet(
 	defer endOfVotingTicker.Stop()
 
 	instructionID, _ := testutil.GenerateRandomBytes(32)
-	receipts := make([]*voting.SignedReceipt, 0)
-	instructions := make([]instruction.Data, 0)
+	receipts := make([]*voting.SignedReceipt, 0, len(privKeys))
+	instructions := make([]instruction.Data, 0, len(privKeys))
+	timestamp := uint64(time.Now().Unix())
 	for i, privKey := range privKeys {
-		timestamp := uint64(time.Now().Unix())
 		iData := utils.BuildInstructionDataWithId(t, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore,
 			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], adminAddresses, adminsThreshold, pc.TeeID, rewardEpochId)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))

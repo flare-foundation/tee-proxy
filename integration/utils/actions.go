@@ -245,6 +245,11 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 		require.Equal(t, receipt.Receipt.Sequence, uint64(i), "invalid sequence")
 		require.Equal(t, receipt.Receipt.InstructionHash, insHash)
 
+		insHashCheck, err := insts[i].HashFixed()
+		require.NoError(t, err)
+
+		require.Equal(t, insHash, insHashCheck)
+
 		nextHash, err := instruction.NextVoteHash(currentHash, uint64(i), receipt.Receipt.Signature, insts[i].AdditionalVariableMessage, receipt.Receipt.Timestamp)
 		require.NoError(t, err)
 		require.Equal(t, receipt.Receipt.VoteHash, nextHash)

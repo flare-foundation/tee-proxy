@@ -4,6 +4,7 @@ private_key_variable = "PRIVATE_KEY"
 
 
 initial_signing_policy_offset = 2
+signing_policy_fetch_interval = "10m"
 
 [db]
 host = "localhost"
@@ -25,7 +26,7 @@ internal = "6661"
 external = "6662"
 
 
-[storage_timing]
+[info_timing]
 cycle_internal = "10s"
 cycle_queue_response_wait = "2s"
 

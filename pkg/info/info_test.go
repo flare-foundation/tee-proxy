@@ -44,7 +44,7 @@ func TestInsertBlock(t *testing.T) {
 		db:              db,
 		actionQueues:    aq,
 		responseStorage: rs,
-		timingConfig: &config.StorageTiming{
+		timingConfig: &config.InfoTiming{
 			CycleInternal:          10 * time.Millisecond,
 			CycleQueueResponseWait: 10 * time.Millisecond,
 		},
