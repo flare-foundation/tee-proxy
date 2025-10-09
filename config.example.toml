@@ -4,6 +4,7 @@ private_key_variable = "PRIVATE_KEY"
 
 
 initial_signing_policy_offset = 2
+signing_policy_fetch_interval = "10m"
 
 [db]
 host = "localhost"

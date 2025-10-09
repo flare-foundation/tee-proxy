@@ -100,7 +100,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		}
 	}
 
-	policyChan, err := policyService.Run(ctx, db)
+	policyChan, err := policyService.Run(ctx, db, cfg.SigningPolicyFetchInterval)
 	if err != nil {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}

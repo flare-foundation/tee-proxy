@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -45,14 +46,14 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int) error
 	return s.aq.Enqueue(ctx, action, processorutils.Direct)
 }
 
-func (s *Service) Run(ctx context.Context, db *gorm.DB) (<-chan cpolicy.SigningPolicy, error) {
+func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time.Duration) (<-chan cpolicy.SigningPolicy, error) {
 	if s.activePolicy == nil {
 		return nil, errors.New("not initialized yet")
 	}
 
 	startID := s.activePolicy.RewardEpochID + 1
 
-	logChan, err := policy.SigningPolicyInitializedEventsListener(ctx, db, s.addresses.Relay, startID)
+	logChan, err := policy.SigningPolicyInitializedEventsListener(ctx, db, s.addresses.Relay, startID, policyFetchInterval)
 	if err != nil {
 		return nil, err
 	}

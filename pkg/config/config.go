@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -26,6 +27,7 @@ type Proxy struct {
 	Voting                     voting.Config   `toml:"voting"`                        // Instruction voting configurations.
 	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for current - n.
+	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"`
 }
 
 type Addresses struct {
@@ -61,6 +63,10 @@ func Read(path string) (Proxy, error) {
 	err = c.StorageTiming.validate()
 	if err != nil {
 		return c, err
+	}
+
+	if c.SigningPolicyFetchInterval <= 0 {
+		return c, fmt.Errorf("SigningPolicyFetchInterval cannot be negative")
 	}
 
 	if c.InitialSigningPolicyOffset < 0 {
