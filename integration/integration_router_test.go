@@ -28,7 +28,7 @@ func TestProxyTeeIntegration2(t *testing.T) {
 	const extensionPort = 4400
 	const extensionServerPort = 4401
 
-	numVoters, _, startingEpochId := 100, 10, uint32(1)
+	numVoters, _, startingEpochID := 100, 10, uint32(1)
 	integrationUtils.GenerateRandomKeys(numVoters)
 
 	go teeServer.StartExampleExtension(extensionServerPort, extensionPort)
@@ -38,7 +38,7 @@ func TestProxyTeeIntegration2(t *testing.T) {
 	var wgProxy sync.WaitGroup
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 
-	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochId)
+	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochID)
 	ok := integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
 		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.Hash())
@@ -53,7 +53,7 @@ func TestProxyTeeIntegration2(t *testing.T) {
 	_ = providerPrivKeys
 	_ = providerPubKeysMap
 
-	SendCustomInstruction(t, cfg, providerPrivKeys, startingEpochId)
+	SendCustomInstruction(t, cfg, providerPrivKeys, startingEpochID)
 
 	require.True(t, ok)
 	cleanup()
@@ -62,9 +62,9 @@ func TestProxyTeeIntegration2(t *testing.T) {
 const MyOp op.Type = "MyOp"
 const MyCommand op.Command = "MyCommand"
 
-func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) {
+func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochID uint32) {
 	timestamp := uint64(time.Now().Unix())
-	iData := integrationUtils.BuildInstructionData(t, MyOp, MyCommand, []byte("asdfasdf"), timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochId)
+	iData := integrationUtils.BuildInstructionData(t, MyOp, MyCommand, []byte("asdfasdf"), timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochID)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()

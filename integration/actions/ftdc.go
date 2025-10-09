@@ -27,7 +27,7 @@ func FtdcProve(
 	t *testing.T,
 	pc *utils.ProxyConfig,
 	providerPrivKeys, cosignerPrivKeys []*ecdsa.PrivateKey,
-	rewardEpochId uint32,
+	rewardEpochID uint32,
 ) *ftdc.ProveResponse {
 	cosignerAddresses, cosignerAndProvider := CosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
 	cosignersThreshold := uint64(len(cosignerAddresses))
@@ -50,7 +50,7 @@ func FtdcProve(
 	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys, cosignerAddresses, cosignersThreshold)
 	require.NoError(t, err)
 
-	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, cosignerAddresses, cosignersThreshold, pc.TeeID, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.FTDC, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, cosignerAddresses, cosignersThreshold, pc.TeeID, rewardEpochID)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()

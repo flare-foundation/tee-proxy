@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) {
+func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochID uint32) {
 	challenge, err := rand.Int(rand.Reader, new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil))
 	require.NoError(t, err)
 
@@ -36,7 +36,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Reg, op.TEEAttestation, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochID)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()

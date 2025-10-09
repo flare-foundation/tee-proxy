@@ -123,7 +123,10 @@ func SubmitMultisignedTx(client *xrplclient.Client, tx map[string]any, multisigS
 		return nil, fmt.Errorf("failed to extract transaction result: %w", err)
 	}
 
-	b, _ := json.MarshalIndent(txResponse, "", "  ")
+	b, err := json.MarshalIndent(txResponse, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal response: %w", err)
+	}
 	fmt.Println("✅ Transaction submitted successfully!\n", string(b))
 
 	return txResponse, nil

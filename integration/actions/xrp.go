@@ -38,12 +38,12 @@ type TransactionData struct {
 	Signers []SignerData
 }
 
-func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, paymentInstruction payment.ITeePaymentsPaymentInstructionMessage, privKeys []*ecdsa.PrivateKey, rewardEpochId uint32) TransactionData {
+func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeID common.Address, paymentInstruction payment.ITeePaymentsPaymentInstructionMessage, privKeys []*ecdsa.PrivateKey, rewardEpochID uint32) TransactionData {
 	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[op.Pay]}.Pack(paymentInstruction)
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.XRP, op.Pay, originalMessageEncoded, timestamp, nil, nil, nil, 0, teeId, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.XRP, op.Pay, originalMessageEncoded, timestamp, nil, nil, nil, 0, teeID, rewardEpochID)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -80,10 +80,10 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 		TxnSignature, ok := signerDataMap["TxnSignature"].(string)
 		require.True(t, ok)
 
-		accId, err := xrpladdress.ID(Account)
+		accID, err := xrpladdress.ID(Account)
 		require.NoError(t, err)
 
-		txHash = xrputils.Prepare(encoded, true, accId)
+		txHash = xrputils.Prepare(encoded, true, accID)
 		sigDER, err := hex.DecodeString(TxnSignature)
 		require.NoError(t, err)
 
@@ -102,7 +102,7 @@ func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeId common.Address, 
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.XRP, op.Pay, receipts)
 
-	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, iData.InstructionID)
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochID, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 
 	return TransactionData{

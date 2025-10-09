@@ -34,7 +34,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	const intPort = 8008
 	const teePort = 5500
 
-	numVoters, _, startingEpochId := 100, 10, uint32(1)
+	numVoters, _, startingEpochID := 100, 10, uint32(1)
 	integrationUtils.GenerateRandomKeys(numVoters)
 
 	numAdmins := 3
@@ -67,7 +67,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 	// End of setup
 
-	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochId)
+	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochID)
 	ok := integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
 		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.Hash())
@@ -77,15 +77,15 @@ func TestProxyTeeIntegration(t *testing.T) {
 
 	cfg.Vs.CreateRound(policy)
 
-	var walletId = common.HexToHash("0xabcdef")
-	var keyId = uint64(1)
-	walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeID, walletId, keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
+	var walletID = common.HexToHash("0xabcdef")
+	var keyID = uint64(1)
+	walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeID, walletID, keyID, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
 	require.False(t, walletProof.Restored, "getting wallet response")
 	logger.Info("Created wallet proof")
 
 	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
-		WalletId:         walletId,
-		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyId}},
+		WalletId:         walletID,
+		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyID}},
 		SenderAddress:    "rN5N6fJbc8xyViPDeQFMQMpYfVHuxSGV2G",
 		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
 		Amount:           big.NewInt(1000000000),
@@ -98,15 +98,15 @@ func TestProxyTeeIntegration(t *testing.T) {
 	intactions.SignTransaction(t, cfg, cfg.TeeID, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
 	logger.Info("Signed transaction")
 
-	walletBackup := intactions.GetBackup(t, cfg, walletId, keyId, cfg.TeeID)
+	walletBackup := intactions.GetBackup(t, cfg, walletID, keyID, cfg.TeeID)
 	logger.Info("Got backup")
 
 	nonce := big.NewInt(1)
-	intactions.DeleteWallet(t, cfg, walletId, keyId, providerPrivKeys, policy.RewardEpochID, nonce)
+	intactions.DeleteWallet(t, cfg, walletID, keyID, providerPrivKeys, policy.RewardEpochID, nonce)
 	nonce.Add(nonce, common.Big1)
 	logger.Info("Deleted wallet")
 
-	recoveredWalletProof := intactions.RecoverWallet(t, cfg, walletId, keyId, providerPrivKeys, adminPrivKeys, policy.RewardEpochID, nonce, walletBackup)
+	recoveredWalletProof := intactions.RecoverWallet(t, cfg, walletID, keyID, providerPrivKeys, adminPrivKeys, policy.RewardEpochID, nonce, walletBackup)
 	logger.Info("Recovered wallet")
 	walletProof.Restored = true
 
@@ -119,8 +119,8 @@ func TestProxyTeeIntegration(t *testing.T) {
 	require.NotNil(t, ftdcResponse)
 	logger.Info("FTDC proof completed")
 
-	startingEpochId++
-	newPolicy, _, _, _ := intactions.UpdatePolicy(t, cfg, startingEpochId, voters, providerPrivKeys, providerPubKeysMap)
+	startingEpochID++
+	newPolicy, _, _, _ := intactions.UpdatePolicy(t, cfg, startingEpochID, voters, providerPrivKeys, providerPubKeysMap)
 	logger.Info("Updated policy")
 
 	ok = integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {

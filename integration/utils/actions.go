@@ -34,17 +34,17 @@ func BuildInstructionData(
 	additionalVariableMessage any,
 	cosigners []common.Address,
 	cosignersThreshold uint64,
-	teeId common.Address,
-	rewardEpochId uint32,
+	teeID common.Address,
+	rewardEpochID uint32,
 ) *instruction.Data {
-	instructionId, err := testutil.GenerateRandomBytes(32)
+	instructionID, err := testutil.GenerateRandomBytes(32)
 	require.NoError(t, err)
-	return BuildInstructionDataWithId(t, common.BytesToHash(instructionId), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, cosigners, cosignersThreshold, teeId, rewardEpochId)
+	return BuildInstructionDataWithID(t, common.BytesToHash(instructionID), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, cosigners, cosignersThreshold, teeID, rewardEpochID)
 }
 
-func BuildInstructionDataWithId(
+func BuildInstructionDataWithID(
 	t *testing.T,
-	instructionId common.Hash,
+	instructionID common.Hash,
 	opType op.Type,
 	opCommand op.Command,
 	originalMessage []byte,
@@ -53,8 +53,8 @@ func BuildInstructionDataWithId(
 	additionalVariableMessage any,
 	cosigners []common.Address,
 	cosignersThreshold uint64,
-	teeId common.Address,
-	rewardEpochId uint32,
+	teeID common.Address,
+	rewardEpochID uint32,
 ) *instruction.Data {
 	var additionalFixedMessage []byte
 	var err error
@@ -69,9 +69,9 @@ func BuildInstructionDataWithId(
 	require.NoError(t, err)
 
 	instructionDataFixed := instruction.DataFixed{
-		InstructionID:          instructionId,
-		TeeID:                  teeId,
-		RewardEpochID:          rewardEpochId,
+		InstructionID:          instructionID,
+		TeeID:                  teeID,
+		RewardEpochID:          rewardEpochID,
 		OPType:                 opType.Hash(),
 		OPCommand:              opCommand.Hash(),
 		OriginalMessage:        originalMessage,
@@ -259,13 +259,13 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 }
 
 // VerifyActionResponse Verifies the action response against expected values and checks the signature
-func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeId common.Address) {
+func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeID common.Address) {
 	require.Equal(t, uint8(1), res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
 
-	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
+	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeID)
 	require.NoError(t, err)
 }
 

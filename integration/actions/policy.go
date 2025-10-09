@@ -58,11 +58,11 @@ func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*pol
 	return initialPolicy, voters, privKeys, pubKeysMap
 }
 
-func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32, voters []common.Address, privKeys []*ecdsa.PrivateKey, pubKeysMap map[common.Address]*ecdsa.PublicKey) (*policy.SigningPolicy, []common.Address, []*ecdsa.PrivateKey, map[common.Address]*ecdsa.PublicKey) {
+func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochID uint32, voters []common.Address, privKeys []*ecdsa.PrivateKey, pubKeysMap map[common.Address]*ecdsa.PublicKey) (*policy.SigningPolicy, []common.Address, []*ecdsa.PrivateKey, map[common.Address]*ecdsa.PublicKey) {
 	t.Helper()
 
 	randSeed := int64(12345)
-	nextPolicy := utils.GenerateRandomPolicyData(epochId, voters, randSeed)
+	nextPolicy := utils.GenerateRandomPolicyData(epochID, voters, randSeed)
 
 	policySignatures := utils.BuildMultiSignedPolicy(nextPolicy.RawBytes(), privKeys)
 
@@ -93,10 +93,10 @@ func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32, voters []
 	return nextPolicy, voters, privKeys, pubKeysMap
 }
 
-func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uint64, teeId common.Address) *backup.WalletBackup {
+func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletID [32]byte, keyID uint64, teeID common.Address) *backup.WalletBackup {
 	message := &wallets.KeyIDPair{
-		WalletID: walletId,
-		KeyID:    keyId,
+		WalletID: walletID,
+		KeyID:    keyID,
 	}
 
 	msg, err := json.Marshal(message)
@@ -111,7 +111,7 @@ func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletId [32]byte, keyId uin
 	res, err := pc.Rs.WaitOnResponse(t.Context(), a.Data.ID, types.Submit, utils.TestTimeConfig.Timeout)
 	require.NoError(t, err)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeId)
+	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeID)
 	require.NoError(t, err)
 
 	var backupResponse wallets.TEEBackupResponse

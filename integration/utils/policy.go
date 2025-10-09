@@ -117,7 +117,7 @@ func GetVoterWeights(policy *policy.SigningPolicy) []uint16 {
 	return weights
 }
 
-func GenerateRandomPolicyData(rewardEpochId uint32, voters []common.Address, seed int64) *policy.SigningPolicy {
+func GenerateRandomPolicyData(rewardEpochID uint32, voters []common.Address, seed int64) *policy.SigningPolicy {
 	rgen := rand.New(rand.NewSource(seed))
 
 	startVotingRoundId := rgen.Uint32()
@@ -132,7 +132,7 @@ func GenerateRandomPolicyData(rewardEpochId uint32, voters []common.Address, see
 	}
 
 	event := relay.RelaySigningPolicyInitialized{
-		RewardEpochId:      big.NewInt(int64(rewardEpochId)),
+		RewardEpochId:      big.NewInt(int64(rewardEpochID)),
 		StartVotingRoundId: startVotingRoundId,
 		Threshold:          threshold,
 		Seed:               randSeed,

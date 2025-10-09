@@ -102,8 +102,15 @@ func GenerateWallet(
 }
 
 // DeleteWallet Send KEY_DELETE instruction, verifies response and checks that the wallet is deleted from proxy wallet storage
-func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, keyID uint64,
-	privKeys []*ecdsa.PrivateKey, rewardEpochId uint32, nonce *big.Int) {
+func DeleteWallet(
+	t *testing.T,
+	pc *utils.ProxyConfig,
+	walletID common.Hash,
+	keyID uint64,
+	privKeys []*ecdsa.PrivateKey,
+	rewardEpochID uint32,
+	nonce *big.Int,
+) {
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyDelete{
 		TeeId:    pc.TeeID,
 		WalletId: walletID,
@@ -114,7 +121,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, key
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	iData := utils.BuildInstructionData(t, op.Wallet, op.KeyDelete, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochId)
+	iData := utils.BuildInstructionData(t, op.Wallet, op.KeyDelete, originalMessageEncoded, timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochID)
 	require.NoError(t, err)
 
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
@@ -140,7 +147,7 @@ func DeleteWallet(t *testing.T, pc *utils.ProxyConfig, walletID common.Hash, key
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.Wallet, op.KeyDelete, receipts)
 
-	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, iData.InstructionID)
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochID, iData.InstructionID)
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 }
 
@@ -151,7 +158,7 @@ func RecoverWallet(
 	walletID common.Hash,
 	keyID uint64,
 	providersPrivKeys, adminsPrivKeys []*ecdsa.PrivateKey,
-	rewardEpochId uint32,
+	rewardEpochID uint32,
 	nonce *big.Int,
 	walletBackup *backup.WalletBackup,
 ) *commonwallet.ITeeWalletKeyManagerKeyExistence {
@@ -172,7 +179,7 @@ func RecoverWallet(
 			KeyType:       wallets.XRPType,
 			SigningAlgo:   wallets.XRPAlgo,
 			PublicKey:     walletBackup.PublicKey,
-			RewardEpochId: rewardEpochId,
+			RewardEpochId: rewardEpochID,
 			RandomNonce:   walletBackup.RandomNonce,
 		},
 	}
@@ -255,8 +262,8 @@ func RecoverWallet(
 	instructions := make([]instruction.Data, 0, len(privKeys))
 	timestamp := uint64(time.Now().Unix())
 	for i, privKey := range privKeys {
-		iData := utils.BuildInstructionDataWithId(t, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore,
-			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], adminAddresses, adminsThreshold, pc.TeeID, rewardEpochId)
+		iData := utils.BuildInstructionDataWithID(t, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore,
+			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], adminAddresses, adminsThreshold, pc.TeeID, rewardEpochID)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))
 		instructions = append(instructions, *iData)
 	}
@@ -281,7 +288,7 @@ func RecoverWallet(
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore, receipts)
 
-	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochId, common.BytesToHash(instructionID))
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochID, common.BytesToHash(instructionID))
 	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), testutil.TotalWeight/2)
 
 	return walletExistenceProof

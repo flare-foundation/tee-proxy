@@ -41,7 +41,7 @@ func TestXRPIntegration(t *testing.T) {
 	const intPort = 8008
 	const teePort = 5500
 
-	numVoters, _, startingEpochId := 100, 10, uint32(1)
+	numVoters, _, startingEpochID := 100, 10, uint32(1)
 	integrationUtils.GenerateRandomKeys(numVoters)
 
 	numAdmins := 3
@@ -73,7 +73,7 @@ func TestXRPIntegration(t *testing.T) {
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 	// End of setup
 
-	lastPolicy, _, providerPrivKeys, _ := intactions.InitializePolicy(t, cfg, startingEpochId)
+	lastPolicy, _, providerPrivKeys, _ := intactions.InitializePolicy(t, cfg, startingEpochID)
 	logger.Info("Initialized policy")
 
 	event := relay.RelaySigningPolicyInitialized{
@@ -89,17 +89,17 @@ func TestXRPIntegration(t *testing.T) {
 	policy := policy.NewSigningPolicy(&event, nil)
 	cfg.Vs.CreateRound(policy)
 
-	walletIds := make([]common.Hash, 3)
+	walletIDs := make([]common.Hash, 3)
 	walletAddresses := make([]string, 3)
-	keyId := uint64(1)
+	keyID := uint64(1)
 	var wg sync.WaitGroup
 	for i := range 3 {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			walletIds[i] = common.HexToHash(fmt.Sprintf("0x%x", i))
+			walletIDs[i] = common.HexToHash(fmt.Sprintf("0x%x", i))
 
-			walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeID, walletIds[i], keyId, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
+			walletProof := intactions.GenerateWallet(t, cfg, cfg.TeeID, walletIDs[i], keyID, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
 			require.False(t, walletProof.Restored, "getting wallet response")
 		}(i)
 	}
@@ -116,7 +116,7 @@ func TestXRPIntegration(t *testing.T) {
 
 	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         [32]byte{}, // add wallet id in loop
-		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyId}},
+		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyID}},
 		SenderAddress:    multisigResult.MultisigAddress,
 		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
 		Amount:           big.NewInt(1_000_000),
@@ -135,7 +135,7 @@ func TestXRPIntegration(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 
-			paymentInstruction.WalletId = walletIds[i]
+			paymentInstruction.WalletId = walletIDs[i]
 
 			txData := intactions.SignTransaction(t, cfg, cfg.TeeID, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
 			signers = append(signers, txData.Signers...)
