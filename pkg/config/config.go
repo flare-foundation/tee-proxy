@@ -18,6 +18,13 @@ import (
 
 const DefaultPrivateKeyVariable = "PRIVATE_KEY"
 
+const (
+	defaultCycleInternal              = 10 * time.Second
+	defaultCycleQueueResponseWait     = 5 * time.Second
+	defaultSigningPolicyFetchInterval = 10 * time.Minute
+	defaultInitialSigningPolicyOffset = 3
+)
+
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
@@ -26,7 +33,7 @@ type Proxy struct {
 	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
 	Voting                     voting.Config   `toml:"voting"`                        // Instruction voting configurations.
 	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
-	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for current - n.
+	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 }
 
@@ -44,7 +51,13 @@ type Ports struct {
 // Read reads Proxy configurations from toml file at path and validates them.
 func Read(path string) (Proxy, error) {
 	c := Proxy{
-		SigningPolicyFetchInterval: 10 * time.Minute,
+		InfoTiming: InfoTiming{
+			CycleInternal:          defaultCycleInternal,
+			CycleQueueResponseWait: defaultCycleQueueResponseWait,
+		},
+
+		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
+		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
 	}
 
 	err := toml.ReadTo(path, &c, false)
@@ -68,7 +81,7 @@ func Read(path string) (Proxy, error) {
 	}
 
 	if c.SigningPolicyFetchInterval <= 0 {
-		return c, fmt.Errorf("SigningPolicyFetchInterval cannot be negative")
+		return c, fmt.Errorf("SigningPolicyFetchInterval has to be positive")
 	}
 
 	if c.InitialSigningPolicyOffset < 0 {

@@ -12,7 +12,7 @@ type InfoTiming struct {
 
 func (st InfoTiming) validate() error {
 	if st.CycleInternal <= 0 || st.CycleQueueResponseWait <= 0 {
-		return errors.New("invalid storage timing config")
+		return errors.New("invalid info timing config")
 	}
 	return nil
 }
