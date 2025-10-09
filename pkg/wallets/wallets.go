@@ -86,17 +86,17 @@ func (s *Storage) RunInfo(ctx context.Context, trigger, backupTrigger <-chan boo
 			if !added {
 				action = "removed"
 			}
-			logger.Debug("walletID: %v keyID: %d %s", id.WalletID, id.KeyID, action)
+			logger.Debugf("walletID: %v keyID: %d %s", id.WalletID, id.KeyID, action)
 
 			if added {
 				go func() {
-					logger.Debug("starting backup for %v", id)
+					logger.Debugf("starting backup for %v", id)
 
 					err := s.makeBackup(ctx, id)
 					if err != nil {
 						logger.Errorf("making backup for %v: %v", id, err)
 					}
-					logger.Debug("backup done for %v", id)
+					logger.Debugf("backup done for %v", id)
 				}()
 			}
 
