@@ -2,7 +2,6 @@ package policy
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"math/big"
 
@@ -32,10 +31,6 @@ func SafeUint64(b *big.Int) (uint64, error) {
 	}
 
 	return 0, errors.New("not uint64")
-}
-
-func AddressToQueryParam(a common.Address) string {
-	return hex.EncodeToString(a[:])
 }
 
 // AddressToHash zero prefixes address to 32 bytes.
