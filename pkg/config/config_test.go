@@ -94,3 +94,53 @@ func TestValidateStorageTiming(t *testing.T) {
 	timing.CycleQueueResponseWait = 0
 	require.Error(t, timing.validate())
 }
+
+func TestConfig(t *testing.T) {
+	tests := []struct {
+		before Voting
+		after  Voting
+	}{
+		{
+			before: Voting{},
+			after: Voting{
+				ProposalExpiration: defaultProposalExpiration,
+				MaxPendingRequests: defaultMaxPendingRequests,
+			},
+		},
+		{
+			before: Voting{
+				ProposalExpiration: 1,
+				MaxPendingRequests: 1,
+			},
+			after: Voting{
+				ProposalExpiration: 1,
+				MaxPendingRequests: 1,
+			},
+		},
+		{
+			before: Voting{
+				ProposalExpiration: -10,
+				MaxPendingRequests: 1,
+			},
+			after: Voting{
+				ProposalExpiration: defaultProposalExpiration,
+				MaxPendingRequests: 1,
+			},
+		},
+		{
+			before: Voting{
+				ProposalExpiration: 10,
+				MaxPendingRequests: 0,
+			},
+			after: Voting{
+				ProposalExpiration: 10,
+				MaxPendingRequests: defaultMaxPendingRequests,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test.before.SetDefault()
+		require.Equal(t, test.before, test.after)
+	}
+}

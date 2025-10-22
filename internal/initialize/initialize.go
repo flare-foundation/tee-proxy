@@ -9,17 +9,16 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
-	"github.com/flare-foundation/tee-proxy/internal/service/action"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
+	"github.com/flare-foundation/tee-proxy/internal/server"
+	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/policy"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
-	"github.com/flare-foundation/tee-proxy/internal/service/server"
+	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
-	"github.com/flare-foundation/tee-proxy/pkg/info"
-	"github.com/flare-foundation/tee-proxy/pkg/meta"
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
-	"github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
 func Initialize(ctx context.Context, cfgPath string) {
@@ -35,7 +34,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	database.WaitCIndexerToSync(ctx, db, database.SyncParams{
 		Retries:            30,
-		OutOfSyncTolerance: 24 * 365 * time.Hour, // temporary, so we can do test with an old database
+		OutOfSyncTolerance: 1 * time.Minute,
 		MaxSleepTime:       10 * time.Minute,
 		MinSleepTime:       1 * time.Second,
 	})
@@ -48,56 +47,38 @@ func Initialize(ctx context.Context, cfgPath string) {
 	redisClient := storage.NewClient(cfg.RedisPort)
 
 	actionQueues := queue.NewActionQueues(redisClient)
-	responseStorage := queue.NewResultStorage(redisClient)
+	resultStorage := result.NewStorage(redisClient)
 
-	walletStorage := wallets.NewStorage(actionQueues, responseStorage, redisClient)
-	actionService := action.NewService(actionQueues)
-	resultService := result.NewService(responseStorage)
+	walletService := wallets.NewService(actionQueues, resultStorage, redisClient)
+	resultService := result.NewService(resultStorage)
 
-	internalServer := server.NewInternal(cfg.Ports.Internal, &actionService, &resultService, &walletStorage)
-
+	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, &resultService, &walletService)
 	go internalServer.Serve() //nolint:errcheck // todo
 
-	walletSyncCue := make(chan bool, 1)
-
-	go walletStorage.RunInfo(ctx, walletSyncCue, resultService.BackupTrigger, resultService.WalletSync)
-
-	infoStorage := info.NewStorage(db, actionQueues, responseStorage, &cfg.InfoTiming)
-
-	initialInfo, err := infoStorage.FetchInfo(ctx)
+	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
+	initialInfo, err := infoService.FetchInfo(ctx)
 	if err != nil {
 		logger.Panicf("fetching initial TEE info: %v", err)
 	}
+	go infoService.Run(ctx) //nolint:errcheck // todo
 
-	go infoStorage.Run(ctx) //nolint:errcheck // todo
-
-	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
+	teeID, err := parseTeeID(initialInfo)
 	if err != nil {
-		logger.Panicf("parsing TEE public key: %v", err)
+		logger.Panicf("parsing TEE id: %v", err)
 	}
-
-	teeID := crypto.PubkeyToAddress(*teePub)
-
 	err = resultService.SetIdentity(teeID)
 	if err != nil {
 		logger.Panicf("setting TEE identity: %v", err)
 	}
 
-	policyService := policy.NewService(actionQueues, cfg.Addresses)
+	walletsSyncTrigger := make(chan bool, 1)
+	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.WalletSync)
+	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, 60*time.Minute)
 
-	if initialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
-		logger.Infof("starting signing policy updates from epoch %d", initialInfo.TeeInfo.LastSigningPolicyID)
-		err = policyService.SetInitialPolicy(ctx, db, initialInfo.TeeInfo.LastSigningPolicyID)
-		if err != nil {
-			logger.Panicf("setting initial signing policy: %v", err)
-		}
-		walletSyncCue <- true
-	} else {
-		logger.Info("initializing signing policy")
-		err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset)
-		if err != nil {
-			logger.Panicf("initializing signing policy: %v", err)
-		}
+	policyService := policy.NewService(actionQueues, cfg.Addresses)
+	err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset, initialInfo)
+	if err != nil {
+		logger.Panicf("initializing signing policy: %v", err)
 	}
 
 	policyChan, err := policyService.Run(ctx, db, cfg.SigningPolicyFetchInterval)
@@ -105,28 +86,20 @@ func Initialize(ctx context.Context, cfgPath string) {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
-	meta := meta.New(&walletStorage)
+	meta := meta.New(&walletService)
+	instructionService := instruction.NewService(&cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
+	go instructionService.Run(ctx)
 
-	vs := instruction.NewStorage(&cfg.Voting, 3, meta, 10) //todo size
-	instructionService := instruction.NewService(teeID, privKey, policyChan, actionQueues, vs)
-	go instructionService.Forward(ctx)          //nolint:errcheck // todo
-	go instructionService.ListenToPolicies(ctx) //nolint:errcheck // todo
-
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &actionService, &resultService, &infoStorage, &walletStorage, privKey)
-
+	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &resultService, &infoService, &walletService, privKey)
 	go externalServer.Serve() //nolint:errcheck // todo
-
-	go walletSyncTrigger(ctx, walletSyncCue)
 }
 
-func walletSyncTrigger(ctx context.Context, c chan bool) {
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-
-		c <- true
-
-		time.Sleep(60 * time.Minute)
+// parseTeeID extracts the TEE ID from the TEE info as the address corresponding to the public key.
+func parseTeeID(info *types.TeeInfoResponse) (common.Address, error) {
+	teePub, err := types.ParsePubKey(info.TeeInfo.PublicKey)
+	if err != nil {
+		return common.Address{}, err
 	}
+
+	return crypto.PubkeyToAddress(*teePub), nil
 }

@@ -9,12 +9,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
-	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"gorm.io/gorm"
 )
 
@@ -31,7 +30,7 @@ func InitializePolicyAction(
 ) (*types.Action, *policy.SigningPolicy, int, error) {
 	params := database.LatestLogsParams{
 		Address: addresses.Relay,
-		Topic0:  signingPolicyInitializedEventSel,
+		Topic0:  SigningPolicyInitializedEventSel,
 		Number:  offset + 1,
 	}
 
@@ -40,6 +39,9 @@ func InitializePolicyAction(
 		return nil, nil, 0, err
 	}
 
+	if len(logs) == 0 {
+		return nil, nil, 0, errors.New("no signing policy logs found in db")
+	}
 	event, err := policy.ParseSigningPolicyInitializedEvent(logs[len(logs)-1])
 	if err != nil {
 		return nil, nil, 0, err
@@ -90,7 +92,7 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 
 func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, error) {
 	topics := [4]common.Hash{}
-	topics[0] = signingPolicyInitializedEventSel
+	topics[0] = SigningPolicyInitializedEventSel
 	topics[1] = Uint32ToHash(signingPolicyID)
 
 	params := database.LogsFullParams{
@@ -114,50 +116,6 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 	}
 
 	return policy.NewSigningPolicy(event, nil), nil
-}
-
-func SigningPolicyInitializedEventsListener(
-	ctx context.Context,
-	db *gorm.DB,
-	relayAddress common.Address,
-	startPolicyID uint32,
-	fetchInterval time.Duration,
-) (<-chan []database.Log, error) {
-	out := make(chan []database.Log, 1)
-
-	go func() {
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-
-			topics := [4]common.Hash{}
-			topics[0] = signingPolicyInitializedEventSel
-			topics[1] = Uint32ToHash(startPolicyID)
-
-			params := database.LogsFullParams{
-				Address: relayAddress,
-				Topics:  topics,
-				Number:  1,
-			}
-
-			logs, err := database.FetchLogsFull(ctx, db, params)
-			if err != nil {
-				logger.Error("fetch logs error:", err)
-				continue
-			}
-
-			if len(logs) > 0 {
-				out <- logs
-				startPolicyID++
-				continue
-			}
-
-			time.Sleep(fetchInterval)
-		}
-	}()
-
-	return out, nil
 }
 
 // prepareSignatures transforms a slice of Signatures to a slice SignatureMessage.
