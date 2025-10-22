@@ -135,6 +135,7 @@ func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*pk
 
 	return &pkgvoting.Statuses{
 		InstructionID: instructionID,
+		FinalizedHash: boxes.FinalizedHash,
 		Status:        status,
 	}, nil
 }
