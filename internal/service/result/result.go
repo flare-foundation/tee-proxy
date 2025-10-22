@@ -12,12 +12,11 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
 type Service struct {
-	rs *queue.ResponseStorage
+	rs *ResultStorage
 
 	// A channel to trigger of wallet storage update
 	WalletSync    chan *types.ActionResult
@@ -26,7 +25,7 @@ type Service struct {
 	teeID common.Address
 }
 
-func NewService(rs *queue.ResponseStorage) Service {
+func NewService(rs *ResultStorage) Service {
 	wst := make(chan *types.ActionResult, 10)
 	btt := make(chan bool, 1)
 
@@ -39,11 +38,12 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 	}
 
 	s.teeID = teeID
+
 	return nil
 }
 
-// Store stores response into database.
-func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
+// ProcessAndStore stores response into database and triggers appropriate hooks.
+func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) error {
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r)
 		if err != nil {
@@ -75,7 +75,7 @@ func (s *Service) Store(ctx context.Context, r *types.ActionResponse) error {
 	return s.rs.StoreResponse(ctx, r)
 }
 
-// Serve returns response for actionID with tag "threshold" if present.
+// Serve returns response for actionID with provided submissionTag if present.
 func (s *Service) Serve(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
 	return s.rs.GetResponse(ctx, actionID, submissionTag)
 }

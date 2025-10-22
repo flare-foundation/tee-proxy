@@ -10,9 +10,12 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting"
+	"github.com/flare-foundation/tee-proxy/pkg/config"
+	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
+	pkgvoting "github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
-	"github.com/flare-foundation/tee-proxy/pkg/voting"
 
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/utils"
@@ -21,17 +24,20 @@ import (
 type Service struct {
 	teeID common.Address
 
-	vs       *Storage
-	policies <-chan policy.SigningPolicy
+	vs *voting.Storage
 
-	aq      *queue.ActionQueues
-	privKey *ecdsa.PrivateKey
+	policies <-chan policy.SigningPolicy
+	aq       *queue.ActionQueues
+	privKey  *ecdsa.PrivateKey
 }
 
-func NewService(teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, vs *Storage) Service {
+func NewService(votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
+	vs := voting.NewStorage(votingCfg, 3, meta, 10) // todo size
+
 	return Service{
-		teeID:    teeID,
-		vs:       vs,
+		teeID: teeID,
+		vs:    vs,
+
 		policies: policiesChan,
 		aq:       aq,
 		privKey:  privKey,
@@ -45,7 +51,7 @@ func NewService(teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-
 //   - has a valid opType, opCommand pair
 //
 // Additional checks are done by the voting storage.
-func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*voting.Receipt, error) {
+func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*pkgvoting.Receipt, error) {
 	if i.Data.TeeID != s.teeID {
 		return nil, fmt.Errorf("%w, wrong teeID", status.HTTP[400])
 	}
@@ -66,6 +72,11 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 	}
 
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
+}
+
+func (s *Service) Run(ctx context.Context) {
+	go s.Forward(ctx)       //nolint:errcheck // todo
+	s.ListenToPolicies(ctx) //nolint:errcheck // todo
 }
 
 // Forward listens to the out channel and enqueues received actions.
@@ -92,17 +103,20 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 		case policy := <-s.policies:
 			logger.Debugf("creating round for %d", policy.RewardEpochID)
 			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())
-			s.vs.CreateRound(&policy)
+			s.vs.StoreNewRound(&policy)
 		}
 	}
 }
 
 // Statuses returns the statuses for instructionID if it is present in the given rewardEpochID.
-func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*voting.Statuses, error) {
+func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*pkgvoting.Statuses, error) {
 	r, exists := s.vs.Get(rewardEpochID)
 	if !exists {
 		return nil, fmt.Errorf("%w: round not stored", status.HTTP[404])
 	}
+
+	r.Voting.RLock()
+	defer r.Voting.RUnlock()
 
 	boxes, exists := r.Voting.M[instructionID]
 	if !exists {
@@ -112,14 +126,14 @@ func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*vo
 	boxes.RLock()
 	defer boxes.RUnlock()
 
-	status := make([]voting.Status, 0, len(boxes.M))
+	status := make([]pkgvoting.Status, 0, len(boxes.M))
 	for hash := range boxes.M {
 		s := boxes.M[hash].Status(hash)
 
 		status = append(status, s)
 	}
 
-	return &voting.Statuses{
+	return &pkgvoting.Statuses{
 		InstructionID: instructionID,
 		Status:        status,
 	}, nil

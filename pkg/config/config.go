@@ -13,16 +13,18 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/toml"
-	"github.com/flare-foundation/tee-proxy/pkg/voting"
 )
 
-const DefaultPrivateKeyVariable = "PRIVATE_KEY"
-
 const (
+	DefaultPrivateKeyVariable = "PRIVATE_KEY"
+
 	defaultCycleInternal              = 10 * time.Second
 	defaultCycleQueueResponseWait     = 5 * time.Second
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
 	defaultInitialSigningPolicyOffset = 3
+
+	defaultProposalExpiration = 120 * time.Second
+	defaultMaxPendingRequests = uint(100)
 )
 
 type Proxy struct {
@@ -31,12 +33,13 @@ type Proxy struct {
 	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
 	Ports                      Ports           `toml:"ports"`                         // Servers ports.
 	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
-	Voting                     voting.Config   `toml:"voting"`                        // Instruction voting configurations.
+	Voting                     Voting          `toml:"voting"`                        // Instruction voting configurations.
 	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 }
 
+// Addresses of the smart contracts.
 type Addresses struct {
 	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
 	Relay               common.Address `toml:"relay"`
@@ -48,12 +51,38 @@ type Ports struct {
 	External string `toml:"external"`
 }
 
+type Voting struct {
+	ProposalExpiration time.Duration `toml:"proposal_expiration"` // if not positive, it defaults to 120s
+	MaxPendingRequests uint          `toml:"max_pending_request"` // if not positive, it defaults to 100.
+}
+
+// setDefault sets default values if applicable.
+func (v *Voting) SetDefault() *Voting {
+	if v == nil {
+		v = new(Voting)
+	}
+
+	if v.MaxPendingRequests == 0 {
+		v.MaxPendingRequests = defaultMaxPendingRequests
+	}
+	if v.ProposalExpiration <= 0 {
+		v.ProposalExpiration = defaultProposalExpiration
+	}
+
+	return v
+}
+
 // Read reads Proxy configurations from toml file at path and validates them.
 func Read(path string) (Proxy, error) {
 	c := Proxy{
 		InfoTiming: InfoTiming{
 			CycleInternal:          defaultCycleInternal,
 			CycleQueueResponseWait: defaultCycleQueueResponseWait,
+		},
+
+		Voting: Voting{
+			ProposalExpiration: defaultProposalExpiration,
+			MaxPendingRequests: defaultMaxPendingRequests,
 		},
 
 		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
@@ -133,7 +162,7 @@ func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 
 	skB, err := hex.DecodeString(skStr)
 	if err != nil {
-		return nil, fmt.Errorf("invalid string for private key")
+		return nil, errors.New("invalid string for private key")
 	}
 
 	skB = prefixTo32Bytes(skB)

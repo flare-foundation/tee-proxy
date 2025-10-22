@@ -1,13 +1,11 @@
 package wallets
 
 import (
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
-	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
 type KeyData struct {
@@ -44,17 +42,4 @@ type ConfigConstants struct {
 type ConfigSettings struct {
 	PausingAddresses []common.Address `json:"pausingAddresses"`
 	OPTypeSettings   []byte           `json:"opTypeSettings"`
-}
-
-func (s *Storage) KeyData(walletID common.Hash, keyID uint64) (*KeyData, error) {
-	s.RLock()
-	defer s.RUnlock()
-
-	id := IDPair{WalletID: walletID, KeyID: keyID}
-	info, exists := s.Keys[id]
-	if !exists {
-		return nil, fmt.Errorf("%w: key data not found", status.HTTP[404])
-	}
-
-	return info, nil
 }

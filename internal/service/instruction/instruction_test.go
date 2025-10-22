@@ -14,29 +14,16 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
-	"github.com/flare-foundation/tee-proxy/pkg/queue"
+	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
-	"github.com/flare-foundation/tee-proxy/pkg/voting"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 )
-
-type testMeta struct{}
-
-func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	return map[common.Address]bool{}, 0, nil
-}
-
-func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
-	return nil
-}
-
-func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
-	return -1, nil
-}
 
 func TestVoting(t *testing.T) {
 	teeID := common.HexToAddress("dead")
@@ -485,13 +472,13 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 
-	vCfg := &voting.Config{
+	vCfg := &config.Voting{
 		ProposalExpiration: 0,
 		MaxPendingRequests: 0,
 	}
 
-	vs := NewStorage(vCfg, 3, &testMeta{}, 3)
-	vs.CreateRound(sp)
+	vs := voting.NewStorage(vCfg, 3, &testMeta{}, 3)
+	vs.StoreNewRound(sp)
 
 	sk4, err := crypto.GenerateKey()
 	if err != nil {
@@ -508,4 +495,18 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 	}
 
 	return mr, c, s, sk4
+}
+
+type testMeta struct{}
+
+func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	return map[common.Address]bool{}, 0, nil
+}
+
+func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
+	return nil
+}
+
+func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
+	return -1, nil
 }

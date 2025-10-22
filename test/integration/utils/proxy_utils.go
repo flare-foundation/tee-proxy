@@ -1,0 +1,246 @@
+package utils
+
+import (
+	"context"
+	"crypto/ecdsa"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	"github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/server"
+	"github.com/flare-foundation/tee-proxy/internal/service/info"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
+	"github.com/flare-foundation/tee-proxy/pkg/config"
+	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
+	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
+	pkgvoting "github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
+	pkgwallets "github.com/flare-foundation/tee-proxy/pkg/wallets"
+)
+
+type ProxyConfig struct {
+	ExtPort     uint
+	IntPort     uint
+	TeeID       common.Address
+	TeePubKey   *ecdsa.PublicKey
+	ProxyPubKey *ecdsa.PublicKey
+	Aq          *queue.ActionQueues
+	Rs          *result.ResultStorage
+	Vc          *config.Voting
+	Pc          chan policy.SigningPolicy
+	Ws          *wallets.Service
+	If          *info.Service
+}
+
+var TestTimeConfig = struct {
+	Timeout  time.Duration
+	Interval time.Duration
+}{
+	Timeout:  2000 * time.Millisecond,
+	Interval: 50 * time.Millisecond,
+}
+
+var StorageTimeConfig = struct {
+	CycleInternal          time.Duration
+	CycleQueueResponseWait time.Duration
+}{
+
+	CycleInternal:          50 * time.Millisecond,
+	CycleQueueResponseWait: 10 * time.Millisecond,
+}
+
+func mockDB(t *testing.T) *gorm.DB {
+	db, _ := testutil.InMemoryDB(t, "choose")
+	err := db.AutoMigrate(&database.Block{})
+	require.NoError(t, err)
+
+	for i := uint64(1); i <= 3; i++ {
+		block, _ := testutil.CreateBlock(fmt.Sprintf("%d", i), i)
+		if err := db.Create(block).Error; err != nil {
+			require.NoError(t, err)
+		}
+	}
+
+	return db
+}
+
+// RunProxy simulates behavior of internal/initialize.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
+func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.PrivateKey, wg *sync.WaitGroup) (*ProxyConfig, func()) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	mr := miniredis.RunT(t)
+	db := mockDB(t)
+
+	c := storage.NewClient(mr.Addr())
+	aq := queue.NewActionQueues(c)
+	rs := result.NewStorage(c)
+
+	// Setup action and result services
+	walletStorage := wallets.NewService(aq, rs, c)
+	resultService := result.NewService(rs)
+
+	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, &resultService, &walletStorage)
+
+	wg.Add(1)
+	go func() {
+		logger.Info("Starting internal server")
+		err := internal.Serve()
+		require.Error(t, err)
+		wg.Done()
+	}()
+
+	infoStorage := info.NewService(db, aq, rs, &config.InfoTiming{
+		CycleInternal:          StorageTimeConfig.CycleInternal,
+		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
+	})
+
+	initialInfo, err := infoStorage.FetchInfo(t.Context())
+	require.NoError(t, err)
+
+	wg.Add(1)
+	go func() {
+		err := infoStorage.Run(ctx)
+		require.Error(t, err)
+		wg.Done()
+	}()
+
+	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
+	require.NoError(t, err)
+	teeID := crypto.PubkeyToAddress(*teePub)
+	err = resultService.SetIdentity(teeID)
+	require.NoError(t, err)
+
+	metaObj := meta.New(&walletStorage)
+
+	vc := &config.Voting{
+		ProposalExpiration: 600 * time.Millisecond,
+		MaxPendingRequests: 100,
+	}
+
+	policyChan := make(chan policy.SigningPolicy, 1)
+	instService := instruction.NewService(vc, teeID, proxyPk, policyChan, aq, metaObj)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &resultService, &infoStorage, &walletStorage, proxyPk)
+
+	wg.Add(1)
+	go func() {
+		instService.Run(ctx)
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		logger.Info("Starting external server")
+		err := external.Serve()
+		require.Error(t, err)
+		wg.Done()
+	}()
+
+	cleanup := func() {
+		_ = internal.Close(ctx)
+		_ = external.Close(ctx)
+		cancel()
+		logger.Info("Flushing redis")
+		c.FlushAll(ctx)
+		_ = c.Shutdown(ctx)
+		mr.Close()
+	}
+
+	return &ProxyConfig{
+		ExtPort:     externalPort,
+		IntPort:     internalPort,
+		TeeID:       teeID,
+		TeePubKey:   teePub,
+		ProxyPubKey: teePub,
+		Aq:          aq,
+		Rs:          rs,
+		Vc:          vc,
+		Pc:          policyChan,
+		Ws:          &walletStorage,
+	}, cleanup
+}
+
+func makeRequests[T any](t *testing.T, url string, result *T) {
+	t.Helper()
+	start := time.Now()
+	for {
+		resp, err := http.Get(url)
+		if err == nil && resp != nil {
+			if resp.StatusCode == http.StatusOK {
+				bodyBytes, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				err = resp.Body.Close()
+				require.NoError(t, err)
+
+				err = json.Unmarshal(bodyBytes, result)
+				require.NoError(t, err)
+
+				return
+			}
+		}
+		if time.Since(start) > TestTimeConfig.Timeout {
+			require.FailNow(t, fmt.Sprintf("Timeout waiting for %s", url))
+			return
+		}
+		time.Sleep(TestTimeConfig.Interval)
+	}
+}
+
+// GetTeeInfo Fetches TeeInfoResponse until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetTeeInfo(t *testing.T, pc *ProxyConfig) *types.TeeInfoResponse {
+	t.Helper()
+	url := fmt.Sprintf("http://localhost:%d/info", pc.ExtPort)
+	var res types.TeeInfoResponse
+	makeRequests(t, url, &res)
+	return &res
+}
+
+// GetVotingStatuses Fetches VoteStatus until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetVotingStatuses(t *testing.T, pc *ProxyConfig, rewardEpochID uint32, instructionID common.Hash) *pkgvoting.Statuses {
+	t.Helper()
+	url := fmt.Sprintf("http://localhost:%d/action/status/%d/%s", pc.ExtPort, rewardEpochID, instructionID.String()[2:])
+	var res pkgvoting.Statuses
+	makeRequests(t, url, &res)
+	return &res
+}
+
+// GetWalletInfo Fetches KeyData until TestTimeConfig.Timeout every TestTimeConfig.Interval
+func GetWalletInfo(t *testing.T, pc *ProxyConfig, walletID [32]byte, keyID uint64) *pkgwallets.KeyData {
+	t.Helper()
+	url := fmt.Sprintf("http://localhost:%d/wallet/%x/%d", pc.ExtPort, common.BytesToHash(walletID[:]), keyID)
+	var res pkgwallets.KeyData
+	makeRequests(t, url, &res)
+	return &res
+}
+
+func WaitFor(t *testing.T, interval, timeout time.Duration, fn func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if fn() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(interval)
+	}
+}

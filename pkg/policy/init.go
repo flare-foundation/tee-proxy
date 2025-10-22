@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	signingPolicyInitializedEventSel common.Hash
+	SigningPolicyInitializedEventSel common.Hash
 	voterRegisteredEventSel          common.Hash
 
 	signNewSigningPolicySel [4]byte // len = 4
@@ -45,7 +45,7 @@ func init() {
 	if !ok {
 		panic(fmt.Errorf("cannot get SigningPolicyInitialized event: %w", err))
 	}
-	signingPolicyInitializedEventSel = signingPolicyEvent.ID
+	SigningPolicyInitializedEventSel = signingPolicyEvent.ID
 
 	// voter registry
 	voterRegistryABI, err := registry.RegistryMetaData.GetAbi()

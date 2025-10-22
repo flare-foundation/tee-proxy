@@ -9,6 +9,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type Queue[T any] interface {
+	Enqueue(ctx context.Context, item T) error
+	Dequeue(ctx context.Context) (T, error)
+	QueueLength(ctx context.Context) (int64, error)
+}
+
+// New creates a new Storage with the Redis client and storing key prefix.
+func NewQueue[T any](keyPrefix string, client *redis.Client) Queue[T] {
+	return &Storage[T]{
+		client:    client,
+		keyPrefix: keyPrefix,
+	}
+}
+
 // Storage is a storage backed by Redis.
 // All storing keys are prefixed with keyPrefix-.
 type Storage[T any] struct {

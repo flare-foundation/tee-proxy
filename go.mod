@@ -9,7 +9,6 @@ require (
 	github.com/flare-foundation/tee-node v0.0.1
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
-	github.com/xrpscan/xrpl-go v0.2.10
 	golang.org/x/sync v0.17.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.0

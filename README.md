@@ -9,7 +9,7 @@
 Copy config.example.toml to config.toml
 
 ```bash
-cp ./config/config.example.toml ./config/config.toml
+cp ./config.example.toml ./config/config.toml
 ```
 
 and set the configurations.
