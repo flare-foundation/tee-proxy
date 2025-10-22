@@ -142,7 +142,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	// if box is newly created, save it and scheduleEnd.
 	if !existsB {
 		boxes.M[hash] = box
-		go box.scheduleEnd(s.Out, data.OPType, data.OPCommand)
+		go box.scheduleEnd(s.Out, boxes)
 	}
 
 	// if boxes are newly created save them
