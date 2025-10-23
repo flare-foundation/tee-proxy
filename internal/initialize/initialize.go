@@ -27,17 +27,23 @@ func Initialize(ctx context.Context, cfgPath string) {
 		logger.Panicf("reading config: %v", err)
 	}
 
+	logger.Set(cfg.Logging)
+	database.SetErrorLogger(logger.GetLogger())
+
 	db, err := database.Connect(&cfg.DB)
 	if err != nil {
 		logger.Panicf("connecting to database: %v", err)
 	}
 
-	database.WaitCIndexerToSync(ctx, db, database.SyncParams{
+	err = database.WaitCIndexerToSync(ctx, db, database.SyncParams{
 		Retries:            30,
 		OutOfSyncTolerance: 1 * time.Minute,
 		MaxSleepTime:       10 * time.Minute,
 		MinSleepTime:       1 * time.Second,
-	})
+	}, logger.GetLogger())
+	if err != nil {
+		logger.Panicf("c-chain indexer: %v", err)
+	}
 
 	privKey, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)
 	if err != nil {
