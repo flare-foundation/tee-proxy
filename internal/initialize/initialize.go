@@ -9,6 +9,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/liveness"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/server"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
@@ -58,10 +59,15 @@ func Initialize(ctx context.Context, cfgPath string) {
 	walletService := wallets.NewService(actionQueues, resultStorage, redisClient)
 	resultService := result.NewService(resultStorage)
 
-	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, &resultService, &walletService)
+	infoService := new(info.Service)
+
+	livenessService := liveness.New(db, redisClient, infoService)
+	defer livenessService.SignalStartupFinished()
+
+	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, &resultService, &walletService, &livenessService)
 	go internalServer.Serve() //nolint:errcheck // todo
 
-	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
+	*infoService = info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
 	initialInfo, err := infoService.FetchInfo(ctx)
 	if err != nil {
 		logger.Panicf("fetching initial TEE info: %v", err)
@@ -96,7 +102,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	instructionService := instruction.NewService(&cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &resultService, &infoService, &walletService, privKey)
+	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &resultService, infoService, &walletService, privKey)
 	go externalServer.Serve() //nolint:errcheck // todo
 }
 

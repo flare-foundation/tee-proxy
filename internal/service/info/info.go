@@ -24,8 +24,11 @@ import (
 )
 
 // Service holds the latest TEE info and manages updating it.
+//
+// When you are accessing Latest or LastUpdate mutex should be used.
 type Service struct {
-	Latest *types.TeeInfoResponse
+	Latest      *types.TeeInfoResponse
+	LastUpdated time.Time
 
 	db *gorm.DB
 
@@ -39,6 +42,9 @@ type Service struct {
 
 func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming) Service {
 	return Service{
+		Latest:      new(types.TeeInfoResponse),
+		LastUpdated: time.Unix(0, 0),
+
 		db:              db,
 		actionQueues:    aq,
 		responseStorage: rs,
@@ -123,9 +129,9 @@ func (s *Service) updateInfo(ctx context.Context) error {
 		return fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
 	}
 
-	result := new(types.TeeInfoResponse)
+	var result types.TeeInfoResponse
 
-	err = json.Unmarshal(response.Result.Data, result)
+	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
 		return err
 	}
@@ -133,7 +139,11 @@ func (s *Service) updateInfo(ctx context.Context) error {
 	s.Lock()
 	defer s.Unlock()
 
-	s.Latest = result
+	if s.Latest == nil {
+		s.Latest = new(types.TeeInfoResponse)
+	}
+	*s.Latest = result
+	s.LastUpdated = time.Now()
 
 	return nil
 }

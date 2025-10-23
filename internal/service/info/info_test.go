@@ -41,15 +41,10 @@ func TestInsertBlock(t *testing.T) {
 	aq := queue.NewActionQueues(c)
 	rs := result.NewStorage(c)
 
-	s := Service{
-		db:              db,
-		actionQueues:    aq,
-		responseStorage: rs,
-		timingConfig: &config.InfoTiming{
-			CycleInternal:          10 * time.Millisecond,
-			CycleQueueResponseWait: 10 * time.Millisecond,
-		},
-	}
+	s := NewService(db, aq, rs, &config.InfoTiming{
+		CycleInternal:          10 * time.Millisecond,
+		CycleQueueResponseWait: 10 * time.Millisecond,
+	})
 
 	go func() {
 		err := s.Run(t.Context())
