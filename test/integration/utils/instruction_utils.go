@@ -157,8 +157,10 @@ func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, priv *e
 
 	url := fmt.Sprintf("http://localhost:%d/instruction", port)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-
 	require.NoError(t, err)
+
+	defer resp.Body.Close() //nolint:errcheck
+
 	require.Equalf(t, http.StatusOK, resp.StatusCode, "data for %s, %s", op.HashToOPType(iData.OPType), op.HashToOPCommand(iData.OPCommand))
 
 	var res voting.SignedReceipt
