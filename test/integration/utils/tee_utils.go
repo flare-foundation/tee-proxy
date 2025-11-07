@@ -11,18 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func SetProxyUrlOnTee(t *testing.T, port uint, proxyUrl string) {
+func SetProxyURLOnTEE(t *testing.T, port uint, proxyURL string) {
 	t.Helper()
 
-	request := types.ConfigureProxyUrlRequest{
-		Url: proxyUrl,
+	request := types.ConfigureProxyURLRequest{
+		URL: proxyURL,
 	}
 
 	body, err := json.Marshal(request)
 	require.NoError(t, err)
 
-	url := fmt.Sprintf("http://localhost:%d/configure", port)
+	url := fmt.Sprintf("http://localhost:%d/proxy", port)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	err = resp.Body.Close()
+	require.NoError(t, err)
 }

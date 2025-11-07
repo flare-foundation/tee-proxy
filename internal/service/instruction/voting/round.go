@@ -19,6 +19,8 @@ type Round struct {
 type voteBoxes struct {
 	M map[common.Hash]*voteBox
 
+	FinalizedHash common.Hash
+
 	sync.RWMutex
 }
 type votingSync struct {

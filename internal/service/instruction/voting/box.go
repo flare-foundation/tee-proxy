@@ -277,33 +277,44 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
-func (vb *voteBox) scheduleEnd(out chan *types.Action, opType, opCommand common.Hash) {
+func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 	time.Sleep(time.Until(vb.EndTime))
 
 	vb.Lock()
 	defer vb.Unlock()
 
-	if vb.Finalized {
-		// send threshold action for KeyDataProviderRestore at the end of voting
-		if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
-			a, err := vb.Action(types.Threshold)
-			if err != nil {
-				logger.Errorf("failed crating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
-			} else {
-				out <- a
-			}
-		}
+	defer vb.delete()
 
-		a, err := vb.Action(types.End)
+	opCommand := vb.proposal.instruction.OPCommand
+	opType := vb.proposal.instruction.OPType
+
+	if !vb.Finalized {
+		logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
+		return
+	}
+
+	boxes.RLock()
+	defer boxes.RUnlock()
+
+	// send threshold action for KeyDataProviderRestore at the end of voting
+	if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
+		a, err := vb.Action(types.Threshold)
 		if err != nil {
-			logger.Errorf("failed crating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+			logger.Errorf("failed crating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
 		} else {
 			out <- a
 		}
-	} else {
-		logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
+	} else if vb.iHash != boxes.FinalizedHash {
+		logger.Debugf("closing finalized box %v, %v that was finalized after %v", vb.iID, vb.iHash, boxes.FinalizedHash)
+		return
 	}
-	vb.delete()
+
+	a, err := vb.Action(types.End)
+	if err != nil {
+		logger.Errorf("failed crating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+	} else {
+		out <- a
+	}
 }
 
 // signersData returns slices of signatures, additionalVariableMessages, and timestamps.

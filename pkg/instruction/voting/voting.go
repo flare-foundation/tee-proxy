@@ -26,6 +26,7 @@ type Status struct {
 
 type Statuses struct {
 	InstructionID common.Hash `json:"instructionId"`
+	FinalizedHash common.Hash `json:"finalizedHash"`
 	Status        []Status    `json:"status"`
 }
 

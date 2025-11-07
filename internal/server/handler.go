@@ -40,8 +40,9 @@ func handleErrorExternal(w http.ResponseWriter, err error) {
 	if code == -1 {
 		code = http.StatusInternalServerError
 		reason = "internal processing error"
+
+		logger.Warnf("error processing external request: %s", err)
 	}
-	logger.Warnf("error processing external request: %s", err)
 
 	http.Error(w, reason, code)
 }

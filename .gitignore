@@ -1,5 +1,7 @@
 .env
 .vscode
+*.out
 
 /config/*
 !config/config.example.toml
+

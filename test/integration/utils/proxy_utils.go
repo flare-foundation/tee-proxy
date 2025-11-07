@@ -17,6 +17,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/liveness"
 	"github.com/flare-foundation/tee-proxy/internal/server"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
@@ -98,30 +99,30 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	walletStorage := wallets.NewService(aq, rs, c)
 	resultService := result.NewService(rs)
 
-	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, &resultService, &walletStorage)
+	infoService := new(info.Service)
 
-	wg.Add(1)
-	go func() {
+	livenessService := liveness.New(db, c, infoService)
+
+	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, &resultService, &walletStorage, &livenessService)
+
+	wg.Go(func() {
 		logger.Info("Starting internal server")
 		err := internal.Serve()
 		require.Error(t, err)
-		wg.Done()
-	}()
+	})
 
-	infoStorage := info.NewService(db, aq, rs, &config.InfoTiming{
+	*infoService = info.NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 	})
 
-	initialInfo, err := infoStorage.FetchInfo(t.Context())
+	initialInfo, err := infoService.FetchInfo(t.Context())
 	require.NoError(t, err)
 
-	wg.Add(1)
-	go func() {
-		err := infoStorage.Run(ctx)
+	wg.Go(func() {
+		err := infoService.Run(ctx)
 		require.Error(t, err)
-		wg.Done()
-	}()
+	})
 
 	teePub, err := types.ParsePubKey(initialInfo.TeeInfo.PublicKey)
 	require.NoError(t, err)
@@ -138,21 +139,17 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	policyChan := make(chan policy.SigningPolicy, 1)
 	instService := instruction.NewService(vc, teeID, proxyPk, policyChan, aq, metaObj)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &resultService, &infoStorage, &walletStorage, proxyPk)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &resultService, infoService, &walletStorage, proxyPk)
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		instService.Run(ctx)
-		wg.Done()
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		logger.Info("Starting external server")
 		err := external.Serve()
 		require.Error(t, err)
-		wg.Done()
-	}()
+	})
 
 	cleanup := func() {
 		_ = internal.Close(ctx)

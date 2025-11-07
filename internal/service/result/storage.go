@@ -45,15 +45,13 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		storingDuration = submitStoringDuration
 	}
 
-	// do not override final result with an intermediate result
-	if response.Result.Status >= 2 {
-		res, err := rs.s.Get(ctx, id.String())
-		if err == nil && res.Result.Status < 2 {
-			return nil
-		}
+	// do not override final results
+	res, err := rs.s.Get(ctx, id.String())
+	if err == nil && res.Result.Status < 2 {
+		return nil
 	}
 
-	err := rs.s.SetWithTTL(ctx, id.String(), response, storingDuration)
+	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDuration)
 	if err != nil {
 		return fmt.Errorf("storing response %s: %v", id.String(), err)
 	}

@@ -15,6 +15,13 @@ password = "root"
 log_queries = false
 
 
+[logging]
+level = "DEBUG"
+file = ""
+max_file_size = ""
+console = true
+
+
 [addresses]
 flare_systems_manager = "0xa4bcDF64Cdd5451b6ac3743B414124A6299B65FF"
 relay = "0x5A0773Ff307Bf7C71a832dBB5312237fD3437f9F"

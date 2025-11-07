@@ -27,12 +27,21 @@ type Internal struct {
 	actionQueues  *queue.ActionQueues
 	resultService ResultService
 	server        *http.Server
+
+	lHandlers livenessHandlers
+}
+
+type liveness interface {
+	Startup(context.Context) error
+	Ready(context.Context) error
 }
 
 func NewInternal(port string,
 	actionQueues *queue.ActionQueues,
 	resultService ResultService,
-	wallet *wallets.Service) *Internal {
+	wallet *wallets.Service,
+	liveness liveness,
+) *Internal {
 	addr := fmt.Sprintf(":%s", port)
 
 	server := &http.Server{
@@ -48,6 +57,7 @@ func NewInternal(port string,
 		actionQueues:  actionQueues,
 		resultService: resultService,
 		server:        server,
+		lHandlers:     livenessHandlers{liveness},
 	}
 
 	e.registerRoutes()
@@ -72,6 +82,10 @@ func (i *Internal) registerRoutes() {
 
 	mux.HandleFunc("POST /result", prepareHandler(i.resultH, true))
 	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(i.queueH, true))
+
+	mux.HandleFunc("GET /healthy", i.lHandlers.healthy)
+	mux.HandleFunc("GET /startup", i.lHandlers.startup)
+	mux.HandleFunc("GET /ready", i.lHandlers.ready)
 }
 
 // resultH serves "/result" endpoint.
@@ -123,4 +137,38 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return nil
+}
+
+type livenessHandlers struct {
+	liveness
+}
+
+func (*livenessHandlers) healthy(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Length", "0")
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (l *livenessHandlers) startup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Length", "0")
+
+	err := l.Startup(r.Context())
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (i *livenessHandlers) ready(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Length", "0")
+
+	err := i.Ready(r.Context())
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

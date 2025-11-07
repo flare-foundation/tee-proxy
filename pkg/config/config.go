@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/toml"
 )
 
@@ -37,6 +38,7 @@ type Proxy struct {
 	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
+	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
 }
 
 // Addresses of the smart contracts.
@@ -87,6 +89,13 @@ func Read(path string) (Proxy, error) {
 
 		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
 		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
+
+		Logging: logger.Config{
+			Level:       "DEBUG",
+			File:        "",
+			MaxFileSize: 0,
+			Console:     true,
+		},
 	}
 
 	err := toml.ReadTo(path, &c, false)

@@ -34,7 +34,7 @@ func TestProxyTeeIntegration2(t *testing.T) {
 
 	go teeServer.StartExampleExtension(extensionServerPort, extensionPort)
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
-	integrationUtils.SetProxyUrlOnTee(t, teePort, proxyUrl)
+	integrationUtils.SetProxyURLOnTEE(t, teePort, proxyUrl)
 
 	var wgProxy sync.WaitGroup
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)

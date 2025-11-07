@@ -113,18 +113,16 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		round.Unlock()
 	}
 
-	// Do not allow creating two boxes at once. Release lock if box exist.
+	// Do not allow creating working with two boxes at once
 	boxes.Lock()
+	defer boxes.Unlock()
 
 	box, existsB := boxes.M[hash]
 	if !existsB {
 		box, err = startVoteBox(data, signer, round, s.meta, s.config.ProposalExpiration)
-		defer boxes.Unlock() // we only save it at the end if no errors are returned
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		boxes.Unlock()
 	}
 
 	vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
@@ -144,7 +142,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	// if box is newly created, save it and scheduleEnd.
 	if !existsB {
 		boxes.M[hash] = box
-		go box.scheduleEnd(s.Out, data.OPType, data.OPCommand)
+		go box.scheduleEnd(s.Out, boxes)
 	}
 
 	// if boxes are newly created save them
@@ -159,6 +157,12 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		case data.OPType == op.Wallet.Hash() && data.OPCommand == op.KeyDataProviderRestore.Hash():
 			// only sent "threshold" action at the end of voting if finalized
 		default:
+			if boxes.FinalizedHash.Cmp(common.Hash{}) == 0 {
+				boxes.FinalizedHash = hash
+			} else if boxes.FinalizedHash.Cmp(hash) != 0 {
+				logger.Infof("instruction id %v already finalized with %v also reached threshold with %v", box.iID, boxes.FinalizedHash, hash)
+			}
+
 			a, err := box.Action(types.Threshold)
 			if err != nil {
 				logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
