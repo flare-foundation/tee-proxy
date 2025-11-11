@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"gorm.io/gorm"
@@ -54,7 +55,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 		return 0, common.Hash{}, nil, errors.New("invalid first input")
 	}
 
-	signingPolicyID, err = SafeUint32(ip0)
+	signingPolicyID, err = convert.BigToUint32Safe(ip0)
 	if err != nil {
 		return 0, common.Hash{}, nil, err
 	}

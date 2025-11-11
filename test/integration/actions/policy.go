@@ -27,9 +27,9 @@ func InitializePolicy(t *testing.T, pc *utils.ProxyConfig, epochId uint32) (*pol
 	numVoters := 100
 	voters, privKeys, pubKeysMap := testutils.GenerateRandomKeys(numVoters)
 	// Generate a random initial policy
-	randSeed := int64(12345)
+	seed := int64(12345)
 
-	initialPolicy := testutils.GenerateRandomPolicyData(epochId, voters, randSeed)
+	initialPolicy := testutils.GenerateRandomPolicyData(epochId, voters, seed)
 
 	pubKeys := make([]types.PublicKey, len(voters))
 	for i, voter := range voters {

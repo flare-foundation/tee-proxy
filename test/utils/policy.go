@@ -93,7 +93,7 @@ func GenerateRandomKeys(numVoters int) ([]common.Address, []*ecdsa.PrivateKey, m
 	privKeys := make([]*ecdsa.PrivateKey, numVoters)
 	pubKeys := make(map[common.Address]*ecdsa.PublicKey)
 
-	for i := 0; i < numVoters; i++ {
+	for i := range numVoters {
 		voterPrivKey, err := crypto.GenerateKey()
 		if err != nil {
 			panic(err)

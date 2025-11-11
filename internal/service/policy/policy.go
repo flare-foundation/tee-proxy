@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
@@ -146,7 +147,7 @@ func signingPolicyInitializedEventsListener(
 
 			topics := [4]common.Hash{}
 			topics[0] = policy.SigningPolicyInitializedEventSel
-			topics[1] = policy.Uint32ToHash(policyID)
+			topics[1] = convert.Uint32ToHash(policyID)
 
 			params := database.LogsFullParams{
 				Address: relayAddress,

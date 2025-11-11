@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"gorm.io/gorm"
@@ -53,7 +54,7 @@ func fetchVoterRegistered(
 	topics := [4]common.Hash{}
 
 	topics[0] = voterRegisteredEventSel
-	topics[2] = Uint32ToHash(signingPolicyID)
+	topics[2] = convert.Uint32ToHash(signingPolicyID)
 	topics[3] = AddressToHash(signingPolicyAddress)
 
 	params := database.LogsFullParams{

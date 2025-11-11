@@ -2,7 +2,6 @@ package testutil
 
 import (
 	"crypto/ecdsa"
-	"io"
 	"math/big"
 	"math/rand"
 
@@ -10,8 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-
-	cryptorand "crypto/rand"
 )
 
 var TestSigningPolicy *policy.SigningPolicy
@@ -84,15 +81,6 @@ func RandomNormalizedArray(n int, seed int64) []float64 {
 	}
 
 	return numbers
-}
-
-func GenerateRandomBytes(n int) ([]byte, error) {
-	b := make([]byte, n)
-	if _, err := io.ReadFull(cryptorand.Reader, b); err != nil {
-		return nil, err
-	}
-
-	return b, nil
 }
 
 // Generate policy creates a policy with n providers and returns the policy and providers private keys.

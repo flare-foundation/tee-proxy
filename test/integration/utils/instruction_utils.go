@@ -16,10 +16,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
-	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/stretchr/testify/require"
 )
@@ -37,9 +37,10 @@ func BuildInstructionData(
 	teeID common.Address,
 	rewardEpochID uint32,
 ) *instruction.Data {
-	instructionID, err := testutil.GenerateRandomBytes(32)
+	t.Helper()
+	instructionID, err := random.Hash()
 	require.NoError(t, err)
-	return BuildInstructionDataWithID(t, common.BytesToHash(instructionID), opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, cosigners, cosignersThreshold, teeID, rewardEpochID)
+	return BuildInstructionDataWithID(t, instructionID, opType, opCommand, originalMessage, timestamp, additionalFixedMessageRaw, additionalVariableMessage, cosigners, cosignersThreshold, teeID, rewardEpochID)
 }
 
 func BuildInstructionDataWithID(
@@ -56,6 +57,8 @@ func BuildInstructionDataWithID(
 	teeID common.Address,
 	rewardEpochID uint32,
 ) *instruction.Data {
+	t.Helper()
+
 	var additionalFixedMessage []byte
 	var err error
 	switch additionalFixedMessageRaw := additionalFixedMessageRaw.(type) {

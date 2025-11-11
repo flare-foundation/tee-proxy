@@ -1,11 +1,9 @@
 package queue
 
 import (
-	"crypto/rand"
 	"encoding/json"
-	"errors"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
@@ -14,7 +12,7 @@ import (
 //
 // With type "direct" and submission tag "submit".
 func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*types.Action, error) {
-	id, err := randID()
+	id, err := random.Hash()
 	if err != nil {
 		return nil, err
 	}
@@ -45,19 +43,4 @@ func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*typ
 		Signatures:                 nil,
 		Timestamps:                 nil,
 	}, nil
-}
-
-// randID returns cryptographically random common.Hash.
-func randID() (common.Hash, error) {
-	x := common.Hash{}
-	n, err := rand.Read(x[:])
-
-	if err != nil {
-		return x, err
-	}
-	if n != 32 {
-		return x, errors.New("not enough random bytes")
-	}
-
-	return x, nil
 }

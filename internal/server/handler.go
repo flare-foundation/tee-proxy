@@ -73,7 +73,7 @@ func hashParam(r *http.Request, param string) (common.Hash, error) {
 	if err != nil {
 		return common.Hash{}, invalidParam(param)
 	}
-	if len(sB) != 32 {
+	if len(sB) != common.HashLength {
 		return common.Hash{}, invalidParam(param)
 	}
 

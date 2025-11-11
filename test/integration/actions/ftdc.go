@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
@@ -16,19 +17,20 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
-	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/test/integration/utils"
 	"github.com/stretchr/testify/require"
 )
 
 const TotalWeight = 10000
 
-func FtdcProve(
+func FTDCProve(
 	t *testing.T,
 	pc *utils.ProxyConfig,
 	providerPrivKeys, cosignerPrivKeys []*ecdsa.PrivateKey,
 	rewardEpochID uint32,
 ) *ftdc.ProveResponse {
+	t.Helper()
+
 	cosignerAddresses, cosignerAndProvider := CosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
 	cosignersThreshold := uint64(len(cosignerAddresses))
 	originalMessage := connector.IFtdcHubFtdcAttestationRequest{
@@ -43,7 +45,7 @@ func FtdcProve(
 	originalMessageEncoded, err := ftdc.EncodeRequest(originalMessage)
 	require.NoError(t, err)
 
-	challenge, err := testutil.GenerateRandomBytes(32)
+	challenge, err := random.Hash()
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
@@ -104,7 +106,7 @@ func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provider
 }
 
 // GetAdditionalFixedMessage returns the additional fixed message, the variable messages (signatures) and the private keys for the provider and cosigner
-func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []byte, originalMessage connector.IFtdcHubFtdcAttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
+func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [32]byte, originalMessage connector.IFtdcHubFtdcAttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
 	additionalFixedMessage := verification.ITeeVerificationTeeAttestation{
 		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
 			TeeId:        pc.TeeID,
@@ -113,7 +115,7 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge []
 			CodeHash:     [32]byte{},
 			Platform:     [32]byte{},
 		},
-		Challenge: [32]byte(challenge),
+		Challenge: challenge,
 	}
 
 	additionalFixedMessageEncoded, err := types.EncodeTeeAttestationRequest(&additionalFixedMessage)

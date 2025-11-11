@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/crypto/ecies"
+	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
@@ -257,19 +258,21 @@ func RecoverWallet(
 	endOfVotingTicker := time.NewTicker(pc.Vc.ProposalExpiration)
 	defer endOfVotingTicker.Stop()
 
-	instructionID, _ := testutil.GenerateRandomBytes(32)
+	instructionID, err := random.Hash()
+	require.NoError(t, err)
+
 	receipts := make([]*voting.SignedReceipt, 0, len(privKeys))
 	instructions := make([]instruction.Data, 0, len(privKeys))
 	timestamp := uint64(time.Now().Unix())
 	for i, privKey := range privKeys {
-		iData := utils.BuildInstructionDataWithID(t, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore,
+		iData := utils.BuildInstructionDataWithID(t, instructionID, op.Wallet, op.KeyDataProviderRestore,
 			originalMessageEncoded, timestamp, additionalFixedMessage, addVarMsgs[i], adminAddresses, adminsThreshold, pc.TeeID, rewardEpochID)
 		receipts = append(receipts, utils.SignAndSendInstruction(t, iData, privKey, pc.ExtPort))
 		instructions = append(instructions, *iData)
 	}
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, common.BytesToHash(instructionID), types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeID)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeID)
 
 	walletExistenceProof, err := wallets.ExtractKeyExistence(res.Result.Data, pc.TeeID)
 	require.NoError(t, err)
@@ -286,9 +289,9 @@ func RecoverWallet(
 	require.Equal(t, true, walletExistenceProof.Restored)
 
 	<-endOfVotingTicker.C
-	utils.FetchAndVerifyRewardingData(t, pc, common.BytesToHash(instructionID), op.Wallet, op.KeyDataProviderRestore, receipts)
+	utils.FetchAndVerifyRewardingData(t, pc, instructionID, op.Wallet, op.KeyDataProviderRestore, receipts)
 
-	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochID, common.BytesToHash(instructionID))
+	votingStatus := utils.GetVotingStatuses(t, pc, rewardEpochID, instructionID)
 	utils.VerifyVotingStatus(t, votingStatus, uint16(len(adminsPrivKeys)), uint16(len(adminsPrivKeys)), testutil.TotalWeight/2)
 
 	return walletExistenceProof

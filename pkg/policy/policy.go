@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
@@ -93,7 +94,7 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, error) {
 	topics := [4]common.Hash{}
 	topics[0] = SigningPolicyInitializedEventSel
-	topics[1] = Uint32ToHash(signingPolicyID)
+	topics[1] = convert.Uint32ToHash(signingPolicyID)
 
 	params := database.LogsFullParams{
 		Address: relayAddress,
