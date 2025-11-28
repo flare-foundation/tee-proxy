@@ -68,10 +68,14 @@ func Initialize(ctx context.Context, cfgPath string) {
 	go internalServer.Serve() //nolint:errcheck // todo
 
 	*infoService = info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
-	initialInfo, err := infoService.FetchInfo(ctx)
+
+	logger.Info("fetching initial TEE info")
+	initialInfo, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)
 	if err != nil {
 		logger.Panicf("fetching initial TEE info: %v", err)
 	}
+	logger.Info("initial TEE info fetched")
+
 	go infoService.Run(ctx) //nolint:errcheck // todo
 
 	teeID, err := parseTeeID(initialInfo)

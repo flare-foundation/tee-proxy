@@ -19,6 +19,7 @@ import (
 const (
 	DefaultPrivateKeyVariable = "PRIVATE_KEY"
 
+	defaultInitialInfoTimeout         = 5 * time.Minute
 	defaultCycleInternal              = 10 * time.Second
 	defaultCycleQueueResponseWait     = 5 * time.Second
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
@@ -78,6 +79,7 @@ func (v *Voting) SetDefault() *Voting {
 func Read(path string) (Proxy, error) {
 	c := Proxy{
 		InfoTiming: InfoTiming{
+			Initial:                defaultInitialInfoTimeout,
 			CycleInternal:          defaultCycleInternal,
 			CycleQueueResponseWait: defaultCycleQueueResponseWait,
 		},

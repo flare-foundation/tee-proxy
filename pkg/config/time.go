@@ -6,6 +6,7 @@ import (
 )
 
 type InfoTiming struct {
+	Initial                time.Duration `toml:"initial_timeout"`
 	CycleInternal          time.Duration `toml:"cycle_internal"`
 	CycleQueueResponseWait time.Duration `toml:"cycle_queue_response_wait"`
 }

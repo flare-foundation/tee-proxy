@@ -116,7 +116,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 	})
 
-	initialInfo, err := infoService.FetchInfo(t.Context())
+	initialInfo, err := infoService.FetchInfo(t.Context(), 5*time.Second)
 	require.NoError(t, err)
 
 	wg.Go(func() {
