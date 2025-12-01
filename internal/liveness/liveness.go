@@ -64,6 +64,10 @@ func (l *liveness) Ready(ctx context.Context) error {
 		return fmt.Errorf("c-chain indexer delay: %w", err)
 	}
 
+	if l.info == nil {
+		return errors.New("info service not initialized")
+	}
+
 	l.info.RLock()
 	delay := time.Since(l.info.LastUpdated)
 	l.info.RUnlock()

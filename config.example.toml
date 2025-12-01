@@ -34,6 +34,7 @@ external = "6662"
 
 
 [info_timing]
+initial_timeout = "1m"           # 0 for no timeout
 cycle_internal = "10s"
 cycle_queue_response_wait = "2s"
 

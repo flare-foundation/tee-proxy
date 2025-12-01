@@ -23,6 +23,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const infoUpdateTimeout = 30 * time.Second
+
 // Service holds the latest TEE info and manages updating it.
 //
 // When you are accessing Latest or LastUpdate mutex should be used.
@@ -64,7 +66,7 @@ func (s *Service) Run(ctx context.Context) error {
 			logger.Info("tee info storage exiting")
 			return ctx.Err()
 		}
-		err := s.updateInfo(ctx)
+		err := s.updateInfo(ctx, infoUpdateTimeout)
 		if err != nil {
 			errCount++
 		} else {
@@ -78,8 +80,8 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 // FetchInfo updates info and returns the update.
-func (s *Service) FetchInfo(ctx context.Context) (*types.TeeInfoResponse, error) {
-	err := s.updateInfo(ctx)
+func (s *Service) FetchInfo(ctx context.Context, timeout time.Duration) (*types.TeeInfoResponse, error) {
+	err := s.updateInfo(ctx, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +105,7 @@ func getInfoAction(challenge common.Hash) (*types.Action, error) {
 }
 
 // updateInfo updates the latest info by sending a TEE_INFO action to the TEE and waiting for the response.
-func (s *Service) updateInfo(ctx context.Context) error {
+func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
 		return err
@@ -121,7 +123,7 @@ func (s *Service) updateInfo(ctx context.Context) error {
 
 	time.Sleep(s.timingConfig.CycleQueueResponseWait)
 
-	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 30*time.Second) // todo retry
+	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	if err != nil {
 		return err
 	}
