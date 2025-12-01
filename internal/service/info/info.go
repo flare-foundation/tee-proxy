@@ -89,9 +89,9 @@ func (s *Service) FetchInfo(ctx context.Context, timeout time.Duration) (*types.
 	return s.Latest, nil
 }
 
-// getInfoAction returns an action with opType GET, opCommand TEE_INFO,
+// newInfoAction returns an action with opType GET, opCommand TEE_INFO,
 // and challenge in tee info request.
-func getInfoAction(challenge common.Hash) (*types.Action, error) {
+func newInfoAction(challenge common.Hash) (*types.Action, error) {
 	m := types.TeeInfoRequest{
 		Challenge: challenge,
 	}
@@ -111,7 +111,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 		return err
 	}
 
-	action, err := getInfoAction(common.HexToHash(block.Hash))
+	action, err := newInfoAction(common.HexToHash(block.Hash))
 	if err != nil {
 		return err
 	}

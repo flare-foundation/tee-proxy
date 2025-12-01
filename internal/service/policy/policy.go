@@ -108,14 +108,15 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			return
 		case log := <-logsC:
 
-			logger.Debug("updating signing policy from")
+			logger.Debugf("updating signing policy from %d", s.activePolicy.RewardEpochID)
 			action, p, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy)
 			if err != nil {
-				logger.Errorf("creating UPDATE_POLICY action: %s", err)
+				logger.Errorf("creating UPDATE_POLICY action: %v", err)
 				continue
 			}
 
 			s.activePolicy = p
+			logger.Debugf("updated signing policy to %d", s.activePolicy.RewardEpochID)
 
 			out <- *p
 

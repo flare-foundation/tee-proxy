@@ -110,13 +110,13 @@ func (s *Service) RunUpdateInfo(ctx context.Context, trigger, backupTrigger <-ch
 			}
 
 		case <-backupTrigger:
-			logger.Debug("backup triggered")
+			logger.Debug("backups triggered")
 			err := s.InitiateBackups(ctx)
 			if err != nil {
-				logger.Errorf("error creating backup. First error: %v", err)
+				logger.Errorf("error triggering backup. First error: %v", err)
 				continue
 			}
-			logger.Debug("backups done")
+			logger.Debug("backups triggered")
 		}
 	}
 }
