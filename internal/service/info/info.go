@@ -121,9 +121,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 		return err
 	}
 
-	time.Sleep(s.timingConfig.CycleQueueResponseWait)
-
-	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
+	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, s.timingConfig.CycleQueueResponseWait)
 	if err != nil {
 		return err
 	}

@@ -80,7 +80,7 @@ func GenerateWallet(
 	nkc := make(chan *types.ActionResult, 1)
 	btrig := make(chan bool, 1)
 
-	go pc.Ws.RunUpdateInfo(t.Context(), wst, btrig, nkc)
+	go pc.Ws.RunUpdateInfo(t.Context(), wst, btrig, nkc, nil)
 	nkc <- &res.Result
 
 	time.Sleep(500 * time.Millisecond)
@@ -133,7 +133,7 @@ func DeleteWallet(
 	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Wallet, op.KeyDelete, pc.TeeID)
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, nil)
+	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, nil, nil)
 	wst <- true
 
 	time.Sleep(1500 * time.Millisecond)
@@ -278,7 +278,7 @@ func RecoverWallet(
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
-	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, nil)
+	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, nil, nil)
 	wst <- true
 
 	// Check that wallet is actually on the tee

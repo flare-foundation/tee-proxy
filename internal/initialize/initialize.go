@@ -88,7 +88,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	walletsSyncTrigger := make(chan bool, 1)
-	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.WalletSync)
+	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.WalletSync, resultService.Backups)
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, 60*time.Minute)
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses)

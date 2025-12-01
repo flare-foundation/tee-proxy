@@ -20,12 +20,18 @@ import (
 
 const expirationTime = 8 * 24 * time.Hour
 
-// MakeBackups creates backups for all stored keys.
-func (s *Service) MakeBackups(ctx context.Context) error {
+// InitiateBackups triggers TEE_BACKUP action for all stored keys.
+func (s *Service) InitiateBackups(ctx context.Context) error {
 	var eg errgroup.Group
 
 	for key := range s.Keys {
-		eg.Go(func() error { return s.makeBackup(ctx, key) })
+		eg.Go(func() error {
+			err := s.initiateBackup(ctx, key)
+			if err != nil {
+				return fmt.Errorf("initiating backup for key %v: %w", key, err)
+			}
+			return nil
+		})
 	}
 
 	return eg.Wait()
@@ -46,23 +52,13 @@ func (s *Service) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallet
 	return s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 }
 
-func (s *Service) makeBackup(ctx context.Context, id IDPair) error {
+func (s *Service) initiateBackup(ctx context.Context, id IDPair) error {
 	action, err := teeBackupAction(id)
 	if err != nil {
 		return err
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
-	if err != nil {
-		return err
-	}
-
-	result, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, time.Minute)
-	if err != nil {
-		return err
-	}
-
-	err = s.createNewBackup(ctx, &result.Result)
 	if err != nil {
 		return err
 	}
