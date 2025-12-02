@@ -61,7 +61,7 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.
 	}
 }
 
-func (s *Service) RunUpdateInfo(ctx context.Context, trigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult) {
+func (s *Service) RunUpdateInfo(ctx context.Context, trigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -94,22 +94,29 @@ func (s *Service) RunUpdateInfo(ctx context.Context, trigger, backupTrigger <-ch
 				go func() {
 					logger.Debugf("starting backup for %v", id)
 
-					err := s.makeBackup(ctx, id)
+					err := s.initiateBackup(ctx, id)
 					if err != nil {
 						logger.Errorf("making backup for %v: %v", id, err)
 					}
 					logger.Debugf("backup done for %v", id)
 				}()
 			}
-
-		case <-backupTrigger:
-			logger.Debug("backup triggered")
-			err := s.MakeBackups(ctx)
+		case backupResult := <-backups:
+			logger.Debug("storing backup result")
+			err := s.createNewBackup(ctx, backupResult)
 			if err != nil {
-				logger.Errorf("error creating backup. First error: %w", err)
+				logger.Errorf("storing backup result: %v", err)
 				continue
 			}
-			logger.Debug("backups done")
+
+		case <-backupTrigger:
+			logger.Debug("backups triggered")
+			err := s.InitiateBackups(ctx)
+			if err != nil {
+				logger.Errorf("error triggering backup. First error: %v", err)
+				continue
+			}
+			logger.Debug("backups triggered")
 		}
 	}
 }
@@ -170,7 +177,7 @@ func (s *Service) sync(ctx context.Context) error {
 		return err
 	}
 
-	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, time.Minute) // todo: constant
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 3*time.Minute) // todo: constant
 	if err != nil {
 		return err
 	}

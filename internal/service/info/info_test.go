@@ -43,7 +43,7 @@ func TestInsertBlock(t *testing.T) {
 
 	s := NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,
-		CycleQueueResponseWait: 10 * time.Millisecond,
+		CycleQueueResponseWait: 1 * time.Second,
 	})
 
 	go func() {
@@ -89,11 +89,13 @@ func TestInsertBlock(t *testing.T) {
 			Data:          m,
 		},
 	}
+
 	require.NoError(t, err)
 	err = rs.StoreResponse(t.Context(), ar)
 	require.NoError(t, err)
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	require.NotNil(t, s.Latest)
+
 	require.Equal(t, s.Latest.TeeInfo.Challenge, latestBlockHash)
 }

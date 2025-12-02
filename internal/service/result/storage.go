@@ -40,9 +40,9 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		SubmissionTag: response.Result.SubmissionTag,
 	}
 
-	storingDuration := defaultStoringDuration
+	storingDur := defaultStoringDuration
 	if response.Result.SubmissionTag == types.Submit {
-		storingDuration = submitStoringDuration
+		storingDur = submitStoringDuration
 	}
 
 	// do not override final results
@@ -51,7 +51,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		return nil
 	}
 
-	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDuration)
+	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
 	if err != nil {
 		return fmt.Errorf("storing response %s: %v", id.String(), err)
 	}
@@ -80,10 +80,16 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 // If timeout is not positive, it waits until the response arrives.
 // Should only be used if an action with such ID and submission tag has been put into action queue.
 func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
+	sleepDur := time.Second
+
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+
+		if timeout < sleepDur*2 {
+			sleepDur = timeout / 10
+		}
 	}
 	var response *types.ActionResponse
 	var err error
@@ -98,6 +104,6 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 			return response, nil
 		}
 
-		time.Sleep(time.Second)
+		time.Sleep(sleepDur)
 	}
 }

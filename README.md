@@ -1,6 +1,14 @@
-<p align="left">
-  <a href="https://flare.network/" target="blank"><img src="https://content.flare.network/Flare-2.svg" width="500" height="100" alt="Flare Logo" /></a>
-</p>
+<div align="center">
+  <a href="https://flare.network/" target="blank">
+    <img src="https://content.flare.network/Flare-2.svg" width="300" alt="Flare Logo" />
+  </a>
+  <br />
+  <a href="CONTRIBUTING.md">Contributing</a>
+  ·
+  <a href="SECURITY.md">Security</a>
+  ·
+  <a href="CHANGELOG.md">Changelog</a>
+</div>
 
 # Flare TEE proxy
 
@@ -22,21 +30,28 @@ Start the proxy
 ```bash
 go run ./...
 ```
+
 ## Docker
-### Building 
+
+### Building
+
 Clone tee-node and tee-proxy repositories and run the following command
+
 ```bash
-docker build -t {IMAGE_TAG} -f tee-proxy/Dockerfile 
+docker build -t {IMAGE_TAG} -f tee-proxy/Dockerfile
 ```
 
 ### Running
+
 ```bash
 docker run -p 6661:6661 -p 6662:6662 \
   -e PRIVATE_KEY={PRIVATE_KEY} \
   -v {PATH_TO_CONFIG}:/app/config/config.toml \
   {IMAGE_TAG}
 ```
+
 If you have `indexer-db` and `redis` running in docker-compose add the `--network` flag
+
 ```bash
 docker run -p 6661:6661 -p 6662:6662 \
   -e PRIVATE_KEY={PRIVATE_KEY} \

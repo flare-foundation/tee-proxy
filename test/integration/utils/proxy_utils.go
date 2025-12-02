@@ -64,7 +64,7 @@ var StorageTimeConfig = struct {
 }{
 
 	CycleInternal:          50 * time.Millisecond,
-	CycleQueueResponseWait: 10 * time.Millisecond,
+	CycleQueueResponseWait: 10 * time.Second,
 }
 
 func mockDB(t *testing.T) *gorm.DB {

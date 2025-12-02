@@ -21,7 +21,7 @@ const (
 
 	defaultInitialInfoTimeout         = 5 * time.Minute
 	defaultCycleInternal              = 10 * time.Second
-	defaultCycleQueueResponseWait     = 5 * time.Second
+	defaultCycleQueueResponseWait     = 30 * time.Second
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
 	defaultInitialSigningPolicyOffset = 3
 

@@ -20,6 +20,7 @@ type Service struct {
 
 	// A channel to trigger of wallet storage update
 	WalletSync    chan *types.ActionResult
+	Backups       chan *types.ActionResult
 	BackupTrigger chan bool
 
 	teeID common.Address
@@ -27,9 +28,15 @@ type Service struct {
 
 func NewService(rs *ResultStorage) Service {
 	wst := make(chan *types.ActionResult, 10)
+	bst := make(chan *types.ActionResult, 20)
+
 	btt := make(chan bool, 1)
 
-	return Service{rs: rs, WalletSync: wst, BackupTrigger: btt}
+	return Service{
+		rs:            rs,
+		WalletSync:    wst,
+		Backups:       bst,
+		BackupTrigger: btt}
 }
 
 func (s *Service) SetIdentity(teeID common.Address) error {
@@ -62,6 +69,12 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 			case s.WalletSync <- &r.Result:
 			default:
 				logger.Error("wallet synchronization channel full")
+			}
+		case op.TEEBackup.Hash():
+			select {
+			case s.Backups <- &r.Result:
+			default:
+				logger.Error("backup storage channel full")
 			}
 		case op.UpdatePolicy.Hash():
 			select {

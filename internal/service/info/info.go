@@ -23,8 +23,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const infoUpdateTimeout = 30 * time.Second
-
 // Service holds the latest TEE info and manages updating it.
 //
 // When you are accessing Latest or LastUpdate mutex should be used.
@@ -66,7 +64,7 @@ func (s *Service) Run(ctx context.Context) error {
 			logger.Info("tee info storage exiting")
 			return ctx.Err()
 		}
-		err := s.updateInfo(ctx, infoUpdateTimeout)
+		err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
 		if err != nil {
 			errCount++
 		} else {
@@ -89,9 +87,9 @@ func (s *Service) FetchInfo(ctx context.Context, timeout time.Duration) (*types.
 	return s.Latest, nil
 }
 
-// getInfoAction returns an action with opType GET, opCommand TEE_INFO,
+// newInfoAction returns an action with opType GET, opCommand TEE_INFO,
 // and challenge in tee info request.
-func getInfoAction(challenge common.Hash) (*types.Action, error) {
+func newInfoAction(challenge common.Hash) (*types.Action, error) {
 	m := types.TeeInfoRequest{
 		Challenge: challenge,
 	}
@@ -111,7 +109,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 		return err
 	}
 
-	action, err := getInfoAction(common.HexToHash(block.Hash))
+	action, err := newInfoAction(common.HexToHash(block.Hash))
 	if err != nil {
 		return err
 	}
@@ -120,8 +118,6 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 	if err != nil {
 		return err
 	}
-
-	time.Sleep(s.timingConfig.CycleQueueResponseWait)
 
 	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	if err != nil {
