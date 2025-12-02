@@ -23,8 +23,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const infoUpdateTimeout = 30 * time.Second
-
 // Service holds the latest TEE info and manages updating it.
 //
 // When you are accessing Latest or LastUpdate mutex should be used.
@@ -66,7 +64,7 @@ func (s *Service) Run(ctx context.Context) error {
 			logger.Info("tee info storage exiting")
 			return ctx.Err()
 		}
-		err := s.updateInfo(ctx, infoUpdateTimeout)
+		err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
 		if err != nil {
 			errCount++
 		} else {
@@ -121,7 +119,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 		return err
 	}
 
-	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, s.timingConfig.CycleQueueResponseWait)
+	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	if err != nil {
 		return err
 	}
