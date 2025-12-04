@@ -5,7 +5,7 @@ go 1.25.1
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.16.7
-	github.com/flare-foundation/go-flare-common v1.2.1-0.20251111105440-ad9c2ab1c7e6
+	github.com/flare-foundation/go-flare-common v1.2.1-0.20251128132025-cddd560d9723
 	github.com/flare-foundation/tee-node v0.0.1
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
@@ -38,12 +38,6 @@ require (
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-sql-driver/mysql v1.9.3 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
-	github.com/google/go-configfs-tsm v0.3.3 // indirect
-	github.com/google/go-sev-guest v0.13.0 // indirect
-	github.com/google/go-tdx-guest v0.3.2-0.20241009005452-097ee70d0843 // indirect
-	github.com/google/go-tpm v0.9.6 // indirect
-	github.com/google/go-tpm-tools v0.4.5 // indirect
-	github.com/google/logger v1.1.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
@@ -64,7 +58,6 @@ require (
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
-	google.golang.org/protobuf v1.36.9 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect

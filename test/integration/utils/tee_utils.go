@@ -15,7 +15,7 @@ func SetProxyURLOnTEE(t *testing.T, port uint, proxyURL string) {
 	t.Helper()
 
 	request := types.ConfigureProxyURLRequest{
-		URL: proxyURL,
+		URL: &proxyURL,
 	}
 
 	body, err := json.Marshal(request)
