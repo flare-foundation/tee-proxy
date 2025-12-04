@@ -218,15 +218,16 @@ func TestStatus(t *testing.T) {
 	iHash, err = iData2.HashFixed()
 	require.NoError(t, err)
 
-	if status.Status[0].InstructionHash == iHash {
+	switch iHash {
+	case status.Status[0].InstructionHash:
 		require.Equal(t, status.Status[0].Finalized, false)
 		require.Equal(t, status.Status[0].Deleted, false)
 		require.Equal(t, status.Status[0].Weight, uint16(3))
-	} else if status.Status[1].InstructionHash == iHash {
+	case status.Status[1].InstructionHash:
 		require.Equal(t, status.Status[1].Finalized, false)
 		require.Equal(t, status.Status[1].Deleted, false)
 		require.Equal(t, status.Status[1].Weight, uint16(3))
-	} else {
+	default:
 		require.Fail(t, "unexpected instruction hash")
 	}
 }
@@ -378,6 +379,8 @@ func createBaseInstructionData(testName string, teeID common.Address) *instructi
 
 // Helper function to sign an instruction with a given private key
 func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.PrivateKey) *instruction.Instruction {
+	t.Helper()
+
 	hash, err := iData.HashForSigning()
 	require.NoError(t, err)
 
@@ -405,6 +408,8 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "WrongTeeID_400",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				t.Helper()
+
 				iData := createBaseInstructionData("test_wrong_tee_id", teeID)
 				iData.TeeID = common.HexToAddress("wrong") // Wrong teeID
 				return signInstruction(t, iData, testutil.PrivKey1)
@@ -415,6 +420,8 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "NonExistentRewardEpoch_404",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				t.Helper()
+
 				iData := createBaseInstructionData("test_nonexistent_epoch", teeID)
 				iData.RewardEpochID = 999 // Non-existent epoch
 				return signInstruction(t, iData, testutil.PrivKey1)
@@ -425,6 +432,8 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "VoterNotInSigningPolicy_403",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				t.Helper()
+
 				iData := createBaseInstructionData("test_invalid_voter", teeID)
 				randomKey, err := crypto.GenerateKey()
 				require.NoError(t, err)
@@ -436,6 +445,8 @@ func TestVotingStorageErrors(t *testing.T) {
 		{
 			name: "AlreadyVotedSigner_403",
 			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
+				t.Helper()
+
 				iData := createBaseInstructionData("test_duplicate_vote", teeID)
 				inst := signInstruction(t, iData, testutil.PrivKey1)
 
@@ -469,6 +480,8 @@ func TestVotingStorageErrors(t *testing.T) {
 }
 
 func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service, *ecdsa.PrivateKey) {
+	t.Helper()
+
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 

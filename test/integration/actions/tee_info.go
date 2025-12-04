@@ -19,6 +19,8 @@ import (
 )
 
 func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochID uint32) {
+	t.Helper()
+
 	challenge, err := rand.Int(rand.Reader, new(big.Int).Exp(big.NewInt(2), big.NewInt(256), nil))
 	require.NoError(t, err)
 

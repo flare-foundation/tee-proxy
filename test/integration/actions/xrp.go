@@ -17,8 +17,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func SignTransaction(t *testing.T, pc *utils.ProxyConfig, teeID common.Address, paymentInstruction payment.ITeePaymentsPaymentInstructionMessage,
-	privKeys []*ecdsa.PrivateKey, rewardEpochID uint32) *types.ActionResponse {
+func SignTransaction(
+	t *testing.T,
+	pc *utils.ProxyConfig,
+	teeID common.Address,
+	paymentInstruction payment.ITeePaymentsPaymentInstructionMessage,
+	privKeys []*ecdsa.PrivateKey,
+	rewardEpochID uint32,
+) *types.ActionResponse {
+	t.Helper()
+
 	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[op.Pay]}.Pack(paymentInstruction)
 	require.NoError(t, err)
 

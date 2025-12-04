@@ -2,15 +2,18 @@ package testutil
 
 import (
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"testing"
-	"time"
 )
 
 func InMemoryDB(t *testing.T, name string) (*gorm.DB, string) {
+	t.Helper()
+
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", name)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {

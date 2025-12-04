@@ -64,6 +64,8 @@ const MyOp op.Type = "MyOp"
 const MyCommand op.Command = "MyCommand"
 
 func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privKeys []*ecdsa.PrivateKey, rewardEpochID uint32) {
+	t.Helper()
+
 	timestamp := uint64(time.Now().Unix())
 	iData := integrationUtils.BuildInstructionData(t, MyOp, MyCommand, []byte("asdfasdf"), timestamp, nil, nil, nil, 0, pc.TeeID, rewardEpochID)
 

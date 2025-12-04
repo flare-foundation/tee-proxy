@@ -38,6 +38,8 @@ func GenerateWallet(
 	adminWalletPublicKeys []commonwallet.PublicKey,
 	rewardEpochID uint32,
 ) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+	t.Helper()
+
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyGenerate{
 		TeeId:       teeID,
 		WalletId:    walletID,
@@ -112,6 +114,8 @@ func DeleteWallet(
 	rewardEpochID uint32,
 	nonce *big.Int,
 ) {
+	t.Helper()
+
 	originalMessage := commonwallet.ITeeWalletKeyManagerKeyDelete{
 		TeeId:    pc.TeeID,
 		WalletId: walletID,
@@ -163,6 +167,8 @@ func RecoverWallet(
 	nonce *big.Int,
 	walletBackup *backup.WalletBackup,
 ) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+	t.Helper()
+
 	tpk := types.PubKeyToStruct(pc.TeePubKey)
 	teePK := commonwallet.PublicKey{
 		X: tpk.X,

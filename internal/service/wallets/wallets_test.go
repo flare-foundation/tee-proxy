@@ -105,7 +105,7 @@ func TestNewKey(t *testing.T) {
 	_, err = str.KeyData(walletID, 1)
 	require.Error(t, err)
 
-	//wallet does not exist
+	// wallet does not exist
 	_, err = str.WalletInfo(common.BytesToHash([]byte("nonexistent")))
 	require.Error(t, err)
 

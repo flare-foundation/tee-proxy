@@ -95,6 +95,8 @@ func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochID uint32, voters []
 }
 
 func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletID [32]byte, keyID uint64, teeID common.Address) *backup.WalletBackup {
+	t.Helper()
+
 	message := &wallets.KeyIDPair{
 		WalletID: walletID,
 		KeyID:    keyID,

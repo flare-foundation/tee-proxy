@@ -30,11 +30,11 @@ import (
 type IDPair = wallets.KeyIDPair
 
 type Service struct {
-	KeysForWallet map[common.Hash][]uint64
-	Keys          map[IDPair]*pkgwallets.KeyData
+	KeysForWallet map[common.Hash][]uint64       // slice of keyIDs per walletID
+	Keys          map[IDPair]*pkgwallets.KeyData // key data per IDPair
 
-	index   *storage.Storage[common.Hash]
-	backups *storage.Storage[*wallets.TEEBackupResponse]
+	index   *storage.Storage[common.Hash]                // latest backup ID hash per IDPair
+	backups *storage.Storage[*wallets.TEEBackupResponse] // backups per backupIDHash
 
 	aq *queue.ActionQueues
 	rs *result.ResultStorage

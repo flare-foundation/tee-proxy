@@ -68,6 +68,8 @@ var StorageTimeConfig = struct {
 }
 
 func mockDB(t *testing.T) *gorm.DB {
+	t.Helper()
+
 	db, _ := testutil.InMemoryDB(t, "choose")
 	err := db.AutoMigrate(&database.Block{})
 	require.NoError(t, err)

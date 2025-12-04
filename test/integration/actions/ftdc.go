@@ -107,6 +107,8 @@ func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provider
 
 // GetAdditionalFixedMessage returns the additional fixed message, the variable messages (signatures) and the private keys for the provider and cosigner
 func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [32]byte, originalMessage connector.IFtdcHubFtdcAttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
+	t.Helper()
+
 	additionalFixedMessage := verification.ITeeVerificationTeeAttestation{
 		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
 			TeeId:        pc.TeeID,

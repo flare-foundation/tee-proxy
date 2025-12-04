@@ -21,6 +21,8 @@ linters:
     - unconvert
     - whitespace
 
+    - thelper
+
   settings:
     exhaustive:
       default-signifies-exhaustive: true

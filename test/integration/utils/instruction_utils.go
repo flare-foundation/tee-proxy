@@ -249,6 +249,8 @@ func VerifyReceiptsForMultipleInstructions(t *testing.T, receipts []*voting.Sign
 
 // VerifyActionResponse Verifies the action response against expected values and checks the signature
 func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeID common.Address) {
+	t.Helper()
+
 	require.Equal(t, uint8(1), res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
 	require.Equal(t, opType.Hash(), res.Result.OPType)
@@ -260,6 +262,8 @@ func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag
 
 // VerifyVotingStatus Verifies number of cosigners, cosigners threshold, finalized and weight of the VoteStatus
 func VerifyVotingStatus(t *testing.T, statuses *voting.Statuses, nCosigners, cosignersThreshold, threshold uint16) {
+	t.Helper()
+
 	require.Equal(t, 1, len(statuses.Status))
 	require.Equal(t, nCosigners, statuses.Status[0].Cosigners)
 
@@ -290,6 +294,8 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash,
 
 // FetchAndVerifyRewardingData Fetches rewarding data and verifies the action response and vote sequence
 func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID common.Hash, opType op.Type, opCommand op.Command, receipts []*voting.SignedReceipt) {
+	t.Helper()
+
 	res := FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.End, opType, opCommand, pc.TeeID)
 
 	rewData := new(types.RewardingData)

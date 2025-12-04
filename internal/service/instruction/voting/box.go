@@ -187,17 +187,6 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	return a, nil
 }
 
-// delete clears VoteBox and sets it's deleted status to true.
-// Mutex must be handled by the calling function.
-func (vb *voteBox) delete() {
-	vb.proposal.cosigners = nil
-	vb.proposal.instruction = nil
-
-	vb.votes = nil
-
-	vb.deleted = true
-}
-
 // Status returns the current status of the box.
 func (vb *voteBox) Status(hash common.Hash) voting.Status {
 	vb.RLock()
@@ -220,6 +209,17 @@ func (vb *voteBox) Status(hash common.Hash) voting.Status {
 		Cosigners:          vb.cosignerWeight,
 		CosignersThreshold: cosignersThreshold,
 	}
+}
+
+// delete clears VoteBox and sets it's deleted status to true.
+// Mutex must be handled by the calling function.
+func (vb *voteBox) delete() {
+	vb.proposal.cosigners = nil
+	vb.proposal.instruction = nil
+
+	vb.votes = nil
+
+	vb.deleted = true
 }
 
 // addVote adds vote to a VoteBox and returns a Receipt and a boolean indicator of finalization,
