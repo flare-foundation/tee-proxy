@@ -102,7 +102,7 @@ func (s *Storage[T]) GetWithTTL(ctx context.Context, key string) (T, time.Durati
 		return value, 0, err
 	}
 
-	ttl, err := s.client.TTL(ctx, key).Result()
+	ttl, err := s.client.TTL(ctx, s.prefix(key)).Result()
 	return value, ttl, err
 }
 
