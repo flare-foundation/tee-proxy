@@ -24,6 +24,9 @@ const expirationTime = 8 * 24 * time.Hour
 func (s *Service) InitiateBackups(ctx context.Context) error {
 	var eg errgroup.Group
 
+	s.RLock()
+	defer s.RUnlock()
+
 	for key := range s.Keys {
 		eg.Go(func() error {
 			err := s.initiateBackup(ctx, key)
