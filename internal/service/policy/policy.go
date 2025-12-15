@@ -68,10 +68,7 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 
 	startID := s.activePolicy.RewardEpochID + 1
 
-	logChan, err := signingPolicyInitializedEventsListener(ctx, db, s.scAddresses.Relay, startID, policyFetchInterval)
-	if err != nil {
-		return nil, err
-	}
+	logChan := signingPolicyInitializedEventsListener(ctx, db, s.scAddresses.Relay, startID, policyFetchInterval)
 
 	pChan := make(chan cpolicy.SigningPolicy, 1)
 	if s.activePolicy != nil {
@@ -135,7 +132,7 @@ func signingPolicyInitializedEventsListener(
 	relayAddress common.Address,
 	startPolicyID uint32,
 	fetchInterval time.Duration,
-) (<-chan database.Log, error) {
+) <-chan database.Log {
 	out := make(chan database.Log, 1)
 
 	policyID := startPolicyID
@@ -177,5 +174,5 @@ func signingPolicyInitializedEventsListener(
 		}
 	}()
 
-	return out, nil
+	return out
 }

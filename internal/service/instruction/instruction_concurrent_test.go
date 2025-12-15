@@ -23,7 +23,7 @@ import (
 // Note: Even when starting the two threads at the same time, the first thread will be processed faster so we don't really create the best race condition here.
 func TestConcurrentVoteBoxCreation(t *testing.T) {
 	teeID := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -43,22 +43,18 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 	results := make(chan error, 2)
 
 	// Launch first goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-startChan // Wait for signal to start
 		_, err := s.ServeInstruction(context.Background(), inst1)
 		results <- err
-	}()
+	})
 
 	// Launch second goroutine
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-startChan // Wait for signal to start
 		_, err := s.ServeInstruction(context.Background(), inst2)
 		results <- err
-	}()
+	})
 
 	// Start both goroutines simultaneously
 	close(startChan)
@@ -68,7 +64,7 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 	close(results)
 
 	// Collect results
-	var errors []error
+	errors := make([]error, 0, len(results))
 	for err := range results {
 		errors = append(errors, err)
 	}
@@ -93,7 +89,7 @@ func TestConcurrentVoteBoxCreation(t *testing.T) {
 // This test specifically focuses on ensuring no duplicate vote boxes are created.
 func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	teeID := common.HexToAddress("sameInstIDDiffHash")
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -111,13 +107,13 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 		baseData *instruction.Data
 	}
 
-	var instructionPairs []instructionPair
+	instructionPairs := make([]instructionPair, 0, numPairs)
 
 	// Create pairs where each pair has:
 	// 1. Same InstructionID (will compete for the same voteBoxes map slot)
 	// 2. Different FixedVariableMessage (will create different hashes, different vote boxes)
-	for i := 0; i < numPairs; i++ {
-		baseInstID := crypto.Keccak256Hash([]byte(fmt.Sprintf("race_test_pair_%d", i)))
+	for i := range numPairs {
+		baseInstID := crypto.Keccak256Hash(fmt.Appendf(nil, "race_test_pair_%d", i))
 
 		// Create base instruction data with unique InstructionID for this pair
 		iData := &instruction.Data{
@@ -164,21 +160,21 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 	for _, pair := range instructionPairs {
 		// Launch first instruction of the pair
 		wg.Add(1)
-		go func(p instructionPair, inst *instruction.Instruction, instID string) {
+		go func(inst *instruction.Instruction) {
 			defer wg.Done()
 			<-startChan // Wait for signal to start
-			_, err := s.ServeInstruction(context.Background(), inst)
+			_, err := s.ServeInstruction(t.Context(), inst)
 			require.NoError(t, err)
-		}(pair, pair.inst1, "inst1")
+		}(pair.inst1)
 
 		// Launch second instruction of the pair
 		wg.Add(1)
-		go func(p instructionPair, inst *instruction.Instruction, instID string) {
+		go func(inst *instruction.Instruction) {
 			defer wg.Done()
 			<-startChan // Wait for signal to start
-			_, err := s.ServeInstruction(context.Background(), inst)
+			_, err := s.ServeInstruction(t.Context(), inst)
 			require.NoError(t, err)
-		}(pair, pair.inst2, "inst2")
+		}(pair.inst2)
 	}
 
 	// Start all goroutines simultaneously to maximize race condition probability
@@ -213,7 +209,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 
 func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 	teeID := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.MockSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -224,9 +220,9 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 	iData := createBaseInstructionData("high_load_same", teeID)
 
 	// Create different signatures for the same instruction
-	var instructions []*instruction.Instruction
+	instructions := make([]*instruction.Instruction, 0, numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		dataVariation := *iData
 		dataVariation.AdditionalVariableMessage = hexutil.Bytes([]byte{byte(i)})
 		inst := signInstruction(t, &dataVariation, testutil.MockPrivKeys[i])
@@ -239,7 +235,7 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 	results := make(chan error, numGoroutines)
 
 	// Launch multiple goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(inst *instruction.Instruction) {
 			defer wg.Done()
@@ -255,7 +251,8 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 	close(results)
 
 	// Collect and analyze results
-	var errors []error
+	errors := make([]error, 0, len(results))
+
 	successCount := 0
 	duplicateCount := 0
 
@@ -264,7 +261,6 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 		if err == nil {
 			successCount++
 		} else if strings.Contains(err.Error(), "signature already stored") {
-			//TODO:  -
 			duplicateCount++
 		} else {
 			t.Errorf("Error: %v", err)
@@ -307,12 +303,12 @@ func TestConcurrentVoteBoxCreationHighLoad(t *testing.T) {
 
 func TestConcurrentThresholdFinalization(t *testing.T) {
 	teeID := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
 	// Start the Forward method to process threshold events
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go func() {
@@ -349,21 +345,17 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	startChan := make(chan struct{})
 
 	// Launch both threshold-crossing votes simultaneously
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-startChan
 		_, err := s.ServeInstruction(context.Background(), inst2)
 		require.NoError(t, err)
-	}()
+	})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		<-startChan
 		_, err := s.ServeInstruction(context.Background(), inst3)
 		require.NoError(t, err)
-	}()
+	})
 
 	// Start both goroutines simultaneously
 	close(startChan)
@@ -406,12 +398,12 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 	policy, privKeys := testutil.GeneratePolicy(n, false)
 
 	teeID := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeID, policy)
+	mr, c, s := setupInstructionService(t, teeID, policy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
 	// Start the Forward method to process threshold events
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go func() {

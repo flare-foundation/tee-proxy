@@ -71,11 +71,11 @@ func TestLiveness(t *testing.T) {
 	mLiveness := livenessHandlers{&ml}
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthy", nil)
+	req := httptest.NewRequest(http.MethodGet, "/healthy", nil)
 	mLiveness.healthy(rr, req)
 	require.Equal(t, http.StatusOK, rr.Result().StatusCode)
 
-	req = httptest.NewRequest("GET", "/ready", nil)
+	req = httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rr = httptest.NewRecorder()
 
 	mLiveness.ready(rr, req)
@@ -85,14 +85,14 @@ func TestLiveness(t *testing.T) {
 	require.Equal(t, notReady+"\n", reason)
 
 	ml.ready = true
-	req = httptest.NewRequest("GET", "/ready", nil)
+	req = httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rr = httptest.NewRecorder()
 
 	mLiveness.ready(rr, req)
 	require.Equal(t, http.StatusOK, rr.Result().StatusCode)
 
 	ml.startup = false
-	req = httptest.NewRequest("GET", "/startup", nil)
+	req = httptest.NewRequest(http.MethodGet, "/startup", nil)
 	rr = httptest.NewRecorder()
 
 	mLiveness.startup(rr, req)
@@ -102,7 +102,7 @@ func TestLiveness(t *testing.T) {
 	require.Equal(t, notStarted+"\n", reason)
 
 	ml.startup = true
-	req = httptest.NewRequest("GET", "/startup", nil)
+	req = httptest.NewRequest(http.MethodGet, "/startup", nil)
 	rr = httptest.NewRecorder()
 
 	mLiveness.startup(rr, req)

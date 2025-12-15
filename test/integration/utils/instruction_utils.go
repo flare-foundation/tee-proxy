@@ -110,7 +110,7 @@ func SignAndSendInstruction(t *testing.T, iData *instruction.Data, privKey *ecds
 func SignAndSendInstructions(t *testing.T, iData *instruction.Data, privKeys []*ecdsa.PrivateKey, port uint) []*voting.SignedReceipt {
 	t.Helper()
 
-	var responses []*voting.SignedReceipt
+	responses := make([]*voting.SignedReceipt, 0, len(privKeys))
 	for _, key := range privKeys {
 		response := signAndSendSingleInstruction(t, iData, key, port)
 		responses = append(responses, response)
@@ -126,8 +126,8 @@ func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data
 		require.Equal(t, len(additionalVariableMessage), len(privKeys))
 	}
 
-	instructions := make([]instruction.Data, 0)
-	var receipts []*voting.SignedReceipt
+	instructions := make([]instruction.Data, 0, len(privKeys))
+	receipts := make([]*voting.SignedReceipt, 0, len(privKeys))
 	for i, key := range privKeys {
 		iData := *iData
 

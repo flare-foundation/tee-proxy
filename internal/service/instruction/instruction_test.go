@@ -28,7 +28,7 @@ import (
 func TestVoting(t *testing.T) {
 	teeID := common.HexToAddress("dead")
 
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
@@ -105,7 +105,7 @@ func TestVoting(t *testing.T) {
 func TestStatus(t *testing.T) {
 	teeID := common.HexToAddress("dead")
 
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
@@ -234,7 +234,7 @@ func TestStatus(t *testing.T) {
 
 func TestOPTypeOPCommandValidation(t *testing.T) {
 	teeID := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -295,7 +295,9 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 	invalidPairCount := 0
 
 	// Helper function to create and test an instruction
-	testInstruction := func(name string, opType, opCommand common.Hash, description string) (*instruction.Instruction, error) {
+	testInstruction := func(t *testing.T, name string, opType, opCommand common.Hash) error {
+		t.Helper()
+
 		iData := &instruction.Data{
 			DataFixed: instruction.DataFixed{
 				InstructionID:          crypto.Keccak256Hash([]byte("test_" + name)),
@@ -322,13 +324,13 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 		}
 
 		_, err = s.ServeInstruction(context.Background(), inst)
-		return inst, err
+		return err
 	}
 
 	// Test valid combinations - these should pass
 	t.Log("Testing valid opType/opCommand combinations...")
 	for _, tc := range validTestCases {
-		_, err := testInstruction(tc.name, tc.opType, tc.opCommand, tc.description)
+		err := testInstruction(t, tc.name, tc.opType, tc.opCommand)
 		require.NoError(t, err, "Expected valid combination to pass: %s (%s)", tc.name, tc.description)
 		validCount++
 	}
@@ -336,7 +338,7 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 	// Test constraint violations - these should fail with "non instruction opCommand" error
 	t.Log("Testing constraint violation cases...")
 	for _, tc := range constraintViolationTestCases {
-		_, err := testInstruction(tc.name, tc.opType, tc.opCommand, tc.description)
+		err := testInstruction(t, tc.name, tc.opType, tc.opCommand)
 		require.Error(t, err, "Expected constraint violation to fail: %s (%s)", tc.name, tc.description)
 		require.Contains(t, err.Error(), "non instruction opCommand", "Expected 'non instruction opCommand' error for: %s", tc.name)
 		require.Contains(t, err.Error(), "'bad request'", "Expected 400 status code error for: %s", tc.name)
@@ -346,7 +348,7 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 	// Test invalid pairs - these should fail with "invalid pair opType, opCommand" error
 	t.Log("Testing invalid opType/opCommand pair cases...")
 	for _, tc := range invalidPairTestCases {
-		_, err := testInstruction(tc.name, tc.opType, tc.opCommand, tc.description)
+		err := testInstruction(t, tc.name, tc.opType, tc.opCommand)
 		require.Error(t, err, "Expected invalid pair to fail: %s (%s)", tc.name, tc.description)
 		require.Contains(t, err.Error(), "invalid pair opType, opCommand", "Expected 'invalid pair opType, opCommand' error for: %s", tc.name)
 		require.Contains(t, err.Error(), "'bad request'", "Expected 400 status code error for: %s", tc.name)
@@ -395,7 +397,7 @@ func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.Pr
 
 func TestVotingStorageErrors(t *testing.T) {
 	teeID := common.HexToAddress("dead")
-	mr, c, s, _ := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
@@ -479,7 +481,7 @@ func TestVotingStorageErrors(t *testing.T) {
 	t.Logf("Successfully validated %d voting storage error scenarios", len(testCases))
 }
 
-func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service, *ecdsa.PrivateKey) {
+func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service) {
 	t.Helper()
 
 	mr := miniredis.RunT(t)
@@ -507,7 +509,7 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 		privKey:  sk4,
 	}
 
-	return mr, c, s, sk4
+	return mr, c, s
 }
 
 type testMeta struct{}

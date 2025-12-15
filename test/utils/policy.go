@@ -75,7 +75,7 @@ func EncodeSigningPolicy(policy *relay.RelaySigningPolicyInitialized) ([]byte, e
 	pos += 32
 
 	// Write voters and weights
-	for i := 0; i < len(voters); i++ {
+	for i := range voters {
 		// Write voter address (20 bytes)
 		copy(result[pos:], voters[i][:])
 		pos += 20
