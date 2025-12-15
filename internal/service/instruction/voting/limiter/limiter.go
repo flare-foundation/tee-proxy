@@ -19,7 +19,7 @@ type Limiter struct {
 	sync.RWMutex
 }
 
-// ValidatorState tracks the counts for a single validator.
+// State tracks the counts for a voter.
 type State struct {
 	// Address common.Address
 	pending uint

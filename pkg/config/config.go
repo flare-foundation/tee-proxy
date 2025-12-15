@@ -59,7 +59,7 @@ type Voting struct {
 	MaxPendingRequests uint          `toml:"max_pending_request"` // if not positive, it defaults to 100.
 }
 
-// setDefault sets default values if applicable.
+// SetDefault sets default values if applicable.
 func (v *Voting) SetDefault() *Voting {
 	if v == nil {
 		v = new(Voting)

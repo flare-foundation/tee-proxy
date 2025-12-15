@@ -15,7 +15,7 @@ type Queue[T any] interface {
 	QueueLength(ctx context.Context) (int64, error)
 }
 
-// New creates a new Storage with the Redis client and storing key prefix.
+// NewQueue creates a new Storage with the Redis client and storing key prefix that is used as a queue.
 func NewQueue[T any](keyPrefix string, client *redis.Client) Queue[T] {
 	return &Storage[T]{
 		client:    client,
