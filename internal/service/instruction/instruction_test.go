@@ -397,78 +397,57 @@ func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.Pr
 
 func TestVotingStorageErrors(t *testing.T) {
 	teeID := common.HexToAddress("dead")
-	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
-	defer mr.Close()
-	defer c.Close() //nolint:errcheck
+	baseInstruction := createBaseInstructionData("test_errors", teeID)
+
+	// Generate a key that is not part of the signing policy
+	invalidVoterKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
 
 	testCases := []struct {
 		name           string
-		setupFunc      func(t *testing.T, s *Service) *instruction.Instruction
+		instruction    *instruction.Instruction
 		expectedError  string
 		expectedStatus string
 	}{
 		{
 			name: "WrongTeeID_400",
-			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				t.Helper()
-
-				iData := createBaseInstructionData("test_wrong_tee_id", teeID)
-				iData.TeeID = common.HexToAddress("wrong") // Wrong teeID
-				return signInstruction(t, iData, testutil.PrivKey1)
-			},
+			instruction: func() *instruction.Instruction {
+				iData := *baseInstruction
+				iData.TeeID = common.HexToAddress("wrong")
+				return signInstruction(t, &iData, testutil.PrivKey1)
+			}(),
 			expectedError:  "wrong teeID",
 			expectedStatus: "'bad request'",
 		},
 		{
 			name: "NonExistentRewardEpoch_404",
-			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				t.Helper()
-
-				iData := createBaseInstructionData("test_nonexistent_epoch", teeID)
-				iData.RewardEpochID = 999 // Non-existent epoch
-				return signInstruction(t, iData, testutil.PrivKey1)
-			},
+			instruction: func() *instruction.Instruction {
+				iData := *baseInstruction
+				iData.RewardEpochID = 999
+				return signInstruction(t, &iData, testutil.PrivKey1)
+			}(),
 			expectedError:  "no round 999",
 			expectedStatus: "'not found'",
 		},
 		{
 			name: "VoterNotInSigningPolicy_403",
-			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				t.Helper()
-
-				iData := createBaseInstructionData("test_invalid_voter", teeID)
-				randomKey, err := crypto.GenerateKey()
-				require.NoError(t, err)
-				return signInstruction(t, iData, randomKey) // Use key not in signing policy
-			},
+			instruction: func() *instruction.Instruction {
+				iData := *baseInstruction
+				return signInstruction(t, &iData, invalidVoterKey)
+			}(),
 			expectedError:  "cannot initialize voting",
-			expectedStatus: "'forbidden'",
-		},
-		{
-			name: "AlreadyVotedSigner_403",
-			setupFunc: func(t *testing.T, s *Service) *instruction.Instruction {
-				t.Helper()
-
-				iData := createBaseInstructionData("test_duplicate_vote", teeID)
-				inst := signInstruction(t, iData, testutil.PrivKey1)
-
-				// Process the instruction once (should succeed)
-				_, err := s.ServeInstruction(context.Background(), inst)
-				require.NoError(t, err, "First vote should succeed")
-
-				// Return the same instruction to try voting again
-				return inst
-			},
-			expectedError:  "signature already stored",
 			expectedStatus: "'forbidden'",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instruction := tc.setupFunc(t, s)
+			// Setup a fresh service for each test case to ensure isolation
+			mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+			defer mr.Close()
+			defer c.Close() //nolint:errcheck
 
-			_, err := s.ServeInstruction(context.Background(), instruction)
+			_, err := s.ServeInstruction(context.Background(), tc.instruction)
 
 			require.Error(t, err, "Expected error for %s", tc.name)
 			require.Contains(t, err.Error(), tc.expectedError, "Expected specific error message for %s", tc.name)
@@ -478,7 +457,25 @@ func TestVotingStorageErrors(t *testing.T) {
 		})
 	}
 
-	t.Logf("Successfully validated %d voting storage error scenarios", len(testCases))
+	// Test for duplicate vote separately as it requires state modification
+	t.Run("AlreadyVotedSigner_403", func(t *testing.T) {
+		mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+		defer mr.Close()
+		defer c.Close() //nolint:errcheck
+
+		inst := signInstruction(t, baseInstruction, testutil.PrivKey1)
+
+		// Process the instruction once (should succeed)
+		_, err := s.ServeInstruction(context.Background(), inst)
+		require.NoError(t, err, "First vote should succeed")
+
+		// Try to process the same instruction again (should fail)
+		_, err = s.ServeInstruction(context.Background(), inst)
+		require.Error(t, err, "Expected error for duplicate vote")
+		require.Contains(t, err.Error(), "signature already stored", "Expected specific error message")
+		require.Contains(t, err.Error(), "'forbidden'", "Expected specific status code")
+		t.Logf("✓ AlreadyVotedSigner_403: Got expected error: %v", err)
+	})
 }
 
 func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service) {
