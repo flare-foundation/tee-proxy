@@ -23,10 +23,12 @@ const (
 	Results = "Results"
 )
 
+// ResultStorage provides methods for storing and retrieving action responses.
 type ResultStorage struct {
 	s *storage.Storage[*types.ActionResponse]
 }
 
+// NewStorage creates a new ResultStorage via a provided Redis client.
 func NewStorage(client *redis.Client) *ResultStorage {
 	return &ResultStorage{
 		storage.New[*types.ActionResponse](Results, client),

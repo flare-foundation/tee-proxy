@@ -15,6 +15,12 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
+const (
+	walletSyncChanSize    = 10
+	backupsChanSize       = 20
+	backupTriggerChanSize = 1
+)
+
 type Service struct {
 	rs *ResultStorage
 
@@ -26,17 +32,18 @@ type Service struct {
 	teeID common.Address
 }
 
-func NewService(rs *ResultStorage) Service {
-	wst := make(chan *types.ActionResult, 10)
-	bst := make(chan *types.ActionResult, 20)
+func NewService(rs *ResultStorage) *Service {
+	wst := make(chan *types.ActionResult, walletSyncChanSize)
+	bst := make(chan *types.ActionResult, backupsChanSize)
 
-	btt := make(chan bool, 1)
+	btt := make(chan bool, backupTriggerChanSize)
 
-	return Service{
+	return &Service{
 		rs:            rs,
 		WalletSync:    wst,
 		Backups:       bst,
-		BackupTrigger: btt}
+		BackupTrigger: btt,
+	}
 }
 
 func (s *Service) SetIdentity(teeID common.Address) error {

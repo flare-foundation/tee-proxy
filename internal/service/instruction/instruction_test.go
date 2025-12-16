@@ -485,11 +485,13 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 	c := storage.NewClient(mr.Addr())
 
 	vCfg := &config.Voting{
-		ProposalExpiration: 0,
-		MaxPendingRequests: 0,
+		ProposalExpiration:  0,
+		MaxPendingRequests:  0,
+		HistorySize:         3,
+		FinalizedBufferSize: 3,
 	}
 
-	vs := voting.NewStorage(vCfg, 3, &testMeta{}, 3)
+	vs := voting.NewStorage(vCfg, &testMeta{})
 	vs.StoreNewRound(sp)
 
 	sk4, err := crypto.GenerateKey()

@@ -32,7 +32,7 @@ type Service struct {
 }
 
 func NewService(votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
-	vs := voting.NewStorage(votingCfg, 3, meta, 10) // todo size
+	vs := voting.NewStorage(votingCfg, meta) // todo size
 
 	return Service{
 		teeID: teeID,

@@ -50,13 +50,13 @@ type Storage struct {
 	Out chan *types.Action
 }
 
-func NewStorage(config *config.Voting, size int, meta meta.Meta, outSize int) *Storage {
-	out := make(chan *types.Action, outSize)
+func NewStorage(config *config.Voting, meta meta.Meta) *Storage {
+	out := make(chan *types.Action, config.FinalizedBufferSize)
 
 	config = config.SetDefault()
 
 	return &Storage{
-		Cyclic: storage.New[uint32, *Round](size),
+		Cyclic: storage.New[uint32, *Round](config.HistorySize),
 		config: *config,
 		meta:   meta,
 		Out:    out,

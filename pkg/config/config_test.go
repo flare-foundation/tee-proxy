@@ -100,8 +100,10 @@ func TestConfig(t *testing.T) {
 		{
 			before: Voting{},
 			after: Voting{
-				ProposalExpiration: defaultProposalExpiration,
-				MaxPendingRequests: defaultMaxPendingRequests,
+				ProposalExpiration:  defaultProposalExpiration,
+				MaxPendingRequests:  defaultMaxPendingRequests,
+				HistorySize:         defaultVotingHistorySize,
+				FinalizedBufferSize: defaultFinalizedBufferSize,
 			},
 		},
 		{
@@ -110,28 +112,38 @@ func TestConfig(t *testing.T) {
 				MaxPendingRequests: 1,
 			},
 			after: Voting{
-				ProposalExpiration: 1,
-				MaxPendingRequests: 1,
+				ProposalExpiration:  1,
+				MaxPendingRequests:  1,
+				HistorySize:         defaultVotingHistorySize,
+				FinalizedBufferSize: defaultFinalizedBufferSize,
 			},
 		},
 		{
 			before: Voting{
-				ProposalExpiration: -10,
-				MaxPendingRequests: 1,
+				ProposalExpiration:  -10,
+				MaxPendingRequests:  1,
+				HistorySize:         1,
+				FinalizedBufferSize: 1,
 			},
 			after: Voting{
-				ProposalExpiration: defaultProposalExpiration,
-				MaxPendingRequests: 1,
+				ProposalExpiration:  defaultProposalExpiration,
+				MaxPendingRequests:  1,
+				HistorySize:         defaultVotingHistorySize,
+				FinalizedBufferSize: 1,
 			},
 		},
 		{
 			before: Voting{
-				ProposalExpiration: 10,
-				MaxPendingRequests: 0,
+				ProposalExpiration:  10,
+				MaxPendingRequests:  0,
+				HistorySize:         3,
+				FinalizedBufferSize: 1,
 			},
 			after: Voting{
-				ProposalExpiration: 10,
-				MaxPendingRequests: defaultMaxPendingRequests,
+				ProposalExpiration:  10,
+				MaxPendingRequests:  defaultMaxPendingRequests,
+				HistorySize:         3,
+				FinalizedBufferSize: 1,
 			},
 		},
 	}

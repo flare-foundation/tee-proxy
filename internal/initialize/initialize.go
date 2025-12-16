@@ -64,7 +64,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	livenessService := liveness.New(db, redisClient, infoService)
 	defer livenessService.SignalStartupFinished()
 
-	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, &resultService, &walletService, &livenessService)
+	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
 	go internalServer.Serve() //nolint:errcheck // todo
 
 	*infoService = info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
@@ -102,11 +102,11 @@ func Initialize(ctx context.Context, cfgPath string) {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
-	meta := meta.New(&walletService)
+	meta := meta.New(walletService)
 	instructionService := instruction.NewService(&cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, &resultService, infoService, &walletService, privKey)
+	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey)
 	go externalServer.Serve() //nolint:errcheck // todo
 }
 

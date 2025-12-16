@@ -12,27 +12,28 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
+
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-node/pkg/types"
+
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/server"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
+	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
+	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
-	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/flare-foundation/tee-proxy/internal/queue"
-	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
-	pkgvoting "github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	pkgwallets "github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
@@ -105,7 +106,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	livenessService := liveness.New(db, c, infoService)
 
-	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, &resultService, &walletStorage, &livenessService)
+	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService)
 
 	wg.Go(func() {
 		logger.Info("Starting internal server")
@@ -132,7 +133,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	err = resultService.SetIdentity(teeID)
 	require.NoError(t, err)
 
-	metaObj := meta.New(&walletStorage)
+	metaObj := meta.New(walletStorage)
 
 	vc := &config.Voting{
 		ProposalExpiration: 600 * time.Millisecond,
@@ -141,7 +142,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	policyChan := make(chan policy.SigningPolicy, 1)
 	instService := instruction.NewService(vc, teeID, proxyPk, policyChan, aq, metaObj)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, &resultService, infoService, &walletStorage, proxyPk)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, resultService, infoService, walletStorage, proxyPk)
 
 	wg.Go(func() {
 		instService.Run(ctx)
@@ -173,7 +174,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		Rs:          rs,
 		Vc:          vc,
 		Pc:          policyChan,
-		Ws:          &walletStorage,
+		Ws:          walletStorage,
 	}, cleanup
 }
 
@@ -213,10 +214,10 @@ func GetTeeInfo(t *testing.T, pc *ProxyConfig) *types.TeeInfoResponse {
 }
 
 // GetVotingStatuses Fetches VoteStatus until TestTimeConfig.Timeout every TestTimeConfig.Interval
-func GetVotingStatuses(t *testing.T, pc *ProxyConfig, rewardEpochID uint32, instructionID common.Hash) *pkgvoting.Statuses {
+func GetVotingStatuses(t *testing.T, pc *ProxyConfig, rewardEpochID uint32, instructionID common.Hash) *voting.Statuses {
 	t.Helper()
 	url := fmt.Sprintf("http://localhost:%d/action/status/%d/%s", pc.ExtPort, rewardEpochID, instructionID.String()[2:])
-	var res pkgvoting.Statuses
+	var res voting.Statuses
 	makeRequests(t, url, &res)
 	return &res
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
@@ -25,10 +26,12 @@ type liveness struct {
 	db     *gorm.DB
 	client *redis.Client
 	info   *info.Service
+
+	sync.RWMutex
 }
 
-func New(db *gorm.DB, client *redis.Client, info *info.Service) liveness {
-	return liveness{
+func New(db *gorm.DB, client *redis.Client, info *info.Service) *liveness {
+	return &liveness{
 		startUpFinished: false,
 		db:              db,
 		client:          client,
@@ -38,10 +41,15 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service) liveness {
 
 // SignalStartupFinished sets startUpFinished to true indicating that the startup has finished.
 func (l *liveness) SignalStartupFinished() {
+	l.Lock()
+	defer l.Unlock()
 	l.startUpFinished = true
 }
 
 func (l *liveness) Startup(_ context.Context) error {
+	l.RLock()
+	defer l.RUnlock()
+
 	if !l.startUpFinished {
 		return ErrStartUpNotFinished
 	}
@@ -50,6 +58,9 @@ func (l *liveness) Startup(_ context.Context) error {
 }
 
 func (l *liveness) Ready(ctx context.Context) error {
+	l.Lock()
+	defer l.Unlock()
+
 	if !l.startUpFinished {
 		return ErrStartUpNotFinished
 	}

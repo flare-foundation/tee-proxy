@@ -27,6 +27,8 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
 
+const keyInfoResponseTimeout = 3 * time.Minute
+
 type IDPair = wallets.KeyIDPair
 
 type Service struct {
@@ -42,14 +44,14 @@ type Service struct {
 	sync.RWMutex
 }
 
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.Client) Service {
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.Client) *Service {
 	kfw := make(map[common.Hash][]uint64)
 	k := make(map[IDPair]*pkgwallets.KeyData)
 
 	bp := storage.New[*wallets.TEEBackupResponse]("backup", client)
 	in := storage.New[common.Hash]("backupIndex", client)
 
-	return Service{
+	return &Service{
 		KeysForWallet: kfw,
 		Keys:          k,
 
@@ -177,7 +179,7 @@ func (s *Service) sync(ctx context.Context) error {
 		return err
 	}
 
-	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 3*time.Minute) // todo: constant
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
 	if err != nil {
 		return err
 	}
