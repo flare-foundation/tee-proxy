@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -14,7 +15,6 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
-	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
@@ -42,7 +42,7 @@ type External struct {
 func NewExternal(
 	port string,
 	instructionService *instruction.Service,
-	resultService *result.Service,
+	resultService ResultService,
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
@@ -50,12 +50,12 @@ func NewExternal(
 	addr := fmt.Sprintf(":%s", port)
 
 	server := &http.Server{
-		Addr: addr,
-		// ReadTimeout:                  0,
-		// ReadHeaderTimeout:            0,
-		// WriteTimeout:                 0,
-		// IdleTimeout:                  0,
-		// MaxHeaderBytes:               0,
+		Addr:              addr,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024, // 16 KB
 	}
 
 	e := External{
