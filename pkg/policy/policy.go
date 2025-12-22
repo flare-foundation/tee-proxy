@@ -60,7 +60,7 @@ func InitializePolicyAction(
 		return nil, nil, 0, err
 	}
 
-	return action, p, len(logs) - 1, err
+	return action, p, len(logs) - 1, nil
 }
 
 func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
