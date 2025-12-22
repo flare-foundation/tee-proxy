@@ -76,6 +76,16 @@ func (s *Storage[T]) SetWithTTL(ctx context.Context, key string, item T, expirat
 	return s.client.Set(ctx, s.prefix(key), data, expiration).Err()
 }
 
+// Publish post message "stored" to the channel.
+func (s *Storage[T]) Publish(ctx context.Context, channel string) error {
+	return s.client.Publish(ctx, channel, "stored").Err()
+}
+
+// Subscribe subscribes to the channel.
+func (s *Storage[T]) Subscribe(ctx context.Context, channel string) *redis.PubSub {
+	return s.client.Subscribe(ctx, channel)
+}
+
 // Get retrieves the value by the key.
 func (s *Storage[T]) Get(ctx context.Context, key string) (T, error) {
 	var value T

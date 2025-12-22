@@ -31,7 +31,7 @@ type ResultStorage struct {
 // NewStorage creates a new ResultStorage via a provided Redis client.
 func NewStorage(client *redis.Client) *ResultStorage {
 	return &ResultStorage{
-		storage.New[*types.ActionResponse](Results, client),
+		s: storage.New[*types.ActionResponse](Results, client),
 	}
 }
 
@@ -58,6 +58,8 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		return fmt.Errorf("storing response %s: %v", id.String(), err)
 	}
 
+	rs.s.Publish(ctx, id.String()) //nolint:errcheck
+
 	return nil
 }
 
@@ -82,30 +84,33 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 // If timeout is not positive, it waits until the response arrives.
 // Should only be used if an action with such ID and submission tag has been put into action queue.
 func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
-	sleepDur := time.Second
-
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
-
-		if timeout < sleepDur*2 {
-			sleepDur = timeout / 10
-		}
 	}
-	var response *types.ActionResponse
-	var err error
 
-	for {
-		if err = ctx.Err(); err != nil {
-			return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
-		}
-
-		response, err = rs.GetResponse(ctx, actionID, submissionTag)
-		if err == nil {
-			return response, nil
-		}
-
-		time.Sleep(sleepDur)
+	response, err := rs.GetResponse(ctx, actionID, submissionTag)
+	if err == nil {
+		return response, nil
 	}
+
+	// If not found, subscribe to the channel to wait for the response.
+	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
+	channel := id.String()
+	pubsub := rs.s.Subscribe(ctx, channel)
+	defer pubsub.Close() //nolint:errcheck
+
+	// Wait for a message on the channel.
+	_, err = pubsub.ReceiveMessage(ctx)
+	if err != nil {
+		// Hopeful attempt
+		finalResponse, finalErr := rs.GetResponse(ctx, actionID, submissionTag)
+		if finalErr == nil {
+			return finalResponse, nil
+		}
+		return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
+	}
+
+	return rs.GetResponse(ctx, actionID, submissionTag)
 }
