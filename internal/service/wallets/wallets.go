@@ -214,7 +214,7 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*pkgwa
 
 		k, exists := keysForWallet[info.WalletID]
 		if !exists {
-			k = make([]uint64, 0)
+			k = make([]uint64, 0, 1)
 			keysForWallet[info.WalletID] = k
 		}
 		keysForWallet[info.WalletID] = append(k, info.KeyID)
@@ -275,7 +275,7 @@ func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 
 	keys, exists := s.KeysForWallet[info.WalletID]
 	if !exists {
-		keys = make([]uint64, 0)
+		keys = make([]uint64, 0, 1)
 		s.KeysForWallet[info.WalletID] = keys
 	}
 	s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)

@@ -210,8 +210,8 @@ func RecoverWallet(
 	adminsThreshold := uint64(len(adminAddresses))
 
 	teeEciesPubKey := ecies.ImportECDSAPublic(pc.ProxyPubKey)
-	addVarMsgs := make([]any, 0)
-	privKeys := make([]*ecdsa.PrivateKey, 0)
+	addVarMsgs := make([]any, 0, len(providersPrivKeys)+len(adminsPrivKeys))
+	privKeys := make([]*ecdsa.PrivateKey, 0, len(providersPrivKeys)+len(adminsPrivKeys))
 	// Recover providers shares
 	for i, privKey := range providersPrivKeys {
 		keySplit, err := backup.DecryptSplit(walletBackup.ProviderEncryptedParts.Splits[i], privKey)
