@@ -47,7 +47,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		storingDur = submitStoringDuration
 	}
 
-	// do not override final results
+	// do not override final results (0 or 1)
 	res, err := rs.s.Get(ctx, id.String())
 	if err == nil && res.Result.Status < 2 {
 		return nil
@@ -55,7 +55,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 
 	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
 	if err != nil {
-		return fmt.Errorf("storing response %s: %v", id.String(), err)
+		return fmt.Errorf("storing response %s: %w", id.String(), err)
 	}
 
 	rs.s.Publish(ctx, id.String()) //nolint:errcheck
@@ -82,7 +82,7 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 // WaitOnResponse waits on the response for the actionID with submissionTag until timeout runs out.
 //
 // If timeout is not positive, it waits until the response arrives.
-// Should only be used if an action with such ID and submission tag has been put into action queue.
+// Should only be used if an action with the given ID and submission tag is expected to be processed.
 func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -91,7 +91,7 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 	}
 
 	response, err := rs.GetResponse(ctx, actionID, submissionTag)
-	if err == nil {
+	if err == nil && response != nil {
 		return response, nil
 	}
 

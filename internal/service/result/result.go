@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
@@ -21,17 +22,22 @@ const (
 	backupTriggerChanSize = 1
 )
 
+// Service handles processing and storage of TEE action results.
 type Service struct {
 	rs *ResultStorage
 
-	// A channel to trigger of wallet storage update
-	WalletSync    chan *types.ActionResult
-	Backups       chan *types.ActionResult
+	// A channel for wallet update actions (KEY_GENERATE, KEY_DATA_PROVIDER_RESTORE, KEY_DELETE)
+	WalletSync chan *types.ActionResult
+	// A channel for backup actions (TEE_BACKUP)
+	Backups chan *types.ActionResult
+	// A channel for backup trigger actions (UPDATE_POLICY)
 	BackupTrigger chan bool
 
+	mu    sync.RWMutex
 	teeID common.Address
 }
 
+// NewService creates a new result service.
 func NewService(rs *ResultStorage) *Service {
 	wst := make(chan *types.ActionResult, walletSyncChanSize)
 	bst := make(chan *types.ActionResult, backupsChanSize)
@@ -46,7 +52,11 @@ func NewService(rs *ResultStorage) *Service {
 	}
 }
 
+// SetIdentity sets the TEE identity for the service. It can only be set once.
 func (s *Service) SetIdentity(teeID common.Address) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		return errors.New("address already set")
 	}
@@ -58,6 +68,9 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 
 // ProcessAndStore stores response into database and triggers appropriate hooks.
 func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r)
 		if err != nil {
