@@ -19,6 +19,8 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
+var errInvalidQueueID = fmt.Errorf("%w: invalid queueID", status.HTTP[400])
+
 type ResultService interface {
 	ProcessAndStore(context.Context, *types.ActionResponse) error
 	Serve(context.Context, common.Hash, types.SubmissionTag) (*types.ActionResponse, error)
@@ -134,7 +136,7 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 		}
 
 	default:
-		return fmt.Errorf("%w: invalid queueID", status.HTTP[400])
+		return errInvalidQueueID
 	}
 
 	return nil

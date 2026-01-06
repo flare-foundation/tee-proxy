@@ -28,6 +28,12 @@ const (
 	backupIDHash  = "backupIDHash"
 )
 
+var (
+	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
+	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
+	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
+)
+
 type External struct {
 	instructionService *instruction.Service
 	resultService      ResultService
@@ -202,7 +208,7 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	result := e.teeInfo.Latest
 
 	if result == nil {
-		return fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
+		return errProxyNotInitialized
 	}
 
 	h, err := result.TeeInfo.Hash()
@@ -309,7 +315,7 @@ func submissionTagParam(r *http.Request) (types.SubmissionTag, error) {
 	}
 
 	if len(submissionTags) != 1 {
-		return types.Threshold, fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
+		return types.Threshold, errEmptySubmissionTag
 	}
 
 	st := types.SubmissionTag(submissionTags[0])
@@ -318,6 +324,6 @@ func submissionTagParam(r *http.Request) (types.SubmissionTag, error) {
 	case types.End, types.Submit, types.Threshold:
 		return st, nil
 	default:
-		return st, fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
+		return st, errInvalidSubmissionTag
 	}
 }

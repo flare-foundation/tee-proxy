@@ -71,7 +71,6 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 	if errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("reading response for %s: %w", id.String(), err)
 	}
