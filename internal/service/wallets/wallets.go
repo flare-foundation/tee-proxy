@@ -73,12 +73,12 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.
 	}
 }
 
-func (s *Service) RunUpdateInfo(ctx context.Context, trigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult) {
+func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-trigger:
+		case <-walletSyncTrigger:
 			logger.Debug("wallet sync start")
 
 			err := s.sync(ctx)
@@ -412,6 +412,7 @@ func parseKeyExistenceProof(proof *wallets.SignedKeyExistenceProof) (*pkgwallets
 	return out, nil
 }
 
+// PeriodicWalletsSyncTrigger adds a signal to the channel once per duration.
 func PeriodicWalletsSyncTrigger(ctx context.Context, c chan bool, d time.Duration) {
 	for {
 		if ctx.Err() != nil {
