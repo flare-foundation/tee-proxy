@@ -89,16 +89,18 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 		defer cancel()
 	}
 
+	id := queue.ActionSubmissionID{
+		ActionID:      actionID,
+		SubmissionTag: submissionTag,
+	}
+	pubsub := rs.s.Subscribe(ctx, id.String())
+	defer pubsub.Close() //nolint:errcheck
+
+	// Check if it was already stored.
 	response, err := rs.GetResponse(ctx, actionID, submissionTag)
 	if err == nil && response != nil {
 		return response, nil
 	}
-
-	// If not found, subscribe to the channel to wait for the response.
-	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
-	channel := id.String()
-	pubsub := rs.s.Subscribe(ctx, channel)
-	defer pubsub.Close() //nolint:errcheck
 
 	// Wait for a message on the channel.
 	_, err = pubsub.ReceiveMessage(ctx)
