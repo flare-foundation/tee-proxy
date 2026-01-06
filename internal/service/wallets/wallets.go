@@ -29,6 +29,16 @@ import (
 
 const keyInfoResponseTimeout = 3 * time.Minute
 
+var (
+	errKeyProofNotFound    = fmt.Errorf("%w: key proof not found", status.HTTP[404])
+	errWalletNotFound      = errors.New("wallet not found")
+	errKeyDataNotFound     = fmt.Errorf("%w: key data not found", status.HTTP[404])
+	errKeyUpdate           = errors.New("key update action not successful")
+	errInvalidActionResult = errors.New("invalid action result status")
+	errInvalidOpType       = errors.New("invalid action opType")
+	errInvalidOpCommand    = errors.New("invalid action opCommand")
+)
+
 type IDPair = wallets.KeyIDPair
 
 type Service struct {
@@ -129,7 +139,7 @@ func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedK
 	id := IDPair{WalletID: walletID, KeyID: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
-		return nil, fmt.Errorf("%w: key proof not found", status.HTTP[404])
+		return nil, errKeyProofNotFound
 	}
 
 	return info.Proof, nil
@@ -141,7 +151,7 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 
 	keys, exists := s.KeysForWallet[walletID]
 	if !exists || len(keys) == 0 {
-		return nil, errors.New("wallet not found")
+		return nil, errWalletNotFound
 	}
 
 	data, err := s.KeyData(walletID, keys[0])
@@ -159,7 +169,7 @@ func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyDa
 	id := IDPair{WalletID: walletID, KeyID: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
-		return nil, fmt.Errorf("%w: key data not found", status.HTTP[404])
+		return nil, errKeyDataNotFound
 	}
 
 	return info, nil
@@ -236,7 +246,7 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*pkgwa
 
 func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 	if action.Status != 1 {
-		return IDPair{}, false, errors.New("key update action not successful")
+		return IDPair{}, false, errKeyUpdate
 	}
 
 	switch action.OPCommand {
@@ -325,15 +335,15 @@ func keysInfoAction() (*types.Action, error) {
 
 func parseKeyInfoActionResult(r *types.ActionResult) ([]*wallets.SignedKeyExistenceProof, error) {
 	if r.Status != 1 {
-		return nil, errors.New("invalid action result")
+		return nil, errInvalidActionResult
 	}
 
 	if r.OPType != op.Get.Hash() {
-		return nil, errors.New("invalid action opType")
+		return nil, errInvalidOpType
 	}
 
 	if r.OPCommand != op.KeyInfo.Hash() {
-		return nil, errors.New("invalid action opCommand")
+		return nil, errInvalidOpCommand
 	}
 
 	var res = make([]*wallets.SignedKeyExistenceProof, 0)
@@ -348,15 +358,15 @@ func parseKeyInfoActionResult(r *types.ActionResult) ([]*wallets.SignedKeyExiste
 // parseKeyDeleteActionResult parses action result for "KEY_DELETE" and returns the IDPair from result data.
 func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 	if r.Status != 1 {
-		return IDPair{}, errors.New("invalid action result status")
+		return IDPair{}, errInvalidActionResult
 	}
 
 	if r.OPType != op.Wallet.Hash() {
-		return IDPair{}, errors.New("invalid action result opType")
+		return IDPair{}, errInvalidOpType
 	}
 
 	if r.OPCommand != op.KeyDelete.Hash() {
-		return IDPair{}, errors.New("invalid action result opCommand")
+		return IDPair{}, errInvalidOpCommand
 	}
 
 	var idPair IDPair
@@ -371,15 +381,15 @@ func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 // parseNewKeyActionResult parses action result data for "KEY_GENERATE" or "KEY_DATA_PROVIDER_RESTORE" action.
 func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistenceProof, error) {
 	if r.Status != 1 {
-		return nil, errors.New("invalid action result status")
+		return nil, errInvalidActionResult
 	}
 
 	if r.OPType != op.Wallet.Hash() {
-		return nil, fmt.Errorf("invalid action result opType, expected %v got %v", op.Wallet, op.HashToOPCommand(r.OPCommand))
+		return nil, errInvalidOpType
 	}
 
 	if r.OPCommand != op.KeyDataProviderRestore.Hash() && r.OPCommand != op.KeyGenerate.Hash() {
-		return nil, errors.New("invalid action result opCommand")
+		return nil, errInvalidOpCommand
 	}
 
 	res := new(wallets.SignedKeyExistenceProof)

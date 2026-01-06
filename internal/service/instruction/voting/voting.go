@@ -100,7 +100,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	err = s.meta.CheckConsistency(data, signer)
 	if err != nil {
-		return nil, fmt.Errorf("verifying message validity: %w", err)
+		return nil, fmt.Errorf("%w: inconsistent data: %w", status.HTTP[400], err)
 	}
 
 	// Do not allow creating two sets of boxes at once. Release lock if set of boxes exists.

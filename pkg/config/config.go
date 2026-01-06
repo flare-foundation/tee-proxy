@@ -31,6 +31,21 @@ const (
 	defaultFinalizedBufferSize = 10
 )
 
+var (
+	errSigningPolicyFetchIntervalPositive = errors.New("SigningPolicyFetchInterval has to be positive")
+	errInitialSigningPolicyOffsetNegative = errors.New("InitialSigningPolicyOffset cannot be negative")
+	errFlareSystemsManagerAddressNotSet   = errors.New("flareSystemsManager address not set")
+	errRelayAddressNotSet                 = errors.New("relay address not set")
+	errVoterRegistryAddressNotSet         = errors.New("voterRegistry address not set")
+	errInternalPortNotSet                 = errors.New("internal port not set")
+	errExternalPortNotSet                 = errors.New("external port not set")
+	errProposalExpirationPositive         = errors.New("proposalExpiration has to be positive")
+	errMaxPendingRequestsPositive         = errors.New("maxPendingRequests has to be positive")
+	errHistorySizeTooSmall                = errors.New("historySize has to be at least 2")
+	errFinalizedBufferSizePositive        = errors.New("finalizedBufferSize has to be positive")
+	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
+)
+
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
@@ -97,11 +112,11 @@ func Read(path string) (Proxy, error) {
 	}
 
 	if c.SigningPolicyFetchInterval <= 0 {
-		return c, fmt.Errorf("SigningPolicyFetchInterval has to be positive")
+		return c, errSigningPolicyFetchIntervalPositive
 	}
 
 	if c.InitialSigningPolicyOffset < 0 {
-		return c, fmt.Errorf("InitialSigningPolicyOffset cannot be negative")
+		return c, errInitialSigningPolicyOffsetNegative
 	}
 
 	return c, err
@@ -119,15 +134,15 @@ func (a Addresses) validate() error {
 	zero := common.Address{}
 
 	if a.FlareSystemsManager.Cmp(zero) == 0 {
-		return errors.New("flareSystemsManager address not set")
+		return errFlareSystemsManagerAddressNotSet
 	}
 
 	if a.Relay.Cmp(zero) == 0 {
-		return errors.New("relay address not set")
+		return errRelayAddressNotSet
 	}
 
 	if a.VoterRegistry.Cmp(zero) == 0 {
-		return errors.New("voterRegistry address not set")
+		return errVoterRegistryAddressNotSet
 	}
 
 	return nil
@@ -140,10 +155,10 @@ type Ports struct {
 
 func (a Ports) validate() error {
 	if a.Internal == "" {
-		return errors.New("internal port not set")
+		return errInternalPortNotSet
 	}
 	if a.External == "" {
-		return errors.New("external port not set")
+		return errExternalPortNotSet
 	}
 	return nil
 }
@@ -180,19 +195,19 @@ func (v *Voting) SetDefault() *Voting {
 // Validate checks that Voting holds viable values.
 func (v *Voting) validate() error {
 	if v.ProposalExpiration <= 0 {
-		return errors.New("proposalExpiration has to be positive")
+		return errProposalExpirationPositive
 	}
 
 	if v.MaxPendingRequests <= 0 {
-		return errors.New("maxPendingRequests has to be positive")
+		return errMaxPendingRequestsPositive
 	}
 
 	if v.HistorySize <= 1 {
-		return errors.New("historySize has to be at least 2")
+		return errHistorySizeTooSmall
 	}
 
 	if v.FinalizedBufferSize <= 0 {
-		return errors.New("finalizedBufferSize has to be positive")
+		return errFinalizedBufferSizePositive
 	}
 
 	return nil
@@ -220,7 +235,7 @@ func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 
 	skB, err := hex.DecodeString(skStr)
 	if err != nil {
-		return nil, errors.New("invalid string for private key")
+		return nil, errInvalidPrivateKeyString
 	}
 
 	return crypto.ToECDSA(skB)

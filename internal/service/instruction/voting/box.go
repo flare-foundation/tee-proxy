@@ -20,6 +20,15 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
+var (
+	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[403])
+	errActionAlreadyDeleted   = errors.New("already deleted")
+	errActionNotFinalized     = errors.New("not finalized")
+	errInvalidVoter           = fmt.Errorf("%w: invalid voter", status.HTTP[403])
+	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[403])
+	errSignatureAlreadyStored = fmt.Errorf("%w: signature already stored", status.HTTP[403])
+)
+
 type proposal struct {
 	instruction *instruction.DataFixed
 
@@ -81,7 +90,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 	allowedTime := eventTime.Add(-15 * time.Second) // confirm this number
 
 	if time.Now().Before(allowedTime) {
-		return nil, fmt.Errorf("%w: voting started before the event", status.HTTP[403])
+		return nil, errVotingBeforeEvent
 	}
 
 	t, err := meta.ThresholdBIPS(&data.DataFixed)
@@ -128,7 +137,7 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 
 	hash, err := data.InitialVoteHash()
 	if err != nil {
-		return nil, fmt.Errorf("computing initial hash %v", err)
+		return nil, fmt.Errorf("computing initial hash %w", err)
 	}
 	iHash, err := data.HashFixed()
 	if err != nil {
@@ -155,16 +164,16 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 // Mutex must be handled by the calling function.
 func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 	if vb.deleted {
-		return nil, errors.New("already deleted")
+		return nil, errActionAlreadyDeleted
 	}
 
 	if !vb.Finalized {
-		return nil, errors.New("not yet finalized")
+		return nil, errActionNotFinalized
 	}
 
 	m, err := json.Marshal(vb.proposal.instruction)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling action data, %v", err)
+		return nil, fmt.Errorf("marshaling action data, %w", err)
 	}
 
 	ad := types.ActionData{
@@ -228,15 +237,15 @@ func (vb *voteBox) delete() {
 // Mutex has to be managed by the calling function.
 func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (voting.Receipt, bool, error) {
 	if voterGroup == invalidVoter {
-		return voting.Receipt{}, false, fmt.Errorf("%w: invalid voter", status.HTTP[403])
+		return voting.Receipt{}, false, errInvalidVoter
 	}
 
 	now := time.Now()
 	if vb.EndTime.Before(now) {
-		return voting.Receipt{}, false, fmt.Errorf("%w: voting already ended", status.HTTP[403])
+		return voting.Receipt{}, false, errVotingEnded
 	}
 	if _, exists := vb.votes[signer]; exists {
-		return voting.Receipt{}, false, fmt.Errorf("%w: signature already stored", status.HTTP[403])
+		return voting.Receipt{}, false, errSignatureAlreadyStored
 	}
 
 	seq := uint64(len(vb.votes))
@@ -300,7 +309,7 @@ func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 	if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
 		a, err := vb.Action(types.Threshold)
 		if err != nil {
-			logger.Errorf("failed crating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
+			logger.Errorf("failed crating threshold action for %v, %v: %w", vb.iID, vb.iHash, err)
 		} else {
 			out <- a
 		}
@@ -311,7 +320,7 @@ func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 
 	a, err := vb.Action(types.End)
 	if err != nil {
-		logger.Errorf("failed crating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+		logger.Errorf("failed crating end action for %v, %v: %w", vb.iID, vb.iHash, err)
 	} else {
 		out <- a
 	}

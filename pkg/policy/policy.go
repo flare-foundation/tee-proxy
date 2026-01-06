@@ -18,6 +18,11 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	errNoSigningPolicyLogs = errors.New("no signing policy logs found in db")
+	errInvalidLogCount     = errors.New("invalid number of logs")
+)
+
 // InitializePolicyAction prepares action for INITIALIZE_POLICY".
 // SigningPolicyInitialized event that precedes the last emitted by offset is used.
 // If such event is not found, the oldest found event is used.
@@ -41,7 +46,7 @@ func InitializePolicyAction(
 	}
 
 	if len(logs) == 0 {
-		return nil, nil, 0, errors.New("no signing policy logs found in db")
+		return nil, nil, 0, errNoSigningPolicyLogs
 	}
 	event, err := policy.ParseSigningPolicyInitializedEvent(logs[len(logs)-1])
 	if err != nil {
@@ -108,7 +113,7 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 	}
 
 	if len(logs) != 1 {
-		return nil, errors.New("invalid number of logs")
+		return nil, errInvalidLogCount
 	}
 
 	event, err := policy.ParseSigningPolicyInitializedEvent(logs[0])

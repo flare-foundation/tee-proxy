@@ -16,6 +16,11 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	errInvalidLogCountPubKeys = errors.New("invalid number of logs")
+	errWrongAddressRecovered  = errors.New("wrong address recovered")
+)
+
 // recoverPubKey recovers public key for signingPolicyAddress in signingPolicyID.
 func recoverPubKey(
 	ctx context.Context,
@@ -29,7 +34,7 @@ func recoverPubKey(
 		return nil, err
 	}
 	if len(vrLogs) != 1 {
-		return nil, errors.New("invalid number of logs")
+		return nil, errInvalidLogCountPubKeys
 	}
 
 	pub, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, vrLogs[0])
@@ -105,7 +110,7 @@ func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID
 
 	recoveredAddress := crypto.PubkeyToAddress(*pub)
 	if recoveredAddress != signingPolicyAddress {
-		return nil, errors.New("wrong address recovered")
+		return nil, errWrongAddressRecovered
 	}
 
 	return pub, nil

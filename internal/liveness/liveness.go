@@ -18,7 +18,10 @@ const (
 	infoDelayTolerance   = 140 * time.Second
 )
 
-var ErrStartUpNotFinished = errors.New("startup not finished yet")
+var (
+	ErrStartUpNotFinished       = errors.New("startup not finished yet")
+	errInfoServiceUninitialized = errors.New("info service not initialized")
+)
 
 type liveness struct {
 	startUpFinished bool
@@ -76,7 +79,7 @@ func (l *liveness) Ready(ctx context.Context) error {
 	}
 
 	if l.info == nil {
-		return errors.New("info service not initialized")
+		return errInfoServiceUninitialized
 	}
 
 	l.info.RLock()

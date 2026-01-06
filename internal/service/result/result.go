@@ -22,6 +22,11 @@ const (
 	backupTriggerChanSize = 1
 )
 
+var (
+	errAddressAlreadySet = errors.New("address already set")
+	errInvalidTeeID      = fmt.Errorf("%w, invalid teeID", status.HTTP[403])
+)
+
 // Service handles processing and storage of TEE action results.
 type Service struct {
 	rs *ResultStorage
@@ -58,7 +63,7 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 	defer s.mu.Unlock()
 
 	if s.teeID.Cmp(common.Address{}) != 0 {
-		return errors.New("address already set")
+		return errAddressAlreadySet
 	}
 
 	s.teeID = teeID
@@ -78,7 +83,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		}
 
 		if signer.Cmp(s.teeID) != 0 {
-			return fmt.Errorf("%w, invalid teeID", status.HTTP[403])
+			return errInvalidTeeID
 		}
 	}
 

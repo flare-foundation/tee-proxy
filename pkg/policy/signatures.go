@@ -30,6 +30,12 @@ var (
 	ErrDeadlineExceeded    = errors.New("deadline exceeded")
 	ErrTooManyErrors       = errors.New("too many errors")
 	ErrThresholdNotReached = errors.New("threshold not reached")
+
+	errInvalidFirstInput    = errors.New("invalid first input")
+	errInvalidSecondInput   = errors.New("invalid second input")
+	errInvalidThirdInput    = errors.New("invalid third input")
+	errNotConsecutivePolicy = errors.New("not consecutive policy")
+	errInvalidDataProvider  = errors.New("invalid data provided")
 )
 
 // recoverInputsSignNewSigningPolicy unpacks transaction input for signNewSigningPolicy method of FlareSystemsManager smart contract.
@@ -58,7 +64,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	ip0, ok := i0.(*big.Int)
 	if !ok {
-		return 0, common.Hash{}, nil, errors.New("invalid first input")
+		return 0, common.Hash{}, nil, errInvalidFirstInput
 	}
 
 	signingPolicyID, err = convert.BigToUint32Safe(ip0)
@@ -70,7 +76,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	ip1, ok := i1.(*common.Hash)
 	if !ok {
-		return 0, common.Hash{}, nil, errors.New("invalid second input")
+		return 0, common.Hash{}, nil, errInvalidSecondInput
 	}
 
 	newSigningPolicyHash = *ip1
@@ -79,7 +85,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	signature, ok = i2.(*registry.Signature)
 	if !ok {
-		return 0, common.Hash{}, nil, errors.New("invalid third input")
+		return 0, common.Hash{}, nil, errInvalidThirdInput
 	}
 
 	return signingPolicyID, newSigningPolicyHash, signature, err
@@ -106,7 +112,7 @@ func collectSignatures(
 	activePolicy *policy.SigningPolicy,
 ) ([]*registry.Signature, error) {
 	if newPolicy.RewardEpochID != activePolicy.RewardEpochID+1 {
-		return nil, errors.New("not consecutive policies")
+		return nil, errNotConsecutivePolicy
 	}
 
 	from := startBlock
@@ -204,7 +210,7 @@ func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpoch
 		return nil, nil, err
 	}
 	if spID != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
-		return nil, nil, fmt.Errorf("invalid data provided")
+		return nil, nil, errInvalidDataProvider
 	}
 
 	signer, err := recoverSigner(expectedHash, sig)
