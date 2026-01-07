@@ -48,7 +48,7 @@ func TestInsertBlock(t *testing.T) {
 
 	go func() {
 		err := s.Run(t.Context())
-		require.NoError(t, err)
+		require.Error(t, err)
 	}()
 
 	time.Sleep(15 * time.Millisecond)

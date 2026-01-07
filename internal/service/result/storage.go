@@ -23,13 +23,15 @@ const (
 	Results = "Results"
 )
 
+// ResultStorage provides methods for storing and retrieving action responses.
 type ResultStorage struct {
 	s *storage.Storage[*types.ActionResponse]
 }
 
+// NewStorage creates a new ResultStorage via a provided Redis client.
 func NewStorage(client *redis.Client) *ResultStorage {
 	return &ResultStorage{
-		storage.New[*types.ActionResponse](Results, client),
+		s: storage.New[*types.ActionResponse](Results, client),
 	}
 }
 
@@ -45,7 +47,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		storingDur = submitStoringDuration
 	}
 
-	// do not override final results
+	// do not override final results (0 or 1)
 	res, err := rs.s.Get(ctx, id.String())
 	if err == nil && res.Result.Status < 2 {
 		return nil
@@ -53,8 +55,10 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 
 	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
 	if err != nil {
-		return fmt.Errorf("storing response %s: %v", id.String(), err)
+		return fmt.Errorf("storing response %s: %w", id.String(), err)
 	}
+
+	rs.s.Publish(ctx, id.String()) //nolint:errcheck
 
 	return nil
 }
@@ -67,7 +71,6 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 	if errors.Is(err, redis.Nil) {
 		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
 	}
-
 	if err != nil {
 		return nil, fmt.Errorf("reading response for %s: %w", id.String(), err)
 	}
@@ -78,32 +81,37 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 // WaitOnResponse waits on the response for the actionID with submissionTag until timeout runs out.
 //
 // If timeout is not positive, it waits until the response arrives.
-// Should only be used if an action with such ID and submission tag has been put into action queue.
+// Should only be used if an action with the given ID and submission tag is expected to be processed.
 func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
-	sleepDur := time.Second
-
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
-
-		if timeout < sleepDur*2 {
-			sleepDur = timeout / 10
-		}
 	}
-	var response *types.ActionResponse
-	var err error
 
-	for {
-		if err = ctx.Err(); err != nil {
-			return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
-		}
-
-		response, err = rs.GetResponse(ctx, actionID, submissionTag)
-		if err == nil {
-			return response, nil
-		}
-
-		time.Sleep(sleepDur)
+	id := queue.ActionSubmissionID{
+		ActionID:      actionID,
+		SubmissionTag: submissionTag,
 	}
+	pubsub := rs.s.Subscribe(ctx, id.String())
+	defer pubsub.Close() //nolint:errcheck
+
+	// Check if it was already stored.
+	response, err := rs.GetResponse(ctx, actionID, submissionTag)
+	if err == nil && response != nil {
+		return response, nil
+	}
+
+	// Wait for a message on the channel.
+	_, err = pubsub.ReceiveMessage(ctx)
+	if err != nil {
+		// Hopeful attempt
+		finalResponse, finalErr := rs.GetResponse(ctx, actionID, submissionTag)
+		if finalErr == nil {
+			return finalResponse, nil
+		}
+		return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
+	}
+
+	return rs.GetResponse(ctx, actionID, submissionTag)
 }

@@ -15,7 +15,7 @@ type Queue[T any] interface {
 	QueueLength(ctx context.Context) (int64, error)
 }
 
-// New creates a new Storage with the Redis client and storing key prefix.
+// NewQueue creates a new Storage with the Redis client and storing key prefix that is used as a queue.
 func NewQueue[T any](keyPrefix string, client *redis.Client) Queue[T] {
 	return &Storage[T]{
 		client:    client,
@@ -76,6 +76,16 @@ func (s *Storage[T]) SetWithTTL(ctx context.Context, key string, item T, expirat
 	return s.client.Set(ctx, s.prefix(key), data, expiration).Err()
 }
 
+// Publish post message "stored" to the channel.
+func (s *Storage[T]) Publish(ctx context.Context, channel string) error {
+	return s.client.Publish(ctx, channel, "stored").Err()
+}
+
+// Subscribe subscribes to the channel.
+func (s *Storage[T]) Subscribe(ctx context.Context, channel string) *redis.PubSub {
+	return s.client.Subscribe(ctx, channel)
+}
+
 // Get retrieves the value by the key.
 func (s *Storage[T]) Get(ctx context.Context, key string) (T, error) {
 	var value T
@@ -102,7 +112,7 @@ func (s *Storage[T]) GetWithTTL(ctx context.Context, key string) (T, time.Durati
 		return value, 0, err
 	}
 
-	ttl, err := s.client.TTL(ctx, key).Result()
+	ttl, err := s.client.TTL(ctx, s.prefix(key)).Result()
 	return value, ttl, err
 }
 

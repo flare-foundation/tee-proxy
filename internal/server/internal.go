@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -17,6 +18,8 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
+
+var errInvalidQueueID = fmt.Errorf("%w: invalid queueID", status.HTTP[400])
 
 type ResultService interface {
 	ProcessAndStore(context.Context, *types.ActionResponse) error
@@ -45,12 +48,12 @@ func NewInternal(port string,
 	addr := fmt.Sprintf(":%s", port)
 
 	server := &http.Server{
-		Addr: addr,
-		// ReadTimeout:                  0,
-		// ReadHeaderTimeout:            0,
-		// WriteTimeout:                 0,
-		// IdleTimeout:                  0,
-		// MaxHeaderBytes:               0,
+		Addr:              addr,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024, // 16 KB
 	}
 
 	e := Internal{
@@ -133,7 +136,7 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 		}
 
 	default:
-		return fmt.Errorf("%w: invalid queueID", status.HTTP[400])
+		return errInvalidQueueID
 	}
 
 	return nil

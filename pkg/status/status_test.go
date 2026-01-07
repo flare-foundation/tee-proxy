@@ -19,3 +19,10 @@ func TestError(t *testing.T) {
 	wError := fmt.Errorf("wrapped %w error", HTTP[400])
 	require.Equal(t, 400, ErrToCode(wError))
 }
+
+func TestAdd(t *testing.T) {
+	err := errors.New("random")
+	wErr := Add(err, 400)
+
+	require.Equal(t, 400, ErrToCode(wErr))
+}

@@ -75,7 +75,10 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 	return cosigners, threshold, nil
 }
 
-var errInvalidCosigners = errors.New("invalid cosigners")
+var (
+	errInvalidCosigners         = errors.New("invalid cosigners")
+	errInvalidCosignerThreshold = errors.New("invalid cosigner threshold")
+)
 
 func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Address]bool, threshold, expectedThreshold uint64) error {
 	if len(cosigners) != len(expectedCosigners) {
@@ -89,7 +92,7 @@ func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Addr
 	}
 
 	if threshold != expectedThreshold {
-		return errors.New("invalid cosigner threshold")
+		return errInvalidCosignerThreshold
 	}
 
 	return nil

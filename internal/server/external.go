@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -14,7 +15,6 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
-	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
@@ -26,6 +26,12 @@ const (
 	rewardEpochID = "rewardEpochID"
 	walletID      = "walletID"
 	backupIDHash  = "backupIDHash"
+)
+
+var (
+	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
+	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
+	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
 )
 
 type External struct {
@@ -42,7 +48,7 @@ type External struct {
 func NewExternal(
 	port string,
 	instructionService *instruction.Service,
-	resultService *result.Service,
+	resultService ResultService,
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
@@ -50,12 +56,12 @@ func NewExternal(
 	addr := fmt.Sprintf(":%s", port)
 
 	server := &http.Server{
-		Addr: addr,
-		// ReadTimeout:                  0,
-		// ReadHeaderTimeout:            0,
-		// WriteTimeout:                 0,
-		// IdleTimeout:                  0,
-		// MaxHeaderBytes:               0,
+		Addr:              addr,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 * 1024, // 16 KB
 	}
 
 	e := External{
@@ -202,7 +208,7 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	result := e.teeInfo.Latest
 
 	if result == nil {
-		return fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
+		return errProxyNotInitialized
 	}
 
 	h, err := result.TeeInfo.Hash()
@@ -309,7 +315,7 @@ func submissionTagParam(r *http.Request) (types.SubmissionTag, error) {
 	}
 
 	if len(submissionTags) != 1 {
-		return types.Threshold, fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
+		return types.Threshold, errEmptySubmissionTag
 	}
 
 	st := types.SubmissionTag(submissionTags[0])
@@ -318,6 +324,6 @@ func submissionTagParam(r *http.Request) (types.SubmissionTag, error) {
 	case types.End, types.Submit, types.Threshold:
 		return st, nil
 	default:
-		return st, fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
+		return st, errInvalidSubmissionTag
 	}
 }

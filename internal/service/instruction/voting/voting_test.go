@@ -34,9 +34,11 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 
 func TestStorage(t *testing.T) {
 	s := NewStorage(&config.Voting{
-		ProposalExpiration: 2 * time.Second,
-		MaxPendingRequests: 10,
-	}, 3, &testMeta{}, 3)
+		ProposalExpiration:  2 * time.Second,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 10,
+	}, &testMeta{})
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -100,9 +102,11 @@ func TestStorage(t *testing.T) {
 
 func TestFTDCMessageValidity(t *testing.T) {
 	s := NewStorage(&config.Voting{
-		ProposalExpiration: 2 * time.Second,
-		MaxPendingRequests: 10,
-	}, 3, &testMeta{}, 3)
+		ProposalExpiration:  2 * time.Second,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 3,
+	}, &testMeta{})
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -149,9 +153,11 @@ func TestFTDCMessageValidity(t *testing.T) {
 
 func TestFTDCMessage(t *testing.T) {
 	s := NewStorage(&config.Voting{
-		ProposalExpiration: 2 * time.Second,
-		MaxPendingRequests: 10,
-	}, 3, &testMeta{}, 3)
+		ProposalExpiration:  2 * time.Second,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 3,
+	}, &testMeta{})
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -204,9 +210,11 @@ func TestFTDCMessage(t *testing.T) {
 
 func TestStorageConcurrent(t *testing.T) {
 	s := NewStorage(&config.Voting{
-		ProposalExpiration: 2 * time.Second,
-		MaxPendingRequests: 10,
-	}, 3, &testMeta{}, 3)
+		ProposalExpiration:  2 * time.Second,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 3,
+	}, &testMeta{})
 
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
@@ -269,9 +277,11 @@ func TestStorageConcurrent(t *testing.T) {
 
 func TestAddingVoteAfterExpiry(t *testing.T) {
 	s := NewStorage(&config.Voting{
-		ProposalExpiration: 100 * time.Millisecond,
-		MaxPendingRequests: 10,
-	}, 3, &testMeta{}, 3)
+		ProposalExpiration:  100 * time.Millisecond,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 3,
+	}, &testMeta{})
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)

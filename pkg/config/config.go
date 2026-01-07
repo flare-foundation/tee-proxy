@@ -25,8 +25,25 @@ const (
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
 	defaultInitialSigningPolicyOffset = 3
 
-	defaultProposalExpiration = 120 * time.Second
-	defaultMaxPendingRequests = uint(100)
+	defaultProposalExpiration  = 120 * time.Second
+	defaultMaxPendingRequests  = uint(100)
+	defaultVotingHistorySize   = 3
+	defaultFinalizedBufferSize = 10
+)
+
+var (
+	errSigningPolicyFetchIntervalPositive = errors.New("SigningPolicyFetchInterval has to be positive")
+	errInitialSigningPolicyOffsetNegative = errors.New("InitialSigningPolicyOffset cannot be negative")
+	errFlareSystemsManagerAddressNotSet   = errors.New("flareSystemsManager address not set")
+	errRelayAddressNotSet                 = errors.New("relay address not set")
+	errVoterRegistryAddressNotSet         = errors.New("voterRegistry address not set")
+	errInternalPortNotSet                 = errors.New("internal port not set")
+	errExternalPortNotSet                 = errors.New("external port not set")
+	errProposalExpirationPositive         = errors.New("proposalExpiration has to be positive")
+	errMaxPendingRequestsPositive         = errors.New("maxPendingRequests has to be positive")
+	errHistorySizeTooSmall                = errors.New("historySize has to be at least 2")
+	errFinalizedBufferSizePositive        = errors.New("finalizedBufferSize has to be positive")
+	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
 )
 
 type Proxy struct {
@@ -42,39 +59,6 @@ type Proxy struct {
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
 }
 
-// Addresses of the smart contracts.
-type Addresses struct {
-	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
-	Relay               common.Address `toml:"relay"`
-	VoterRegistry       common.Address `toml:"voter_registry"`
-}
-
-type Ports struct {
-	Internal string `toml:"internal"`
-	External string `toml:"external"`
-}
-
-type Voting struct {
-	ProposalExpiration time.Duration `toml:"proposal_expiration"` // if not positive, it defaults to 120s
-	MaxPendingRequests uint          `toml:"max_pending_request"` // if not positive, it defaults to 100.
-}
-
-// setDefault sets default values if applicable.
-func (v *Voting) SetDefault() *Voting {
-	if v == nil {
-		v = new(Voting)
-	}
-
-	if v.MaxPendingRequests == 0 {
-		v.MaxPendingRequests = defaultMaxPendingRequests
-	}
-	if v.ProposalExpiration <= 0 {
-		v.ProposalExpiration = defaultProposalExpiration
-	}
-
-	return v
-}
-
 // Read reads Proxy configurations from toml file at path and validates them.
 func Read(path string) (Proxy, error) {
 	c := Proxy{
@@ -85,8 +69,10 @@ func Read(path string) (Proxy, error) {
 		},
 
 		Voting: Voting{
-			ProposalExpiration: defaultProposalExpiration,
-			MaxPendingRequests: defaultMaxPendingRequests,
+			ProposalExpiration:  defaultProposalExpiration,
+			MaxPendingRequests:  defaultMaxPendingRequests,
+			HistorySize:         defaultVotingHistorySize,
+			FinalizedBufferSize: defaultFinalizedBufferSize,
 		},
 
 		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
@@ -101,6 +87,11 @@ func Read(path string) (Proxy, error) {
 	}
 
 	err := toml.ReadTo(path, &c, false)
+	if err != nil {
+		return c, err
+	}
+
+	err = c.Voting.validate()
 	if err != nil {
 		return c, err
 	}
@@ -121,14 +112,21 @@ func Read(path string) (Proxy, error) {
 	}
 
 	if c.SigningPolicyFetchInterval <= 0 {
-		return c, fmt.Errorf("SigningPolicyFetchInterval has to be positive")
+		return c, errSigningPolicyFetchIntervalPositive
 	}
 
 	if c.InitialSigningPolicyOffset < 0 {
-		return c, fmt.Errorf("InitialSigningPolicyOffset cannot be negative")
+		return c, errInitialSigningPolicyOffsetNegative
 	}
 
 	return c, err
+}
+
+// Addresses of the smart contracts.
+type Addresses struct {
+	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
+	Relay               common.Address `toml:"relay"`
+	VoterRegistry       common.Address `toml:"voter_registry"`
 }
 
 // validate checks that all addresses have nonzero value.
@@ -136,22 +134,82 @@ func (a Addresses) validate() error {
 	zero := common.Address{}
 
 	if a.FlareSystemsManager.Cmp(zero) == 0 {
-		return errors.New("flareSystemsManager address not set")
+		return errFlareSystemsManagerAddressNotSet
 	}
 
 	if a.Relay.Cmp(zero) == 0 {
-		return errors.New("relay address not set")
+		return errRelayAddressNotSet
 	}
 
 	if a.VoterRegistry.Cmp(zero) == 0 {
-		return errors.New("voterRegistry address not set")
+		return errVoterRegistryAddressNotSet
 	}
 
 	return nil
 }
 
+type Ports struct {
+	Internal string `toml:"internal"`
+	External string `toml:"external"`
+}
+
 func (a Ports) validate() error {
-	// todo
+	if a.Internal == "" {
+		return errInternalPortNotSet
+	}
+	if a.External == "" {
+		return errExternalPortNotSet
+	}
+	return nil
+}
+
+type Voting struct {
+	ProposalExpiration  time.Duration `toml:"proposal_expiration"`   // Duration the voting for a proposal is open for. Default is 120s
+	MaxPendingRequests  uint          `toml:"max_pending_request"`   // Maximal number of open (unfinalized) proposals per provider. It defaults to 100.
+	HistorySize         int           `toml:"history_size"`          // Number of most recent signing policy rounds to keep in memory. Defaults to 3.
+	FinalizedBufferSize int           `toml:"finalized_buffer_size"` // Buffer size for the finalized instructions channel. Defaults to 10.
+}
+
+// SetDefault sets default values if applicable.
+func (v *Voting) SetDefault() *Voting {
+	if v == nil {
+		v = new(Voting)
+	}
+
+	if v.MaxPendingRequests == 0 {
+		v.MaxPendingRequests = defaultMaxPendingRequests
+	}
+	if v.ProposalExpiration <= 0 {
+		v.ProposalExpiration = defaultProposalExpiration
+	}
+	if v.HistorySize <= 1 {
+		v.HistorySize = defaultVotingHistorySize
+	}
+	if v.FinalizedBufferSize <= 0 {
+		v.FinalizedBufferSize = defaultFinalizedBufferSize
+	}
+
+	return v
+}
+
+// Validate checks that Voting holds viable values.
+func (v *Voting) validate() error {
+	if v.ProposalExpiration <= 0 {
+		return errProposalExpirationPositive
+	}
+
+	if v.MaxPendingRequests <= 0 {
+		return errMaxPendingRequestsPositive
+	}
+
+	if v.HistorySize <= 1 {
+		return errHistorySizeTooSmall
+	}
+
+	if v.FinalizedBufferSize <= 0 {
+		return errFinalizedBufferSizePositive
+	}
+
 	return nil
 }
 
@@ -162,7 +220,11 @@ func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 	if len(variableName) == 0 {
 		variableName = DefaultPrivateKeyVariable
 	}
-	skStr := os.Getenv(variableName)
+	skStr, exists := os.LookupEnv(variableName)
+
+	if !exists {
+		return nil, fmt.Errorf("no %s env variable stored", variableName)
+	}
 
 	skStr, _ = strings.CutPrefix(skStr, "0x")
 	skStr, _ = strings.CutPrefix(skStr, "0X")
@@ -173,22 +235,8 @@ func PrivateKeyFromEnv(variableName string) (*ecdsa.PrivateKey, error) {
 
 	skB, err := hex.DecodeString(skStr)
 	if err != nil {
-		return nil, errors.New("invalid string for private key")
+		return nil, errInvalidPrivateKeyString
 	}
-
-	skB = prefixTo32Bytes(skB)
 
 	return crypto.ToECDSA(skB)
-}
-
-func prefixTo32Bytes(s []byte) []byte {
-	if len(s) >= 32 {
-		return s
-	}
-
-	rs := make([]byte, 32-len(s), 32)
-
-	rs = append(rs, s...)
-
-	return rs
 }

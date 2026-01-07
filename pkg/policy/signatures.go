@@ -20,11 +20,23 @@ import (
 	"gorm.io/gorm"
 )
 
-const maxAllowedConsecutiveErrors = 15
+const (
+	maxAllowedConsecutiveErrors = 15
 
-var ErrDeadlineExceeded = errors.New("deadline exceeded")
-var ErrTooManyErrors = errors.New("too many errors")
-var ErrThresholdNotReached = errors.New("threshold not reached")
+	sleepBetweenSignatureQueries = 5 * time.Second
+)
+
+var (
+	ErrDeadlineExceeded    = errors.New("deadline exceeded")
+	ErrTooManyErrors       = errors.New("too many errors")
+	ErrThresholdNotReached = errors.New("threshold not reached")
+
+	errInvalidFirstInput    = errors.New("invalid first input")
+	errInvalidSecondInput   = errors.New("invalid second input")
+	errInvalidThirdInput    = errors.New("invalid third input")
+	errNotConsecutivePolicy = errors.New("not consecutive policy")
+	errInvalidDataProvider  = errors.New("invalid data provided")
+)
 
 // recoverInputsSignNewSigningPolicy unpacks transaction input for signNewSigningPolicy method of FlareSystemsManager smart contract.
 //
@@ -52,7 +64,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	ip0, ok := i0.(*big.Int)
 	if !ok {
-		return 0, common.Hash{}, nil, errors.New("invalid first input")
+		return 0, common.Hash{}, nil, errInvalidFirstInput
 	}
 
 	signingPolicyID, err = convert.BigToUint32Safe(ip0)
@@ -64,7 +76,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	ip1, ok := i1.(*common.Hash)
 	if !ok {
-		return 0, common.Hash{}, nil, errors.New("invalid second input")
+		return 0, common.Hash{}, nil, errInvalidSecondInput
 	}
 
 	newSigningPolicyHash = *ip1
@@ -73,7 +85,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	signature, ok = i2.(*registry.Signature)
 	if !ok {
-		return 0, common.Hash{}, nil, errors.New("invalid second input")
+		return 0, common.Hash{}, nil, errInvalidThirdInput
 	}
 
 	return signingPolicyID, newSigningPolicyHash, signature, err
@@ -89,7 +101,7 @@ func recoverSigner(hash common.Hash, signature *registry.Signature) (*ecdsa.Publ
 // collectSignatures collects providers' signatures for newPolicy according to the activePolicy.
 // Signatures are extracted from the transactions to FlareSystemsManager calling signNewSigningPolicy method.
 // The process ends when signatures of +50% weight are collected, in such case signatures are returned,
-// or deadline is exceeded or too many consecutive errors while querying db occurred, in which case error is returned.
+// or when deadline is exceeded or too many consecutive errors while querying db occurred, in which case error is returned.
 func collectSignatures(
 	ctx context.Context,
 	db *gorm.DB,
@@ -100,16 +112,17 @@ func collectSignatures(
 	activePolicy *policy.SigningPolicy,
 ) ([]*registry.Signature, error) {
 	if newPolicy.RewardEpochID != activePolicy.RewardEpochID+1 {
-		return nil, errors.New("not consecutive policies")
+		return nil, errNotConsecutivePolicy
 	}
 
 	from := startBlock
 
+	voters := activePolicy.Voters.Voters()
 	expectedHash := common.BytesToHash(newPolicy.Hash())
 	weightCollected := uint16(0)
-	sigs := make([]*registry.Signature, 0, 100)
+	sigs := make([]*registry.Signature, 0, len(voters))
 
-	voted := make(map[common.Address]bool, 100)
+	voted := make(map[common.Address]bool, len(voters))
 
 	errCount := 0
 
@@ -179,7 +192,7 @@ mainLoop:
 
 		from = to
 		errCount = 0
-		time.Sleep(5 * time.Second)
+		time.Sleep(sleepBetweenSignatureQueries)
 	}
 
 	return sigs, nil
@@ -197,7 +210,7 @@ func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpoch
 		return nil, nil, err
 	}
 	if spID != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
-		return nil, nil, fmt.Errorf("invalid data provided")
+		return nil, nil, errInvalidDataProvider
 	}
 
 	signer, err := recoverSigner(expectedHash, sig)

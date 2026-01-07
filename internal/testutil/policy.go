@@ -83,7 +83,7 @@ func RandomNormalizedArray(n int, seed int64) []float64 {
 	return numbers
 }
 
-// Generate policy creates a policy with n providers and returns the policy and providers private keys.
+// GeneratePolicy creates a policy with n providers and returns the policy and providers private keys.
 //
 // If randomWeights is true, the weights are randomized, if not, the weights are uniform.
 func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.PrivateKey) {

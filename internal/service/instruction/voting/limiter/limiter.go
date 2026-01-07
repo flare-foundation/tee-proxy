@@ -8,8 +8,10 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
-var ErrCannotInitialize = fmt.Errorf("%w: cannot initialize voting", status.HTTP[403])
-var ErrLimitReached = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
+var (
+	ErrCannotInitialize = fmt.Errorf("%w: cannot initialize voting", status.HTTP[403])
+	ErrLimitReached     = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
+)
 
 type Limiter struct {
 	counter map[common.Address]*State
@@ -19,7 +21,7 @@ type Limiter struct {
 	sync.RWMutex
 }
 
-// ValidatorState tracks the counts for a single validator.
+// State tracks the counts for a voter.
 type State struct {
 	// Address common.Address
 	pending uint

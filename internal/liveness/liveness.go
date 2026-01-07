@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
@@ -17,7 +18,10 @@ const (
 	infoDelayTolerance   = 140 * time.Second
 )
 
-var ErrStartUpNotFinished = errors.New("startup not finished yet")
+var (
+	ErrStartUpNotFinished       = errors.New("startup not finished yet")
+	errInfoServiceUninitialized = errors.New("info service not initialized")
+)
 
 type liveness struct {
 	startUpFinished bool
@@ -25,10 +29,12 @@ type liveness struct {
 	db     *gorm.DB
 	client *redis.Client
 	info   *info.Service
+
+	sync.RWMutex
 }
 
-func New(db *gorm.DB, client *redis.Client, info *info.Service) liveness {
-	return liveness{
+func New(db *gorm.DB, client *redis.Client, info *info.Service) *liveness {
+	return &liveness{
 		startUpFinished: false,
 		db:              db,
 		client:          client,
@@ -38,10 +44,15 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service) liveness {
 
 // SignalStartupFinished sets startUpFinished to true indicating that the startup has finished.
 func (l *liveness) SignalStartupFinished() {
+	l.Lock()
+	defer l.Unlock()
 	l.startUpFinished = true
 }
 
 func (l *liveness) Startup(_ context.Context) error {
+	l.RLock()
+	defer l.RUnlock()
+
 	if !l.startUpFinished {
 		return ErrStartUpNotFinished
 	}
@@ -50,6 +61,9 @@ func (l *liveness) Startup(_ context.Context) error {
 }
 
 func (l *liveness) Ready(ctx context.Context) error {
+	l.Lock()
+	defer l.Unlock()
+
 	if !l.startUpFinished {
 		return ErrStartUpNotFinished
 	}
@@ -65,7 +79,7 @@ func (l *liveness) Ready(ctx context.Context) error {
 	}
 
 	if l.info == nil {
-		return errors.New("info service not initialized")
+		return errInfoServiceUninitialized
 	}
 
 	l.info.RLock()

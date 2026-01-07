@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+var errInvalidInfoTiming = errors.New("invalid info timing config")
+
 type InfoTiming struct {
 	Initial                time.Duration `toml:"initial_timeout"`
 	CycleInternal          time.Duration `toml:"cycle_internal"`
@@ -13,7 +15,7 @@ type InfoTiming struct {
 
 func (st InfoTiming) validate() error {
 	if st.CycleInternal <= 0 || st.CycleQueueResponseWait <= 0 {
-		return errors.New("invalid info timing config")
+		return errInvalidInfoTiming
 	}
 	return nil
 }

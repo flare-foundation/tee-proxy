@@ -27,6 +27,18 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
 
+const keyInfoResponseTimeout = 3 * time.Minute
+
+var (
+	errKeyProofNotFound    = fmt.Errorf("%w: key proof not found", status.HTTP[404])
+	errWalletNotFound      = errors.New("wallet not found")
+	errKeyDataNotFound     = fmt.Errorf("%w: key data not found", status.HTTP[404])
+	errKeyUpdate           = errors.New("key update action not successful")
+	errInvalidActionResult = errors.New("invalid action result status")
+	errInvalidOpType       = errors.New("invalid action opType")
+	errInvalidOpCommand    = errors.New("invalid action opCommand")
+)
+
 type IDPair = wallets.KeyIDPair
 
 type Service struct {
@@ -42,14 +54,14 @@ type Service struct {
 	sync.RWMutex
 }
 
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.Client) Service {
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.Client) *Service {
 	kfw := make(map[common.Hash][]uint64)
 	k := make(map[IDPair]*pkgwallets.KeyData)
 
 	bp := storage.New[*wallets.TEEBackupResponse]("backup", client)
 	in := storage.New[common.Hash]("backupIndex", client)
 
-	return Service{
+	return &Service{
 		KeysForWallet: kfw,
 		Keys:          k,
 
@@ -61,12 +73,12 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.
 	}
 }
 
-func (s *Service) RunUpdateInfo(ctx context.Context, trigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult) {
+func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-trigger:
+		case <-walletSyncTrigger:
 			logger.Debug("wallet sync start")
 
 			err := s.sync(ctx)
@@ -127,7 +139,7 @@ func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedK
 	id := IDPair{WalletID: walletID, KeyID: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
-		return nil, fmt.Errorf("%w: key proof not found", status.HTTP[404])
+		return nil, errKeyProofNotFound
 	}
 
 	return info.Proof, nil
@@ -139,7 +151,7 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 
 	keys, exists := s.KeysForWallet[walletID]
 	if !exists || len(keys) == 0 {
-		return nil, errors.New("wallet not found")
+		return nil, errWalletNotFound
 	}
 
 	data, err := s.KeyData(walletID, keys[0])
@@ -157,7 +169,7 @@ func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyDa
 	id := IDPair{WalletID: walletID, KeyID: keyID}
 	info, exists := s.Keys[id]
 	if !exists {
-		return nil, fmt.Errorf("%w: key data not found", status.HTTP[404])
+		return nil, errKeyDataNotFound
 	}
 
 	return info, nil
@@ -177,7 +189,7 @@ func (s *Service) sync(ctx context.Context) error {
 		return err
 	}
 
-	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, 3*time.Minute) // todo: constant
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
 	if err != nil {
 		return err
 	}
@@ -212,7 +224,7 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*pkgwa
 
 		k, exists := keysForWallet[info.WalletID]
 		if !exists {
-			k = make([]uint64, 0)
+			k = make([]uint64, 0, 1)
 			keysForWallet[info.WalletID] = k
 		}
 		keysForWallet[info.WalletID] = append(k, info.KeyID)
@@ -234,7 +246,7 @@ func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*pkgwa
 
 func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 	if action.Status != 1 {
-		return IDPair{}, false, errors.New("key update action not successful")
+		return IDPair{}, false, errKeyUpdate
 	}
 
 	switch action.OPCommand {
@@ -273,7 +285,7 @@ func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 
 	keys, exists := s.KeysForWallet[info.WalletID]
 	if !exists {
-		keys = make([]uint64, 0)
+		keys = make([]uint64, 0, 1)
 		s.KeysForWallet[info.WalletID] = keys
 	}
 	s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)
@@ -323,15 +335,15 @@ func keysInfoAction() (*types.Action, error) {
 
 func parseKeyInfoActionResult(r *types.ActionResult) ([]*wallets.SignedKeyExistenceProof, error) {
 	if r.Status != 1 {
-		return nil, errors.New("invalid action result")
+		return nil, errInvalidActionResult
 	}
 
 	if r.OPType != op.Get.Hash() {
-		return nil, errors.New("invalid action opType")
+		return nil, errInvalidOpType
 	}
 
 	if r.OPCommand != op.KeyInfo.Hash() {
-		return nil, errors.New("invalid action opCommand")
+		return nil, errInvalidOpCommand
 	}
 
 	var res = make([]*wallets.SignedKeyExistenceProof, 0)
@@ -346,15 +358,15 @@ func parseKeyInfoActionResult(r *types.ActionResult) ([]*wallets.SignedKeyExiste
 // parseKeyDeleteActionResult parses action result for "KEY_DELETE" and returns the IDPair from result data.
 func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 	if r.Status != 1 {
-		return IDPair{}, errors.New("invalid action result status")
+		return IDPair{}, errInvalidActionResult
 	}
 
 	if r.OPType != op.Wallet.Hash() {
-		return IDPair{}, errors.New("invalid action result opType")
+		return IDPair{}, errInvalidOpType
 	}
 
 	if r.OPCommand != op.KeyDelete.Hash() {
-		return IDPair{}, errors.New("invalid action result opCommand")
+		return IDPair{}, errInvalidOpCommand
 	}
 
 	var idPair IDPair
@@ -369,15 +381,15 @@ func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 // parseNewKeyActionResult parses action result data for "KEY_GENERATE" or "KEY_DATA_PROVIDER_RESTORE" action.
 func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistenceProof, error) {
 	if r.Status != 1 {
-		return nil, errors.New("invalid action result status")
+		return nil, errInvalidActionResult
 	}
 
 	if r.OPType != op.Wallet.Hash() {
-		return nil, fmt.Errorf("invalid action result opType, expected %v got %v", op.Wallet, op.HashToOPCommand(r.OPCommand))
+		return nil, errInvalidOpType
 	}
 
 	if r.OPCommand != op.KeyDataProviderRestore.Hash() && r.OPCommand != op.KeyGenerate.Hash() {
-		return nil, errors.New("invalid action result opCommand")
+		return nil, errInvalidOpCommand
 	}
 
 	res := new(wallets.SignedKeyExistenceProof)
@@ -400,6 +412,7 @@ func parseKeyExistenceProof(proof *wallets.SignedKeyExistenceProof) (*pkgwallets
 	return out, nil
 }
 
+// PeriodicWalletsSyncTrigger adds a signal to the channel once per duration.
 func PeriodicWalletsSyncTrigger(ctx context.Context, c chan bool, d time.Duration) {
 	for {
 		if ctx.Err() != nil {
