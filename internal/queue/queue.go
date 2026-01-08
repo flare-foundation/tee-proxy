@@ -19,6 +19,7 @@ const (
 
 	DirectQueue = "DirectQueue"
 	MainQueue   = "MainQueue"
+	BackupQueue = "BackupQueue"
 )
 
 var ErrInvalidQueueID = errors.New("invalid queue id")
@@ -36,6 +37,7 @@ type ActionQueues struct {
 	actions     *storage.Storage[*types.Action]
 	directQueue storage.Queue[*ActionSubmissionID]
 	mainQueue   storage.Queue[*ActionSubmissionID]
+	backupQueue storage.Queue[*ActionSubmissionID]
 }
 
 func NewActionQueues(client *redis.Client) *ActionQueues {
@@ -43,6 +45,7 @@ func NewActionQueues(client *redis.Client) *ActionQueues {
 		actions:     storage.New[*types.Action](Actions, client),
 		directQueue: storage.New[*ActionSubmissionID](DirectQueue, client),
 		mainQueue:   storage.New[*ActionSubmissionID](MainQueue, client),
+		backupQueue: storage.New[*ActionSubmissionID](BackupQueue, client),
 	}
 }
 
@@ -59,6 +62,8 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 		err = as.mainQueue.Enqueue(ctx, &id)
 	case processorutils.Direct:
 		err = as.directQueue.Enqueue(ctx, &id)
+	case processorutils.Backup:
+		err = as.backupQueue.Enqueue(ctx, &id)
 	default:
 		return ErrInvalidQueueID
 	}
@@ -75,6 +80,8 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 		queue = as.mainQueue
 	case processorutils.Direct:
 		queue = as.directQueue
+	case processorutils.Backup:
+		queue = as.backupQueue
 	default:
 		return nil, ErrInvalidQueueID
 	}

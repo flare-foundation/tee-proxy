@@ -84,7 +84,7 @@ func (s *Service) initiateBackup(ctx context.Context, id IDPair) error {
 		return err
 	}
 
-	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
+	err = s.aq.Enqueue(ctx, action, processorutils.Backup)
 	if err != nil {
 		return err
 	}
