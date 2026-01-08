@@ -121,7 +121,7 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 	queueID := processorutils.QueueID(r.PathValue("queueID"))
 
 	switch queueID {
-	case processorutils.Main, processorutils.Direct:
+	case processorutils.Main, processorutils.Direct, processorutils.Backup:
 		value, err := i.actionQueues.Dequeue(ctx, queueID)
 		if errors.Is(err, storage.ErrEmptyQueue) {
 			return json.NewEncoder(w).Encode(nil)
