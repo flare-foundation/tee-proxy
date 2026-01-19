@@ -57,6 +57,8 @@ type Proxy struct {
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
+	DirectExtension            bool            `toml:"direct_extension"`              // With DirectExtension set to true, external server has an endpoint to post direct instructions.
+
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
@@ -84,6 +86,8 @@ func Read(path string) (Proxy, error) {
 			MaxFileSize: 0,
 			Console:     true,
 		},
+
+		DirectExtension: false,
 	}
 
 	err := toml.ReadTo(path, &c, false)

@@ -4,16 +4,17 @@ package status
 import (
 	"errors"
 	"fmt"
+	"net/http"
 )
 
 var HTTP = map[int]error{
-	400: errors.New("'bad request'"),
-	403: errors.New("'forbidden'"),
-	404: errors.New("'not found'"),
-	429: errors.New("'too many requests'"),
+	http.StatusBadRequest:      errors.New("'bad request'"),
+	http.StatusForbidden:       errors.New("'forbidden'"),
+	http.StatusNotFound:        errors.New("'not found'"),
+	http.StatusTooManyRequests: errors.New("'too many requests'"),
 
-	500: errors.New("'internal server error'"),
-	503: errors.New("'service unavailable'"),
+	http.StatusInternalServerError: errors.New("'internal server error'"),
+	http.StatusServiceUnavailable:  errors.New("'service unavailable'"),
 }
 
 // ErrToCode returns a http code for an error.
