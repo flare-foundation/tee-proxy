@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	kib = 2 << 10
-	mib = 2 << 20
+	kib = 1 << 10
+	mib = 1 << 20
 )
 
 type sizeConstraint struct {
