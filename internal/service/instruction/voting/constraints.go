@@ -42,9 +42,9 @@ var (
 
 var (
 	errNonInstructionCommand    = fmt.Errorf("%w: non instruction opCommand", status.HTTP[400])
-	errOriginalMessageTooBig    = fmt.Errorf("%w: original message to big", status.HTTP[400])
-	errAdditionalMessageTooBig  = fmt.Errorf("%w: additional message to big", status.HTTP[400])
-	errAdditionalVariableTooBig = fmt.Errorf("%w: additional variable message to big", status.HTTP[400])
+	errOriginalMessageTooBig    = fmt.Errorf("%w: original message too big", status.HTTP[400])
+	errAdditionalMessageTooBig  = fmt.Errorf("%w: additional message too big", status.HTTP[400])
+	errAdditionalVariableTooBig = fmt.Errorf("%w: additional variable message too big", status.HTTP[400])
 )
 
 // constraints returns instruction size constraints for opCommand.
