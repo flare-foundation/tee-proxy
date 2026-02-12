@@ -288,7 +288,9 @@ func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 		keys = make([]uint64, 0, 1)
 		s.KeysForWallet[info.WalletID] = keys
 	}
-	s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)
+	if !slices.Contains(keys, info.KeyID) {
+		s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)
+	}
 
 	id := IDPair{
 		WalletID: info.WalletID,
