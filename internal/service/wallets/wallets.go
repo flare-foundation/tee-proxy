@@ -92,7 +92,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
 			if err != nil {
-				logger.Errorf("wallet key update: %w", err)
+				logger.Errorf("wallet key update: %v", err)
 				continue
 			}
 
