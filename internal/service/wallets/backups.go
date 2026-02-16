@@ -108,7 +108,10 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 		return err
 	}
 
-	idHash := b.BackupID.Hash()
+	idHash, err := b.BackupID.Hash()
+	if err != nil {
+		return err
+	}
 
 	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, expirationTime)
 	if err != nil {
