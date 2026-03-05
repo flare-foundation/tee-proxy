@@ -75,10 +75,10 @@ func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privK
 
 	integrationUtils.VerifyReceipts(t, receipts, iData)
 
-	res := integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID)
+	res := integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID, 1)
 	require.Equal(t, "successfully posted to extension", string(res.Result.Data))
 
 	time.Sleep(1 * time.Second)
-	res = integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID)
+	res = integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID, 1)
 	require.Equal(t, "Action (type: instruction) processed successfully", res.Result.Log)
 }

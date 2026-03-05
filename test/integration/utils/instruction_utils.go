@@ -274,14 +274,14 @@ func VerifyVotingStatus(t *testing.T, statuses *voting.Statuses, nCosigners, cos
 }
 
 // FetchAndVerifyActionResponse Fetches ActionResponse and verifies the signature
-func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeID common.Address) *types.ActionResponse {
+func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash, submissionTag types.SubmissionTag, opType op.Type, opCommand op.Command, teeID common.Address, expectedStatus uint8) *types.ActionResponse {
 	t.Helper()
 
 	url := fmt.Sprintf("http://localhost:%d/action/result/%s?submissionTag=%s", port, strings.TrimPrefix(actionID.String(), "0x"), submissionTag)
 	var res types.ActionResponse
 	makeRequests(t, url, &res)
 
-	require.Equal(t, uint8(1), res.Result.Status)
+	require.Equal(t, expectedStatus, res.Result.Status)
 	require.Equal(t, submissionTag, res.Result.SubmissionTag)
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
@@ -296,7 +296,7 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash,
 func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID common.Hash, opType op.Type, opCommand op.Command, receipts []*voting.SignedReceipt) {
 	t.Helper()
 
-	res := FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.End, opType, opCommand, pc.TeeID)
+	res := FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.End, opType, opCommand, pc.TeeID, 1)
 
 	rewData := new(types.RewardingData)
 	err := json.Unmarshal(res.Result.Data, &rewData)
