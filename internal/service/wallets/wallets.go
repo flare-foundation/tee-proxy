@@ -92,7 +92,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
 			if err != nil {
-				logger.Errorf("wallet key update: %w", err)
+				logger.Errorf("wallet key update: %v", err)
 				continue
 			}
 
@@ -288,7 +288,9 @@ func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 		keys = make([]uint64, 0, 1)
 		s.KeysForWallet[info.WalletID] = keys
 	}
-	s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)
+	if !slices.Contains(keys, info.KeyID) {
+		s.KeysForWallet[info.WalletID] = append(keys, info.KeyID)
+	}
 
 	id := IDPair{
 		WalletID: info.WalletID,

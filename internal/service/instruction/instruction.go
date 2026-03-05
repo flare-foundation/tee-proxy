@@ -95,6 +95,7 @@ func (s *Service) Forward(ctx context.Context) error {
 		case action := <-s.vs.Out:
 			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
+				logger.Errorf("enqueuing instruction action: %v", err)
 				continue
 			}
 		}

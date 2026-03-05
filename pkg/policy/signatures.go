@@ -48,7 +48,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 			if ok {
 				err = fmt.Errorf("recovered panic: %w", e)
 			} else {
-				err = fmt.Errorf("recovered panic non error: %w", e)
+				err = fmt.Errorf("recovered panic non error: %v", r)
 			}
 		}
 	}()

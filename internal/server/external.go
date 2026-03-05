@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -32,6 +33,8 @@ var (
 	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
 	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
 	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
+
+	errNoInfoService = errors.New("nil info service")
 )
 
 type External struct {
@@ -202,6 +205,10 @@ func (e *External) statusH(w http.ResponseWriter, r *http.Request) error {
 // infoH serves info endpoint.
 // It returns latest signed tee info.
 func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
+	if e.teeInfo == nil {
+		return errNoInfoService
+	}
+
 	e.teeInfo.RLock()
 	defer e.teeInfo.RUnlock()
 

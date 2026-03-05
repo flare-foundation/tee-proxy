@@ -309,7 +309,7 @@ func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 	if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
 		a, err := vb.Action(types.Threshold)
 		if err != nil {
-			logger.Errorf("failed crating threshold action for %v, %v: %w", vb.iID, vb.iHash, err)
+			logger.Errorf("failed crating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
 		} else {
 			out <- a
 		}
@@ -320,7 +320,7 @@ func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 
 	a, err := vb.Action(types.End)
 	if err != nil {
-		logger.Errorf("failed crating end action for %v, %v: %w", vb.iID, vb.iHash, err)
+		logger.Errorf("failed crating end action for %v, %v: %v", vb.iID, vb.iHash, err)
 	} else {
 		out <- a
 	}
