@@ -142,7 +142,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	policyChan := make(chan policy.SigningPolicy, 1)
 	instService := instruction.NewService(vc, teeID, proxyPk, policyChan, aq, metaObj)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, resultService, infoService, walletStorage, proxyPk, false, aq)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, resultService, infoService, walletStorage, proxyPk, false, aq, "")
 
 	wg.Go(func() {
 		instService.Run(ctx)

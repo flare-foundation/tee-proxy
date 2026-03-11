@@ -9,6 +9,7 @@ import (
 
 var HTTP = map[int]error{
 	http.StatusBadRequest:      errors.New("'bad request'"),
+	http.StatusUnauthorized:    errors.New("'unauthorized'"),
 	http.StatusForbidden:       errors.New("'forbidden'"),
 	http.StatusNotFound:        errors.New("'not found'"),
 	http.StatusTooManyRequests: errors.New("'too many requests'"),

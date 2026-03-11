@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,7 @@ var (
 	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[http.StatusBadRequest])
 	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[http.StatusBadRequest])
 	errSystemDirect         = fmt.Errorf("%w: system op types not allowed in external direct requests", status.HTTP[http.StatusBadRequest])
+	errUnauthorized         = fmt.Errorf("%w: unauthorized", status.HTTP[http.StatusUnauthorized])
 )
 
 type External struct {
@@ -54,6 +56,7 @@ type External struct {
 	wallet             *wallets.Service
 
 	privKey *ecdsa.PrivateKey
+	apiKey  string
 }
 
 func NewExternal(
@@ -65,6 +68,7 @@ func NewExternal(
 	privateKey *ecdsa.PrivateKey,
 	wExtension bool,
 	actionQueues *queue.ActionQueues,
+	apiKey string,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -84,6 +88,7 @@ func NewExternal(
 		teeInfo:            teeInfo,
 		wallet:             wallet,
 		privKey:            privateKey,
+		apiKey:             apiKey,
 	}
 
 	e.registerRoutes(wExtension)
@@ -151,10 +156,25 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// verifyAPIKey checks that the request contains a valid X-API-Key header.
+func (e *External) verifyAPIKey(r *http.Request) error {
+	key := r.Header.Get("X-API-Key")
+	if subtle.ConstantTimeCompare([]byte(key), []byte(e.apiKey)) != 1 {
+		return errUnauthorized
+	}
+
+	return nil
+}
+
 // directH handles direct endpoint.
 // The request should provide direct instruction.
 // A direct action and put into queue and also returned to the caller.
 func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
+	err := e.verifyAPIKey(r)
+	if err != nil {
+		return err
+	}
+
 	ctx := r.Context()
 
 	b := io.LimitReader(r.Body, 10*mib)
@@ -162,7 +182,7 @@ func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
 	i := new(types.DirectInstruction)
 	dec := json.NewDecoder(b)
 	dec.DisallowUnknownFields()
-	err := dec.Decode(&i)
+	err = dec.Decode(&i)
 	if err != nil {
 		return ErrInvalidBody
 	}
