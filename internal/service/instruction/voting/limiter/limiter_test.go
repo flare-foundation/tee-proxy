@@ -11,7 +11,7 @@ import (
 func TestLimiter(t *testing.T) {
 	limit := uint(3)
 
-	voters := []common.Address{}
+	voters := make([]common.Address, 0, 3)
 
 	for j := range 3 {
 		voters = append(voters, common.BytesToAddress(fmt.Appendf(nil, "address%d", j)))

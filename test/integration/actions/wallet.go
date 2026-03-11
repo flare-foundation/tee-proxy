@@ -45,7 +45,7 @@ func GenerateWallet(
 		WalletId:    walletID,
 		KeyId:       keyID,
 		KeyType:     wallets.XRPType,
-		SigningAlgo: wallets.XRPAlgo,
+		SigningAlgo: wallets.XRPSignAlgo,
 		ConfigConstants: commonwallet.ITeeWalletKeyManagerKeyConfigConstants{
 			AdminsPublicKeys:   adminWalletPublicKeys,
 			AdminsThreshold:    uint64(len(adminWalletPublicKeys)),
@@ -184,7 +184,7 @@ func RecoverWallet(
 			WalletId:      walletID,
 			KeyId:         keyID,
 			KeyType:       wallets.XRPType,
-			SigningAlgo:   wallets.XRPAlgo,
+			SigningAlgo:   wallets.XRPSignAlgo,
 			PublicKey:     walletBackup.PublicKey,
 			RewardEpochId: rewardEpochID,
 			RandomNonce:   walletBackup.RandomNonce,

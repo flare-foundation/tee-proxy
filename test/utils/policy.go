@@ -124,9 +124,8 @@ func GenerateRandomPolicyData(rewardEpochID uint32, voters []common.Address, see
 
 	threshold := uint16(testutil.TotalWeight / 2)
 	randSeed := big.NewInt(rgen.Int63())
-	weights := []uint16{}
-
 	normalizedWeights := testutil.RandomNormalizedArray(len(voters), seed)
+	weights := make([]uint16, 0, len(normalizedWeights))
 	for _, w := range normalizedWeights {
 		weights = append(weights, uint16(w*testutil.TotalWeight))
 	}

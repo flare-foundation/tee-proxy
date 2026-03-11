@@ -16,6 +16,155 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStoreResponse(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	s := NewStorage(c)
+
+	t.Run("store and retrieve", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.Submit, 1)
+
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		got, err := s.GetResponse(t.Context(), actionID, types.Submit)
+		require.NoError(t, err)
+		require.Equal(t, res, got)
+	})
+
+	t.Run("cannot override final status 0", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 0)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		override := createMockResponseWithStatus(t, actionID, types.End, 1)
+		err = s.StoreResponse(t.Context(), override)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "override final status")
+
+		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		require.NoError(t, err)
+		require.Equal(t, uint8(0), got.Result.Status)
+	})
+
+	t.Run("cannot override final status 1", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 1)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		override := createMockResponseWithStatus(t, actionID, types.End, 5)
+		err = s.StoreResponse(t.Context(), override)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "override final status")
+
+		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		require.NoError(t, err)
+		require.Equal(t, uint8(1), got.Result.Status)
+	})
+
+	t.Run("cannot override transient with equal status", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 3)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		override := createMockResponseWithStatus(t, actionID, types.End, 3)
+		err = s.StoreResponse(t.Context(), override)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "override higher transient status")
+	})
+
+	t.Run("cannot override transient with lower status", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 5)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		override := createMockResponseWithStatus(t, actionID, types.End, 3)
+		err = s.StoreResponse(t.Context(), override)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "override higher transient status")
+
+		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		require.NoError(t, err)
+		require.Equal(t, uint8(5), got.Result.Status)
+	})
+
+	t.Run("can override transient with higher transient status", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 2)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		override := createMockResponseWithStatus(t, actionID, types.End, 4)
+		err = s.StoreResponse(t.Context(), override)
+		require.NoError(t, err)
+
+		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		require.NoError(t, err)
+		require.Equal(t, uint8(4), got.Result.Status)
+	})
+
+	t.Run("can override transient with final status", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 5)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		override := createMockResponseWithStatus(t, actionID, types.End, 0)
+		err = s.StoreResponse(t.Context(), override)
+		require.NoError(t, err)
+
+		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		require.NoError(t, err)
+		require.Equal(t, uint8(0), got.Result.Status)
+	})
+
+	t.Run("submit tag uses short TTL", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.Submit, 0)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		got, err := s.GetResponse(t.Context(), actionID, types.Submit)
+		require.NoError(t, err)
+		require.Equal(t, res, got)
+	})
+
+	t.Run("end tag uses default TTL", func(t *testing.T) {
+		actionID, err := random.Hash()
+		require.NoError(t, err)
+
+		res := createMockResponseWithStatus(t, actionID, types.End, 0)
+		err = s.StoreResponse(t.Context(), res)
+		require.NoError(t, err)
+
+		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		require.NoError(t, err)
+		require.Equal(t, res, got)
+	})
+}
+
 func TestWaitOnResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
@@ -100,6 +249,11 @@ func TestWaitOnResponse(t *testing.T) {
 
 func createMockResponse(t *testing.T, id common.Hash) *types.ActionResponse {
 	t.Helper()
+	return createMockResponseWithStatus(t, id, types.Submit, 1)
+}
+
+func createMockResponseWithStatus(t *testing.T, id common.Hash, tag types.SubmissionTag, status uint8) *types.ActionResponse {
+	t.Helper()
 	opType, err := convert.StringToCommonHash("MOCKT")
 	require.NoError(t, err)
 
@@ -109,8 +263,8 @@ func createMockResponse(t *testing.T, id common.Hash) *types.ActionResponse {
 	return &types.ActionResponse{
 		Result: types.ActionResult{
 			ID:                     id,
-			SubmissionTag:          types.Submit,
-			Status:                 1,
+			SubmissionTag:          tag,
+			Status:                 status,
 			Log:                    "",
 			OPType:                 opType,
 			OPCommand:              opCommand,
