@@ -53,7 +53,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		if res.Result.Status < 2 {
 			return fmt.Errorf("tried to override final status for %s", id.String())
 		}
-		if response.Result.Status > 2 && res.Result.Status >= response.Result.Status {
+		if response.Result.Status >= 2 && res.Result.Status >= response.Result.Status {
 			return fmt.Errorf("trying to override higher transient status for %s", id.String())
 		}
 	}
