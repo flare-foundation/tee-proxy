@@ -44,6 +44,6 @@ proposal_expiration = "120s"
 max_pending_request = 100
 
 # Direct extension enables POST /direct endpoint (requires API key)
-direct_extension = false
+enable_direct = false
 direct_api_key = ""
 direct_api_key_variable = "DIRECT_API_KEY"

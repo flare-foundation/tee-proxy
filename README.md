@@ -33,7 +33,7 @@ go run ./...
 
 ## Direct Endpoint
 
-The `/direct` endpoint allows submitting direct instructions that bypass voting consensus.
+The `POST /direct` endpoint allows submitting direct instructions that bypass the C-chain.
 It is disabled by default and must be explicitly enabled in the config:
 
 ```toml
@@ -48,6 +48,16 @@ The API key can be configured in two ways:
 
 If both are set, the environment variable takes precedence.
 The proxy will refuse to start if `direct_extension` is enabled without a configured API key.
+
+The /direct endpoints expects Direct Instruction as a body
+
+```json
+{
+  "opType": "0x...",
+  "opCommand": "0x...",
+  "message": "0x..."
+}
+```
 
 Example request:
 

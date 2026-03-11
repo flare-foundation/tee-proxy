@@ -66,7 +66,7 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
-	wExtension bool,
+	enableDirect bool,
 	actionQueues *queue.ActionQueues,
 	apiKey string,
 ) *External {
@@ -91,7 +91,7 @@ func NewExternal(
 		apiKey:             apiKey,
 	}
 
-	e.registerRoutes(wExtension)
+	e.registerRoutes(enableDirect)
 
 	return &e
 }
@@ -108,7 +108,8 @@ func (e *External) Close(ctx context.Context) error {
 }
 
 // registerRoutes adds routs to the server.
-func (e *External) registerRoutes(wExtension bool) {
+// With enableDirect set to true /direct endpoint is added.
+func (e *External) registerRoutes(enableDirect bool) {
 	mux := http.NewServeMux()
 	e.server.Handler = mux
 
@@ -120,7 +121,7 @@ func (e *External) registerRoutes(wExtension bool) {
 	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, false))
 	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, false))
 
-	if wExtension {
+	if enableDirect {
 		mux.HandleFunc("POST /direct", prepareHandler(e.directH, false))
 	}
 }
@@ -210,6 +211,7 @@ func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// validateDirect checks that the instruction does not have system op Type.
 func validateDirect(i *types.DirectInstruction) error {
 	if op.HashToOPType(i.OPType).IsSystem() {
 		return errSystemDirect

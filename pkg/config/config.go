@@ -59,7 +59,7 @@ type Proxy struct {
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
-	DirectExtension            bool            `toml:"direct_extension"`              // With DirectExtension set to true, external server has an endpoint to post direct instructions.
+	EnableDirect               bool            `toml:"enable_direct"`                 // With EnableDirect set to true, external server has an endpoint to post direct instructions.
 	DirectAPIKey               string          `toml:"direct_api_key"`                // API key for the /direct endpoint. Can also be set via env variable (see DirectAPIKeyVariable).
 	DirectAPIKeyVariable       string          `toml:"direct_api_key_variable"`       // Name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
 }
@@ -90,7 +90,7 @@ func Read(path string) (Proxy, error) {
 			Console:     true,
 		},
 
-		DirectExtension: false,
+		EnableDirect: false,
 	}
 
 	err := toml.ReadTo(path, &c, false)
@@ -126,7 +126,7 @@ func Read(path string) (Proxy, error) {
 		return c, errInitialSigningPolicyOffsetNegative
 	}
 
-	if c.DirectExtension {
+	if c.EnableDirect {
 		c.DirectAPIKey = resolveDirectAPIKey(c.DirectAPIKeyVariable, c.DirectAPIKey)
 		if c.DirectAPIKey == "" {
 			return c, errDirectAPIKeyNotSet
