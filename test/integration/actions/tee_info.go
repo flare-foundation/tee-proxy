@@ -45,7 +45,7 @@ func GetTeeAttestation(t *testing.T, pc *utils.ProxyConfig, privKeys []*ecdsa.Pr
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Reg, op.TEEAttestation, pc.TeeID)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Reg, op.TEEAttestation, pc.TeeID, 1)
 
 	var teeInfoResponse types.TeeInfoResponse
 	err = json.Unmarshal(res.Result.Data, &teeInfoResponse)

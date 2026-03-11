@@ -28,7 +28,7 @@ func TestNewKey(t *testing.T) {
 	walletID := common.BytesToHash([]byte("walletID"))
 
 	actionMsg := &wallet.ITeeWalletKeyManagerKeyGenerate{
-		SigningAlgo: wallets.XRPAlgo,
+		SigningAlgo: wallets.XRPSignAlgo,
 		KeyType:     wallets.XRPType,
 		TeeId:       teeID,
 		WalletId:    walletID,
@@ -90,7 +90,7 @@ func TestNewKey(t *testing.T) {
 
 	require.Equal(t, teeID, sResult.TeeID)
 	require.Equal(t, walletID, sResult.WalletID)
-	require.Equal(t, wallets.XRPAlgo, sResult.SigningAlgo)
+	require.Equal(t, wallets.XRPSignAlgo, sResult.SigningAlgo)
 	require.Equal(t, wallets.XRPType, sResult.KeyType)
 
 	sProof, err := str.KeyProof(walletID, 0)

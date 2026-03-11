@@ -47,13 +47,18 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		storingDur = submitStoringDuration
 	}
 
-	// do not override final results (0 or 1)
-	res, err := rs.s.Get(ctx, id.String())
-	if err == nil && res.Result.Status < 2 {
-		return nil
+	// do not override final results (0 or 1) or if new status is smaller than other
+	res, _ := rs.s.Get(ctx, id.String()) // error means that the id is not stored, any other type of error will be caught by next call to Redis
+	if res != nil {
+		if res.Result.Status < 2 {
+			return fmt.Errorf("tried to override final status for %s", id.String())
+		}
+		if response.Result.Status >= 2 && res.Result.Status >= response.Result.Status {
+			return fmt.Errorf("trying to override higher transient status for %s", id.String())
+		}
 	}
 
-	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
+	err := rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
 	if err != nil {
 		return fmt.Errorf("storing response %s: %w", id.String(), err)
 	}
