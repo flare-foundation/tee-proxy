@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/xrpl"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -39,7 +40,23 @@ func SignTransaction(
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.XRP, op.Pay, pc.TeeID)
+	feeSchedule, err := xrpl.ParseFeeEntries(paymentInstruction.FeeSchedule)
+	require.NoError(t, err)
+	startTime := time.Now()
+	var res *types.ActionResponse
+	if feeSchedule[0].Delay != 0 {
+		res = utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.XRP, op.Pay, teeID, 2)
+	}
+
+	for i, entry := range feeSchedule {
+		time.Sleep(time.Until(startTime.Add(entry.Delay + (500 * time.Millisecond))))
+
+		expectedStatus := uint8(3 + i)
+		if i == len(feeSchedule)-1 {
+			expectedStatus = 1
+		}
+		res = utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.XRP, op.Pay, teeID, expectedStatus)
+	}
 
 	<-endOfVotingTicker.C
 	utils.FetchAndVerifyRewardingData(t, pc, iData.InstructionID, op.XRP, op.Pay, receipts)

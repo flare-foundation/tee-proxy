@@ -66,7 +66,7 @@ func GenerateWallet(
 
 	utils.VerifyReceipts(t, receipts, iData)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Wallet, op.KeyGenerate, teeID)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Wallet, op.KeyGenerate, teeID, 1)
 
 	require.Equal(t, uint8(1), res.Result.Status, res.Result.Log)
 	var swe wallets.SignedKeyExistenceProof
@@ -134,7 +134,7 @@ func DeleteWallet(
 	receipts := utils.SignAndSendInstructions(t, iData, privKeys, pc.ExtPort)
 	utils.VerifyReceipts(t, receipts, iData)
 
-	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Wallet, op.KeyDelete, pc.TeeID)
+	utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.Wallet, op.KeyDelete, pc.TeeID, 1)
 
 	wst := make(chan bool, 1)
 	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, nil, nil)
@@ -278,7 +278,7 @@ func RecoverWallet(
 	}
 	utils.VerifyReceiptsForMultipleInstructions(t, receipts, instructions)
 
-	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeID)
+	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeID, 1)
 
 	walletExistenceProof, err := wallets.ExtractKeyExistence(res.Result.Data, pc.TeeID)
 	require.NoError(t, err)
