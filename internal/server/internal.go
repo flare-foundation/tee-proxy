@@ -14,6 +14,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 
 	"github.com/flare-foundation/tee-proxy/internal/queue"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
@@ -26,8 +27,11 @@ type ResultService interface {
 	Serve(context.Context, common.Hash, types.SubmissionTag) (*types.ActionResponse, error)
 }
 
+var _ ResultService = &result.Service{}
+
 type Internal struct {
-	actionQueues  *queue.ActionQueues
+	actionQueues *queue.ActionQueues
+
 	resultService ResultService
 	server        *http.Server
 
