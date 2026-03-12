@@ -117,9 +117,9 @@ func TestProxyTeeIntegration(t *testing.T) {
 
 	integrationactions.GetTeeAttestation(t, cfg, providerPrivKeys, policy.RewardEpochID)
 
-	ftdcResponse := integrationactions.FTDCProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
-	require.NotNil(t, ftdcResponse)
-	logger.Info("FTDC proof completed")
+	fdcResponse := integrationactions.FDCProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
+	require.NotNil(t, fdcResponse)
+	logger.Info("FDC proof completed")
 
 	startingEpochID++
 	newPolicy, _, _, _ := integrationactions.UpdatePolicy(t, cfg, startingEpochID, voters, providerPrivKeys, providerPubKeysMap)

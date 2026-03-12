@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Flare TEE Proxy is a Go service that acts as an intermediary between external clients and a TEE (Trusted Execution Environment) node for the Flare Network. It handles instruction submission with threshold-based voting consensus, wallet management, signing policy coordination, and cryptographic operations.
-
+Flare TEE Proxy is a Go service that acts as an intermediary between external clients and a TEE (Trusted Execution Environment) node for the Flare Network.
+It handles instruction submission with threshold-based voting consensus, wallet management, signing policy coordination, and cryptographic operations.
 
 ## Setup
 
@@ -30,13 +30,13 @@ Requires: Redis server, MySQL/SQLite database with C-chain indexer data, and the
 
 ### Core Services (`internal/service/`)
 
-| Service | Purpose |
-|---------|---------|
+| Service        | Purpose                                                                                                                           |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `instruction/` | Processes incoming instructions, manages voting proposals with threshold-based consensus, tracks voting history in cyclic storage |
-| `policy/` | Fetches signing policies from blockchain (Relay contract), validates voter permissions, distributes policies via ActionQueues |
-| `info/` | Periodically retrieves TEE identity, public keys, and signing policy hashes from the TEE node |
-| `wallets/` | Manages wallet key creation, backup, recovery, and deletion with Redis persistence |
-| `result/` | Stores instruction execution results in Redis, triggers wallet backups |
+| `policy/`      | Fetches signing policies from blockchain (Relay contract), validates voter permissions, distributes policies via ActionQueues     |
+| `info/`        | Periodically retrieves TEE identity, public keys, and signing policy hashes from the TEE node                                     |
+| `wallets/`     | Manages wallet key creation, backup, recovery, and deletion with Redis persistence                                                |
+| `result/`      | Stores instruction execution results in Redis, triggers wallet backups                                                            |
 
 ### HTTP Servers (`internal/server/`)
 
@@ -66,4 +66,6 @@ Client ← External Server ← Result Storage ←──────────�
 - `github.com/redis/go-redis/v9` — Redis client for queuing and storage
 - `github.com/alicebob/miniredis/v2` — In-memory Redis for tests
 
+## MDs
 
+Every sentence must be in its own line.

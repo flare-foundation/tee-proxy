@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -13,7 +15,10 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
@@ -27,25 +32,31 @@ const (
 	rewardEpochID = "rewardEpochID"
 	walletID      = "walletID"
 	backupIDHash  = "backupIDHash"
+
+	mib = 2 << 20
 )
 
 var (
-	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
-	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[400])
-	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[400])
-
 	errNoInfoService = errors.New("nil info service")
+
+	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
+	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[http.StatusBadRequest])
+	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[http.StatusBadRequest])
+	errSystemDirect         = fmt.Errorf("%w: system op types not allowed in external direct requests", status.HTTP[http.StatusBadRequest])
+	errUnauthorized         = fmt.Errorf("%w: unauthorized", status.HTTP[http.StatusUnauthorized])
 )
 
 type External struct {
-	instructionService *instruction.Service
-	resultService      ResultService
-	server             *http.Server
+	server *http.Server
 
-	teeInfo *info.Service
-	wallet  *wallets.Service
+	instructionService *instruction.Service
+	actionQueues       *queue.ActionQueues
+	resultService      ResultService
+	teeInfo            *info.Service
+	wallet             *wallets.Service
 
 	privKey *ecdsa.PrivateKey
+	apiKey  string
 }
 
 func NewExternal(
@@ -55,6 +66,9 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
+	enableDirect bool,
+	actionQueues *queue.ActionQueues,
+	apiKey string,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -74,9 +88,10 @@ func NewExternal(
 		teeInfo:            teeInfo,
 		wallet:             wallet,
 		privKey:            privateKey,
+		apiKey:             apiKey,
 	}
 
-	e.registerRoutes()
+	e.registerRoutes(enableDirect)
 
 	return &e
 }
@@ -93,7 +108,8 @@ func (e *External) Close(ctx context.Context) error {
 }
 
 // registerRoutes adds routs to the server.
-func (e *External) registerRoutes() {
+// With enableDirect set to true /direct endpoint is added.
+func (e *External) registerRoutes(enableDirect bool) {
 	mux := http.NewServeMux()
 	e.server.Handler = mux
 
@@ -104,6 +120,10 @@ func (e *External) registerRoutes() {
 	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walletH, false))
 	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, false))
 	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, false))
+
+	if enableDirect {
+		mux.HandleFunc("POST /direct", prepareHandler(e.directH, false))
+	}
 }
 
 // instructionH handles instruction endpoint.
@@ -132,6 +152,69 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 	err = json.NewEncoder(w).Encode(signedReceipt)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// verifyAPIKey checks that the request contains a valid X-API-Key header.
+func (e *External) verifyAPIKey(r *http.Request) error {
+	key := r.Header.Get("X-API-Key")
+	if subtle.ConstantTimeCompare([]byte(key), []byte(e.apiKey)) != 1 {
+		return errUnauthorized
+	}
+
+	return nil
+}
+
+// directH handles direct endpoint.
+// The request should provide direct instruction.
+// A direct action and put into queue and also returned to the caller.
+func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
+	err := e.verifyAPIKey(r)
+	if err != nil {
+		return err
+	}
+
+	ctx := r.Context()
+
+	b := io.LimitReader(r.Body, 10*mib)
+
+	i := new(types.DirectInstruction)
+	dec := json.NewDecoder(b)
+	dec.DisallowUnknownFields()
+	err = dec.Decode(&i)
+	if err != nil {
+		return ErrInvalidBody
+	}
+
+	err = validateDirect(i)
+	if err != nil {
+		return err
+	}
+
+	a, err := queue.DirectInstructionToAction(i)
+	if err != nil {
+		return ErrInvalidBody
+	}
+
+	err = e.actionQueues.Enqueue(ctx, a, processorutils.Direct)
+	if err != nil {
+		return ErrInvalidBody
+	}
+
+	err = json.NewEncoder(w).Encode(a)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateDirect checks that the instruction does not have system op Type.
+func validateDirect(i *types.DirectInstruction) error {
+	if op.HashToOPType(i.OPType).IsSystem() {
+		return errSystemDirect
 	}
 
 	return nil

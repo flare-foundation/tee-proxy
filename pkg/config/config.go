@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	DefaultPrivateKeyVariable = "PRIVATE_KEY"
+	DefaultPrivateKeyVariable   = "PRIVATE_KEY"
+	DefaultDirectAPIKeyVariable = "DIRECT_API_KEY"
 
 	defaultInitialInfoTimeout         = 5 * time.Minute
 	defaultCycleInternal              = 10 * time.Second
@@ -44,6 +45,7 @@ var (
 	errHistorySizeTooSmall                = errors.New("historySize has to be at least 2")
 	errFinalizedBufferSizePositive        = errors.New("finalizedBufferSize has to be positive")
 	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
+	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
 )
 
 type Proxy struct {
@@ -57,6 +59,9 @@ type Proxy struct {
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
+	EnableDirect               bool            `toml:"enable_direct"`                 // With EnableDirect set to true, external server has an endpoint to post direct instructions.
+	DirectAPIKey               string          `toml:"direct_api_key"`                // API key for the /direct endpoint. Can also be set via env variable (see DirectAPIKeyVariable).
+	DirectAPIKeyVariable       string          `toml:"direct_api_key_variable"`       // Name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
@@ -84,6 +89,8 @@ func Read(path string) (Proxy, error) {
 			MaxFileSize: 0,
 			Console:     true,
 		},
+
+		EnableDirect: false,
 	}
 
 	err := toml.ReadTo(path, &c, false)
@@ -119,7 +126,28 @@ func Read(path string) (Proxy, error) {
 		return c, errInitialSigningPolicyOffsetNegative
 	}
 
+	if c.EnableDirect {
+		c.DirectAPIKey = resolveDirectAPIKey(c.DirectAPIKeyVariable, c.DirectAPIKey)
+		if c.DirectAPIKey == "" {
+			return c, errDirectAPIKeyNotSet
+		}
+	}
+
 	return c, err
+}
+
+// resolveDirectAPIKey returns the API key from the environment variable if set,
+// otherwise falls back to the TOML config value.
+func resolveDirectAPIKey(variableName, fallback string) string {
+	if variableName == "" {
+		variableName = DefaultDirectAPIKeyVariable
+	}
+
+	if v, ok := os.LookupEnv(variableName); ok && v != "" {
+		return v
+	}
+
+	return fallback
 }
 
 // Addresses of the smart contracts.

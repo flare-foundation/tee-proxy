@@ -31,6 +31,43 @@ Start the proxy
 go run ./...
 ```
 
+## Direct Endpoint
+
+The `POST /direct` endpoint allows submitting direct instructions that bypass the C-chain.
+It is disabled by default and must be explicitly enabled in the config:
+
+```toml
+direct_extension = true
+```
+
+When enabled, the endpoint requires API key authentication via the `X-API-Key` HTTP header.
+The API key can be configured in two ways:
+
+1. **Environment variable** (recommended): set `DIRECT_API_KEY` (or a custom variable name via `direct_api_key_variable` in config)
+2. **Config file**: set `direct_api_key` in `config.toml`
+
+If both are set, the environment variable takes precedence.
+The proxy will refuse to start if `direct_extension` is enabled without a configured API key.
+
+The /direct endpoints expects Direct Instruction as a body
+
+```json
+{
+  "opType": "0x...",
+  "opCommand": "0x...",
+  "message": "0x..."
+}
+```
+
+Example request:
+
+```bash
+curl -X POST http://localhost:6662/direct \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: {YOUR_API_KEY}" \
+  -d '{ ... }'
+```
+
 ## Docker
 
 ### Building

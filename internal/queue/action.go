@@ -12,18 +12,22 @@ import (
 //
 // With type "direct" and submission tag "submit".
 func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*types.Action, error) {
-	id, err := random.Hash()
-	if err != nil {
-		return nil, err
-	}
-
-	di := types.DirectInstruction{
+	di := &types.DirectInstruction{
 		OPType:    opType.Hash(),
 		OPCommand: opCommand.Hash(),
 		Message:   msg,
 	}
 
-	dim, err := json.Marshal(di)
+	return DirectInstructionToAction(di)
+}
+
+func DirectInstructionToAction(i *types.DirectInstruction) (*types.Action, error) {
+	id, err := random.Hash()
+	if err != nil {
+		return nil, err
+	}
+
+	dim, err := json.Marshal(i)
 	if err != nil {
 		return nil, err
 	}

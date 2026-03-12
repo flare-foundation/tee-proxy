@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -25,7 +26,8 @@ const (
 
 // ResultStorage provides methods for storing and retrieving action responses.
 type ResultStorage struct {
-	s *storage.Storage[*types.ActionResponse]
+	mu sync.Mutex
+	s  *storage.Storage[*types.ActionResponse]
 }
 
 // NewStorage creates a new ResultStorage via a provided Redis client.
@@ -37,6 +39,9 @@ func NewStorage(client *redis.Client) *ResultStorage {
 
 // StoreResponse stores response with identifier actionID:submissionTag for 2 weeks for end and threshold actions, or half an hour for submit actions.
 func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.ActionResponse) error {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
 	id := queue.ActionSubmissionID{
 		ActionID:      response.Result.ID,
 		SubmissionTag: response.Result.SubmissionTag,

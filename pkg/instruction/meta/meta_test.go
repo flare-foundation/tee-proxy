@@ -11,11 +11,11 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
-	"github.com/flare-foundation/tee-node/pkg/ftdc"
+	"github.com/flare-foundation/tee-node/pkg/fdc"
 	"github.com/stretchr/testify/require"
 )
 
-func TestFTDCMeta(t *testing.T) {
+func TestFDCMeta(t *testing.T) {
 	m := New(nil)
 
 	atb := []byte("TeeAvailabilityCheck")
@@ -29,8 +29,8 @@ func TestFTDCMeta(t *testing.T) {
 	cos1 := common.HexToAddress("c1")
 	cos2 := common.HexToAddress("c2")
 
-	ar := connector.IFtdcHubFtdcAttestationRequest{
-		Header: connector.IFtdcHubFtdcRequestHeader{
+	ar := connector.IFdc2HubFdc2AttestationRequest{
+		Header: connector.IFdc2HubFdc2RequestHeader{
 			AttestationType: [32]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32},
 			SourceId:        [32]byte{33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64},
 			ThresholdBIPS:   7500, // 75%
@@ -38,7 +38,7 @@ func TestFTDCMeta(t *testing.T) {
 		RequestBody: []byte("todo"), // Sample request body
 	}
 
-	encoded, err := ftdc.EncodeRequest(ar)
+	encoded, err := fdc.EncodeRequest(ar)
 	require.NoError(t, err)
 
 	ts := uint64(time.Now().Unix())
@@ -48,7 +48,7 @@ func TestFTDCMeta(t *testing.T) {
 		TeeID:                  common.Address{},
 		Timestamp:              ts,
 		RewardEpochID:          0,
-		OPType:                 op.FTDC.Hash(),
+		OPType:                 op.FDC2.Hash(),
 		OPCommand:              op.Prove.Hash(),
 		OriginalMessage:        encoded,
 		AdditionalFixedMessage: []byte("todo"),
@@ -72,7 +72,7 @@ func TestFTDCMeta(t *testing.T) {
 	require.Equal(t, uint64(2), cst)
 
 	// consistency
-	hash, _, _, err := ftdc.HashMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
+	hash, _, _, err := fdc.HashMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
 	require.NoError(t, err)
 
 	sk, err := crypto.GenerateKey()
