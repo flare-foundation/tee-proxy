@@ -122,7 +122,7 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 				TeeID:                  teeID,
 				Timestamp:              uint64(time.Now().Unix()) + uint64(i%10), // Slight time variation
 				RewardEpochID:          1,
-				OPType:                 op.FTDC.Hash(),
+				OPType:                 op.FDC2.Hash(),
 				OPCommand:              op.Prove.Hash(),
 				OriginalMessage:        []byte("RACE_TEST_MESSAGE"),
 				AdditionalFixedMessage: hexutil.Bytes{},

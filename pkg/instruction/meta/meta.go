@@ -11,7 +11,7 @@ import (
 
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 
-	"github.com/flare-foundation/tee-node/pkg/ftdc"
+	"github.com/flare-foundation/tee-node/pkg/fdc"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
@@ -26,7 +26,7 @@ type Meta interface {
 
 	// CheckConsistency validates instruction according to its opType.
 	//
-	// For example, for the FTDC Prove OPCommand, it verifies the internal signature of the FTDC message.
+	// For example, for the F_FDC2 Prove OPCommand, it verifies the internal signature of the FDC message.
 	CheckConsistency(*instruction.Data, common.Address) error
 
 	// ThresholdBIPS returns custom thresholdBIPS for the instruction.
@@ -146,21 +146,21 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Service) (map[common.
 func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch data.OPCommand {
 	case op.Prove.Hash():
-		return ftdcCheckConsistency(data, signer)
+		return fdcCheckConsistency(data, signer)
 	}
 
 	return nil
 }
 
-// ftdcCheckConsistency checks that signer of the ftdc message is the same as the signer of the whole instruction.
-func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
-	ftdcReq, err := ftdc.DecodeRequest(data.OriginalMessage)
+// fdcCheckConsistency checks that signer of the FDC message is the same as the signer of the whole instruction.
+func fdcCheckConsistency(data *instruction.Data, signer common.Address) error {
+	fdcReq, err := fdc.DecodeRequest(data.OriginalMessage)
 	if err != nil {
 		return err
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, err := ftdc.HashMessage(ftdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
+	h, _, _, err := fdc.HashMessage(fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return err
 	}
@@ -175,18 +175,18 @@ func ftdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 }
 
 func (*meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
-	if data.OPType == op.FTDC.Hash() && data.OPCommand == op.Prove.Hash() { // OPType == "F_FTDC", OPCommand == "PROVE"
-		ftdcReq, err := ftdc.DecodeRequest(data.OriginalMessage)
+	if data.OPType == op.FDC2.Hash() && data.OPCommand == op.Prove.Hash() { // OPType == "F_FDC2", OPCommand == "PROVE"
+		fdcReq, err := fdc.DecodeRequest(data.OriginalMessage)
 		if err != nil {
 			return -1, err
 		}
 
-		tBIPS := int(ftdcReq.Header.ThresholdBIPS)
+		tBIPS := int(fdcReq.Header.ThresholdBIPS)
 		if tBIPS == 0 {
 			return -1, nil
 		}
 
-		return int(ftdcReq.Header.ThresholdBIPS), nil
+		return int(fdcReq.Header.ThresholdBIPS), nil
 	}
 
 	return -1, nil

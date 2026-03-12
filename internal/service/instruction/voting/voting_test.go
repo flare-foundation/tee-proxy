@@ -10,11 +10,11 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
-	"github.com/flare-foundation/tee-node/pkg/ftdc"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/stretchr/testify/require"
 
+	"github.com/flare-foundation/tee-node/pkg/fdc"
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 )
 
@@ -100,7 +100,7 @@ func TestStorage(t *testing.T) {
 	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
 }
 
-func TestFTDCMessageValidity(t *testing.T) {
+func TestFDCMessageValidity(t *testing.T) {
 	s := NewStorage(&config.Voting{
 		ProposalExpiration:  2 * time.Second,
 		MaxPendingRequests:  10,
@@ -112,20 +112,20 @@ func TestFTDCMessageValidity(t *testing.T) {
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
-	ftdcReq := connector.IFtdcHubFtdcAttestationRequest{
-		Header: connector.IFtdcHubFtdcRequestHeader{
+	fdcReq := connector.IFdc2HubFdc2AttestationRequest{
+		Header: connector.IFdc2HubFdc2RequestHeader{
 			ThresholdBIPS:   5000,
 			SourceId:        crypto.Keccak256Hash([]byte("todo")),
 			AttestationType: crypto.Keccak256Hash([]byte("todo")),
 		},
 		RequestBody: []byte("TODO"),
 	}
-	ftdcReqBytes, err := ftdc.EncodeRequest(ftdcReq)
+	fdcReqBytes, err := fdc.EncodeRequest(fdcReq)
 	require.NoError(t, err)
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, err := ftdc.HashMessage(ftdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -137,9 +137,9 @@ func TestFTDCMessageValidity(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              0,
 			RewardEpochID:          1,
-			OPType:                 op.FTDC.Hash(),
+			OPType:                 op.FDC2.Hash(),
 			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        ftdcReqBytes,
+			OriginalMessage:        fdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 			Cosigners:              cosigners,
 			CosignersThreshold:     cosignersThreshold,
@@ -151,7 +151,7 @@ func TestFTDCMessageValidity(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestFTDCMessage(t *testing.T) {
+func TestFDCMessage(t *testing.T) {
 	s := NewStorage(&config.Voting{
 		ProposalExpiration:  2 * time.Second,
 		MaxPendingRequests:  10,
@@ -163,20 +163,20 @@ func TestFTDCMessage(t *testing.T) {
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
-	ftdcReq := connector.IFtdcHubFtdcAttestationRequest{
-		Header: connector.IFtdcHubFtdcRequestHeader{
+	fdcReq := connector.IFdc2HubFdc2AttestationRequest{
+		Header: connector.IFdc2HubFdc2RequestHeader{
 			ThresholdBIPS:   5000,
 			SourceId:        crypto.Keccak256Hash([]byte("todo")),
 			AttestationType: crypto.Keccak256Hash([]byte("todo")),
 		},
 		RequestBody: []byte("TODO"),
 	}
-	ftdcReqBytes, err := ftdc.EncodeRequest(ftdcReq)
+	fdcReqBytes, err := fdc.EncodeRequest(fdcReq)
 	require.NoError(t, err)
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, err := ftdc.HashMessage(ftdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -188,9 +188,9 @@ func TestFTDCMessage(t *testing.T) {
 			TeeID:                  common.HexToAddress("dead"),
 			Timestamp:              uint64(time.Now().Unix()),
 			RewardEpochID:          1,
-			OPType:                 op.FTDC.Hash(),
+			OPType:                 op.FDC2.Hash(),
 			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        ftdcReqBytes,
+			OriginalMessage:        fdcReqBytes,
 			AdditionalFixedMessage: responseBody[:],
 			Cosigners:              cosigners,
 			CosignersThreshold:     cosignersThreshold,
