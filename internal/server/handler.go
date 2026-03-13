@@ -22,42 +22,29 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error, isInternal
 
 		err := f(w, r)
 		if err != nil {
-			if isInternal {
-				handleErrorInternal(w, err)
-			} else {
-				handleErrorExternal(w, err)
-			}
+			handleError(w, err, isInternal)
 		}
 	}
 }
 
-// handleErrorExternal replies to unsuccessful request.
+// handleError replies to unsuccessful request.
 // If error is wrapped HTTP error, status is retrieved, and error is given in response.
 // Otherwise, status 500 and "internal server error" is given in the reply.
-func handleErrorExternal(w http.ResponseWriter, err error) {
+// isInternal parameter only affects the logging.
+func handleError(w http.ResponseWriter, err error, isInternal bool) {
+	source := "external"
+	if isInternal {
+		source = "internal"
+	}
+
 	code := status.ErrToCode(err)
 	reason := err.Error()
 	if code == -1 {
 		code = http.StatusInternalServerError
 		reason = "internal processing error"
 
-		logger.Warnf("error processing external request: %s", err)
+		logger.Warnf("error processing %s request: %s", source, err)
 	}
-
-	http.Error(w, reason, code)
-}
-
-// handleErrorInternal replies to unsuccessful request.
-// If error is wrapped HTTP error, status is retrieved, and error is given in response.
-// Otherwise, status 500 and "internal server error" is given in the reply.
-func handleErrorInternal(w http.ResponseWriter, err error) {
-	code := status.ErrToCode(err)
-	reason := err.Error()
-	if code == -1 {
-		code = http.StatusInternalServerError
-		reason = "internal processing error"
-	}
-	logger.Errorf("error processing internal request: %s", err)
 
 	http.Error(w, reason, code)
 }

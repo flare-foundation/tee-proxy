@@ -15,7 +15,7 @@ import (
 func TestHandleError(t *testing.T) {
 	rr := httptest.NewRecorder()
 
-	handleErrorExternal(rr, errors.New("random error"))
+	handleError(rr, errors.New("random error"), false)
 
 	require.Equal(t, 500, rr.Result().StatusCode)
 	require.Equal(t, "text/plain; charset=utf-8", rr.Result().Header.Get("Content-Type"))
@@ -30,7 +30,7 @@ func TestHandleError(t *testing.T) {
 		err = fmt.Errorf("wrap %w", err)
 	}
 
-	handleErrorInternal(r400, err)
+	handleError(r400, err, true)
 
 	require.Equal(t, 400, r400.Result().StatusCode)
 	require.Equal(t, "text/plain; charset=utf-8", r400.Result().Header.Get("Content-Type"))
