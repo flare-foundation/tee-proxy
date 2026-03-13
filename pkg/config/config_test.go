@@ -22,9 +22,9 @@ func TestReadDirectNoAPIKey(t *testing.T) {
 
 	cfg, err := Read(path)
 	require.NoError(t, err)
-	require.True(t, cfg.EnableDirect)
-	require.True(t, cfg.DirectNoAPIKey)
-	require.Empty(t, cfg.DirectAPIKey)
+	require.True(t, cfg.Direct.Enable)
+	require.True(t, cfg.Direct.NoAPIKey)
+	require.Empty(t, cfg.Direct.APIKey)
 }
 
 func TestReadFail(t *testing.T) {

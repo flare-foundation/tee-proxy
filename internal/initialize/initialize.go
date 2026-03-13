@@ -126,7 +126,12 @@ func Initialize(ctx context.Context, cfgPath string) {
 	instructionService := instruction.NewService(&cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, cfg.EnableDirect, actionQueues, cfg.DirectAPIKey, cfg.DirectNoAPIKey)
+	directCfg := server.DirectConfig{
+		Enable:   cfg.Direct.Enable,
+		APIKey:   cfg.Direct.APIKey,
+		NoAPIKey: cfg.Direct.NoAPIKey,
+	}
+	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, directCfg, actionQueues)
 	go externalServer.Serve() //nolint:errcheck // todo
 }
 

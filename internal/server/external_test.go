@@ -10,7 +10,7 @@ import (
 )
 
 func TestVerifyAPIKey(t *testing.T) {
-	e := &External{apiKey: "test-secret-key"}
+	e := &External{direct: DirectConfig{APIKey: "test-secret-key"}}
 
 	tests := []struct {
 		name    string
@@ -58,7 +58,7 @@ func TestVerifyAPIKey(t *testing.T) {
 }
 
 func TestVerifyAPIKeyNoAPIKey(t *testing.T) {
-	e := &External{apiKey: "secret", noAPIKey: true}
+	e := &External{direct: DirectConfig{APIKey: "secret", NoAPIKey: true}}
 
 	req := httptest.NewRequest(http.MethodPost, "/direct", nil)
 	// No X-API-Key header set.
@@ -68,6 +68,6 @@ func TestVerifyAPIKeyNoAPIKey(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errUnauthorized)
 
-	// The noAPIKey flag causes directH to skip the verifyAPIKey call.
-	assert.True(t, e.noAPIKey)
+	// The NoAPIKey flag causes directH to skip the verifyAPIKey call.
+	assert.True(t, e.direct.NoAPIKey)
 }

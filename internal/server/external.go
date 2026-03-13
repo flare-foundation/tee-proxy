@@ -55,9 +55,15 @@ type External struct {
 	teeInfo            *info.Service
 	wallet             *wallets.Service
 
-	privKey  *ecdsa.PrivateKey
-	apiKey   string
-	noAPIKey bool
+	privKey *ecdsa.PrivateKey
+	direct  DirectConfig
+}
+
+// DirectConfig holds configuration for the /direct endpoint.
+type DirectConfig struct {
+	Enable   bool
+	APIKey   string
+	NoAPIKey bool
 }
 
 func NewExternal(
@@ -67,10 +73,8 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
-	enableDirect bool,
+	direct DirectConfig,
 	actionQueues *queue.ActionQueues,
-	apiKey string,
-	noAPIKey bool,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -90,11 +94,10 @@ func NewExternal(
 		teeInfo:            teeInfo,
 		wallet:             wallet,
 		privKey:            privateKey,
-		apiKey:             apiKey,
-		noAPIKey:           noAPIKey,
+		direct:             direct,
 	}
 
-	e.registerRoutes(enableDirect)
+	e.registerRoutes(direct.Enable)
 
 	return &e
 }
@@ -163,7 +166,7 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 // verifyAPIKey checks that the request contains a valid X-API-Key header.
 func (e *External) verifyAPIKey(r *http.Request) error {
 	key := r.Header.Get("X-API-Key")
-	if subtle.ConstantTimeCompare([]byte(key), []byte(e.apiKey)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(key), []byte(e.direct.APIKey)) != 1 {
 		return errUnauthorized
 	}
 
@@ -174,7 +177,7 @@ func (e *External) verifyAPIKey(r *http.Request) error {
 // The request should provide direct instruction.
 // A direct action and put into queue and also returned to the caller.
 func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
-	if !e.noAPIKey {
+	if !e.direct.NoAPIKey {
 		err := e.verifyAPIKey(r)
 		if err != nil {
 			return err

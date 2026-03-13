@@ -6,8 +6,9 @@ signing_policy_fetch_interval = "10m"
 
 initial_signing_policy_offset = 2
 
-enable_direct = true
-direct_no_api_key = true
+[direct]
+enable = true
+no_api_key = true
 
 [db]
 host = "localhost"
