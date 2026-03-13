@@ -55,8 +55,9 @@ type External struct {
 	teeInfo            *info.Service
 	wallet             *wallets.Service
 
-	privKey *ecdsa.PrivateKey
-	apiKey  string
+	privKey  *ecdsa.PrivateKey
+	apiKey   string
+	noAPIKey bool
 }
 
 func NewExternal(
@@ -69,6 +70,7 @@ func NewExternal(
 	enableDirect bool,
 	actionQueues *queue.ActionQueues,
 	apiKey string,
+	noAPIKey bool,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -89,6 +91,7 @@ func NewExternal(
 		wallet:             wallet,
 		privKey:            privateKey,
 		apiKey:             apiKey,
+		noAPIKey:           noAPIKey,
 	}
 
 	e.registerRoutes(enableDirect)
@@ -171,9 +174,11 @@ func (e *External) verifyAPIKey(r *http.Request) error {
 // The request should provide direct instruction.
 // A direct action and put into queue and also returned to the caller.
 func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
-	err := e.verifyAPIKey(r)
-	if err != nil {
-		return err
+	if !e.noAPIKey {
+		err := e.verifyAPIKey(r)
+		if err != nil {
+			return err
+		}
 	}
 
 	ctx := r.Context()
@@ -183,7 +188,7 @@ func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
 	i := new(types.DirectInstruction)
 	dec := json.NewDecoder(b)
 	dec.DisallowUnknownFields()
-	err = dec.Decode(&i)
+	err := dec.Decode(&i)
 	if err != nil {
 		return ErrInvalidBody
 	}

@@ -17,6 +17,16 @@ func TestRead(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestReadDirectNoAPIKey(t *testing.T) {
+	const path = "./test_configs/config_direct_no_api_key.toml"
+
+	cfg, err := Read(path)
+	require.NoError(t, err)
+	require.True(t, cfg.EnableDirect)
+	require.True(t, cfg.DirectNoAPIKey)
+	require.Empty(t, cfg.DirectAPIKey)
+}
+
 func TestReadFail(t *testing.T) {
 	const path = "./test_configs/config_fail.toml"
 

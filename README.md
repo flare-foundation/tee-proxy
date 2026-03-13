@@ -47,7 +47,10 @@ The API key can be configured in two ways:
 2. **Config file**: set `direct_api_key` in `config.toml`
 
 If both are set, the environment variable takes precedence.
-The proxy will refuse to start if `direct_extension` is enabled without a configured API key.
+The proxy will refuse to start if `enable_direct` is enabled without a configured API key.
+
+To disable API key protection entirely, set `direct_no_api_key = true` in the config.
+When set, the `/direct` endpoint accepts requests without the `X-API-Key` header.
 
 The /direct endpoints expects Direct Instruction as a body
 

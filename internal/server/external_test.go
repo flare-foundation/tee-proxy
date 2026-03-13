@@ -56,3 +56,18 @@ func TestVerifyAPIKey(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyAPIKeyNoAPIKey(t *testing.T) {
+	e := &External{apiKey: "secret", noAPIKey: true}
+
+	req := httptest.NewRequest(http.MethodPost, "/direct", nil)
+	// No X-API-Key header set.
+
+	// verifyAPIKey itself still rejects without a valid header.
+	err := e.verifyAPIKey(req)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, errUnauthorized)
+
+	// The noAPIKey flag causes directH to skip the verifyAPIKey call.
+	assert.True(t, e.noAPIKey)
+}

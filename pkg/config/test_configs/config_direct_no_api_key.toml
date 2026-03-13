@@ -1,0 +1,39 @@
+redis_port = ":6379"
+
+private_key_variable = "PRIVATE_KEY"
+signing_policy_fetch_interval = "10m"
+
+
+initial_signing_policy_offset = 2
+
+enable_direct = true
+direct_no_api_key = true
+
+[db]
+host = "localhost"
+port = 3306
+database = "flare_ftso_indexer"
+username = "root"
+password = "root"
+log_queries = false
+
+
+[addresses]
+flare_systems_manager = "0x0000000000000000000000000000000000000001"
+relay = "0x0000000000000000000000000000000000000002"
+voter_registry = "0x0000000000000000000000000000000000000003"
+
+
+[ports]
+internal = "6661"
+external = "6662"
+
+
+[info_timing]
+cycle_internal = "10s"
+cycle_queue_response_wait = "2s"
+
+
+[voting]
+proposal_expiration = "120s"
+max_pending_request = 100
