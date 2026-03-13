@@ -23,6 +23,11 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
+const (
+	outOfSyncTolerance = 1 * time.Minute
+	walletSyncPeriod   = 1 * time.Hour
+)
+
 func Initialize(ctx context.Context, cfgPath string) {
 	cfg, err := config.Read(cfgPath)
 	if err != nil {
@@ -39,8 +44,8 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	err = database.WaitCIndexerToSync(ctx, db, database.SyncParams{
 		Retries:            30,
-		OutOfSyncTolerance: 1 * time.Minute,
 		MaxSleepTime:       cfg.DBSyncMaxSleepTime,
+		OutOfSyncTolerance: outOfSyncTolerance,
 		MinSleepTime:       1 * time.Second,
 	}, logger.GetLogger())
 	if err != nil {
@@ -109,7 +114,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 
 	walletsSyncTrigger := make(chan bool, 1)
 	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.WalletSync, resultService.Backups)
-	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, 60*time.Minute)
+	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, walletSyncPeriod)
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses, cfg.ChainID)
 	err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset, initialInfo)
@@ -131,7 +136,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		APIKey:   cfg.Direct.APIKey,
 		NoAPIKey: cfg.Direct.NoAPIKey,
 	}
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, directCfg, actionQueues)
+	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
 	go externalServer.Serve() //nolint:errcheck // todo
 }
 

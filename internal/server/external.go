@@ -73,8 +73,8 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
-	direct DirectConfig,
 	actionQueues *queue.ActionQueues,
+	direct DirectConfig,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 

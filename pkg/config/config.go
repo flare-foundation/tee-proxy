@@ -78,10 +78,10 @@ type Proxy struct {
 
 // Direct holds configuration for the /direct endpoint.
 type Direct struct {
-	Enable          bool   `toml:"enable"`           // Enable registers the /direct endpoint on the external server.
-	APIKey          string `toml:"api_key"`           // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
-	APIKeyVariable  string `toml:"api_key_variable"`  // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
-	NoAPIKey        bool   `toml:"no_api_key"`        // NoAPIKey disables API key requirement for the /direct endpoint.
+	Enable         bool   `toml:"enable"`           // Enable registers the /direct endpoint on the external server.
+	APIKey         string `toml:"api_key"`          // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
+	APIKeyVariable string `toml:"api_key_variable"` // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
+	NoAPIKey       bool   `toml:"no_api_key"`       // NoAPIKey disables API key requirement for the /direct endpoint.
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
