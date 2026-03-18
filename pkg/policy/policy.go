@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -55,7 +56,8 @@ func InitializePolicyAction(
 
 	p := policy.NewSigningPolicy(event, nil)
 
-	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p)
+	chainID := new(big.Int).SetUint64(addresses.ChainID)
+	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -72,10 +74,10 @@ func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Policy, op.InitializePolicy, msg)
 }
 
-func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy) ([]byte, error) {
+func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]byte, error) {
 	pubKeys := make([]types.PublicKey, len(signingPolicy.Voters.Voters()))
 	for j, address := range signingPolicy.Voters.Voters() {
-		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress)
+		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress, chainID)
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +145,8 @@ func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addre
 
 	p := policy.NewSigningPolicy(event, nil)
 
-	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber))
+	chainID := new(big.Int).SetUint64(addresses.ChainID)
+	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -160,7 +163,7 @@ func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Policy, op.UpdatePolicy, msg)
 }
 
-func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64) ([]byte, error) {
+func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64, chainID *big.Int) ([]byte, error) {
 	deadline := time.Now().Add(3 * time.Hour) // todo
 
 	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy)
@@ -171,7 +174,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 	pubKeys := make([]types.PublicKey, len(nextPolicy.Voters.Voters()))
 
 	for j, address := range nextPolicy.Voters.Voters() {
-		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, voterRegistryAddress)
+		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, voterRegistryAddress, chainID)
 		if err != nil {
 			return nil, err
 		}
