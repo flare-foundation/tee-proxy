@@ -91,7 +91,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.WalletSync, resultService.Backups)
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, 60*time.Minute)
 
-	policyService := policy.NewService(actionQueues, cfg.Addresses)
+	policyService := policy.NewService(actionQueues, cfg.Addresses, cfg.ChainID)
 	err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset, initialInfo)
 	if err != nil {
 		logger.Panicf("initializing signing policy: %v", err)

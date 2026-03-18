@@ -21,14 +21,16 @@ import (
 type Service struct {
 	aq          *queue.ActionQueues
 	scAddresses config.Addresses
+	chainID     uint64
 
 	activePolicy *cpolicy.SigningPolicy
 }
 
-func NewService(aq *queue.ActionQueues, addresses config.Addresses) *Service {
+func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID uint64) *Service {
 	return &Service{
 		aq:          aq,
 		scAddresses: addresses,
+		chainID:     chainID,
 	}
 }
 
@@ -45,7 +47,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 	logger.Info("initializing signing policy")
 
-	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.scAddresses, offset)
+	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.scAddresses, offset, s.chainID)
 	if err != nil {
 		return err
 	}
@@ -106,7 +108,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		case log := <-logsC:
 
 			logger.Debugf("updating signing policy from %d", s.activePolicy.RewardEpochID)
-			action, p, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy)
+			action, p, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
 			if err != nil {
 				logger.Errorf("creating UPDATE_POLICY action: %v", err)
 				continue

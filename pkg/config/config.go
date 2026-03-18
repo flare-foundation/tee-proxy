@@ -51,6 +51,7 @@ var (
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
+	ChainID                    uint64          `toml:"chain_id"`                      // Chain ID used for voter registration message hash verification.
 	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
 	Ports                      Ports           `toml:"ports"`                         // Servers ports.
 	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
@@ -155,7 +156,6 @@ type Addresses struct {
 	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
 	Relay               common.Address `toml:"relay"`
 	VoterRegistry       common.Address `toml:"voter_registry"`
-	ChainID             uint64         `toml:"chain_id"` // Chain ID used for voter registration message hash verification.
 }
 
 // validate checks that all addresses have nonzero value.

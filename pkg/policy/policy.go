@@ -34,6 +34,7 @@ func InitializePolicyAction(
 	db *gorm.DB,
 	addresses config.Addresses,
 	offset int,
+	chainID uint64,
 ) (*types.Action, *policy.SigningPolicy, int, error) {
 	params := database.LatestLogsParams{
 		Address: addresses.Relay,
@@ -56,8 +57,8 @@ func InitializePolicyAction(
 
 	p := policy.NewSigningPolicy(event, nil)
 
-	chainID := new(big.Int).SetUint64(addresses.ChainID)
-	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
+	chainIDB := new(big.Int).SetUint64(chainID)
+	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainIDB)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -137,7 +138,7 @@ func prepareSignatures(sigs []*registry.Signature) [][]byte {
 	return msgs
 }
 
-func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addresses, log database.Log, activePolicy *policy.SigningPolicy) (*types.Action, *policy.SigningPolicy, error) {
+func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addresses, log database.Log, activePolicy *policy.SigningPolicy, chainID uint64) (*types.Action, *policy.SigningPolicy, error) {
 	event, err := policy.ParseSigningPolicyInitializedEvent(log)
 	if err != nil {
 		return nil, nil, err
@@ -145,8 +146,8 @@ func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addre
 
 	p := policy.NewSigningPolicy(event, nil)
 
-	chainID := new(big.Int).SetUint64(addresses.ChainID)
-	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainID)
+	chainIDB := new(big.Int).SetUint64(chainID)
+	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainIDB)
 	if err != nil {
 		return nil, nil, err
 	}
