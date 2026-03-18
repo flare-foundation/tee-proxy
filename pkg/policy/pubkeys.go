@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -28,6 +29,7 @@ func recoverPubKey(
 	signingPolicyAddress common.Address,
 	signingPolicyID uint32,
 	voterRegistryAddress common.Address,
+	chainID *big.Int,
 ) (*ecdsa.PublicKey, error) {
 	vrLogs, err := fetchVoterRegistered(ctx, db, voterRegistryAddress, signingPolicyID, signingPolicyAddress)
 	if err != nil {
@@ -37,7 +39,7 @@ func recoverPubKey(
 		return nil, errInvalidLogCountPubKeys
 	}
 
-	pub, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, vrLogs[0])
+	pub, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, vrLogs[0], chainID)
 	if err != nil {
 		return nil, err
 	}
@@ -85,8 +87,21 @@ func serializeSig(s *registry.Signature) []byte {
 // recoverPubKeyFromRegistration recovers the public key from the signature of the message.
 //
 // See registerVoter method from VoterRegistry smart contract, for the message that is signed and how it is signed.
-func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID uint32, signature *registry.Signature) (*ecdsa.PublicKey, error) {
-	msg, err := msgArgs.Pack(rewardEpochID, identityAddress)
+// New format: messageHash = keccak256(abi.encode(block.chainid, rewardEpochId, _voter))
+// Legacy format (chain_id not set): messageHash = keccak256(abi.encode(rewardEpochId, _voter))
+func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID uint32, signature *registry.Signature, chainID *big.Int) (*ecdsa.PublicKey, error) {
+	var msg []byte
+	var err error
+
+	// Legacy path for Coston (chain_id 16), which still uses the old VoterRegistry
+	// contract without chainId in the message hash. Operators on Coston leave
+	// chain_id unset (0) in the proxy config, triggering this branch.
+	// TODO: Remove this branch once Coston is upgraded to the new VoterRegistry contract.
+	if chainID == nil || chainID.Sign() == 0 {
+		msg, err = msgArgsLegacy.Pack(rewardEpochID, identityAddress)
+	} else {
+		msg, err = msgArgs.Pack(chainID, rewardEpochID, identityAddress)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -97,13 +112,13 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 }
 
 // recoverPubKeyFromEvent recovers public key from VoterRegistered event.
-func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, log database.Log) (*ecdsa.PublicKey, error) {
+func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, log database.Log, chainID *big.Int) (*ecdsa.PublicKey, error) {
 	event, err := policy.ParseVoterRegisteredEvent(log)
 	if err != nil {
 		return nil, err
 	}
 
-	pub, err := recoverPubKeyFromRegistration(event.Voter, signingPolicyID, &event.Signature)
+	pub, err := recoverPubKeyFromRegistration(event.Voter, signingPolicyID, &event.Signature, chainID)
 	if err != nil {
 		return nil, err
 	}

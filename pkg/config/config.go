@@ -155,6 +155,7 @@ type Addresses struct {
 	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
 	Relay               common.Address `toml:"relay"`
 	VoterRegistry       common.Address `toml:"voter_registry"`
+	ChainID             uint64         `toml:"chain_id"` // Chain ID used for voter registration message hash verification.
 }
 
 // validate checks that all addresses have nonzero value.
