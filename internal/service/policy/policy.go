@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -21,12 +22,12 @@ import (
 type Service struct {
 	aq          *queue.ActionQueues
 	scAddresses config.Addresses
-	chainID     uint64
+	chainID     *big.Int
 
 	activePolicy *cpolicy.SigningPolicy
 }
 
-func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID uint64) *Service {
+func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big.Int) *Service {
 	return &Service{
 		aq:          aq,
 		scAddresses: addresses,

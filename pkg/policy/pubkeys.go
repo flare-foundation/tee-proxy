@@ -20,6 +20,8 @@ import (
 var (
 	errInvalidLogCountPubKeys = errors.New("invalid number of logs")
 	errWrongAddressRecovered  = errors.New("wrong address recovered")
+
+	costonChainID = big.NewInt(16)
 )
 
 // recoverPubKey recovers public key for signingPolicyAddress in signingPolicyID.
@@ -88,16 +90,12 @@ func serializeSig(s *registry.Signature) []byte {
 //
 // See registerVoter method from VoterRegistry smart contract, for the message that is signed and how it is signed.
 // New format: messageHash = keccak256(abi.encode(block.chainid, rewardEpochId, _voter))
-// Legacy format (chain_id not set): messageHash = keccak256(abi.encode(rewardEpochId, _voter))
+// Legacy format for coston (chainID = 16): messageHash = keccak256(abi.encode(rewardEpochId, _voter))
 func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID uint32, signature *registry.Signature, chainID *big.Int) (*ecdsa.PublicKey, error) {
 	var msg []byte
 	var err error
 
-	// Legacy path for Coston (chain_id 16), which still uses the old VoterRegistry
-	// contract without chainId in the message hash. Operators on Coston leave
-	// chain_id unset (0) in the proxy config, triggering this branch.
-	// TODO: Remove this branch once Coston is upgraded to the new VoterRegistry contract.
-	if chainID == nil || chainID.Sign() == 0 {
+	if chainID == nil || chainID.Cmp(costonChainID) == 0 {
 		msg, err = msgArgsLegacy.Pack(rewardEpochID, identityAddress)
 	} else {
 		msg, err = msgArgs.Pack(chainID, rewardEpochID, identityAddress)

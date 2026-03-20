@@ -1,5 +1,7 @@
 redis_port = ":6379"
 
+chain_id = 16
+
 private_key_variable = "PRIVATE_KEY"
 signing_policy_fetch_interval = "10m"
 
