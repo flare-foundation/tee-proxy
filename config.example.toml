@@ -1,5 +1,7 @@
 redis_port = ":6379"
 
+chain_id = 14
+
 private_key_variable = "PRIVATE_KEY"
 
 

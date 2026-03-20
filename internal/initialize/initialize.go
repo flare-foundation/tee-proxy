@@ -39,7 +39,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	err = database.WaitCIndexerToSync(ctx, db, database.SyncParams{
 		Retries:            30,
 		OutOfSyncTolerance: 1 * time.Minute,
-		MaxSleepTime:       10 * time.Minute,
+		MaxSleepTime:       cfg.DBSyncMaxSleepTime,
 		MinSleepTime:       1 * time.Second,
 	}, logger.GetLogger())
 	if err != nil {

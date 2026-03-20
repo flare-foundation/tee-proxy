@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"strings"
 	"time"
@@ -30,6 +31,8 @@ const (
 	defaultMaxPendingRequests  = uint(100)
 	defaultVotingHistorySize   = 3
 	defaultFinalizedBufferSize = 10
+
+	defaultDBSyncMaxSleepTime = 10 * time.Minute
 )
 
 var (
@@ -51,7 +54,7 @@ var (
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
-	ChainID                    uint64          `toml:"chain_id"`                      // Chain ID used for voter registration message hash verification.
+	ChainID                    *big.Int        `toml:"chain_id"`                      // Chain ID used for voter registration message hash verification.
 	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
 	Ports                      Ports           `toml:"ports"`                         // Servers ports.
 	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
@@ -59,6 +62,7 @@ type Proxy struct {
 	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
+	DBSyncMaxSleepTime         time.Duration   `toml:"db_sync_max_sleep_time"`        // Max sleep between DB sync retries on startup. Defaults to 10m.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
 	EnableDirect               bool            `toml:"enable_direct"`                 // With EnableDirect set to true, external server has an endpoint to post direct instructions.
 	DirectAPIKey               string          `toml:"direct_api_key"`                // API key for the /direct endpoint. Can also be set via env variable (see DirectAPIKeyVariable).
@@ -83,6 +87,7 @@ func Read(path string) (Proxy, error) {
 
 		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
 		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
+		DBSyncMaxSleepTime:         defaultDBSyncMaxSleepTime,
 
 		Logging: logger.Config{
 			Level:       "DEBUG",
@@ -97,6 +102,10 @@ func Read(path string) (Proxy, error) {
 	err := toml.ReadTo(path, &c, false)
 	if err != nil {
 		return c, err
+	}
+
+	if c.ChainID == nil {
+		return c, errors.New("chain ID not set")
 	}
 
 	err = c.Voting.validate()
