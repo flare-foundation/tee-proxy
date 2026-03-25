@@ -160,7 +160,7 @@ func fdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, err := fdc.HashMessage(fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
+	h, _, _, _, err := fdc.HashMessage(fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return err
 	}
