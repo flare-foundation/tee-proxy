@@ -9,6 +9,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/server"
@@ -52,11 +53,30 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	redisClient := storage.NewClient(cfg.RedisPort)
-
 	actionQueues := queue.NewActionQueues(redisClient)
-	resultStorage := result.NewStorage(redisClient)
 
-	walletService := wallets.NewService(actionQueues, resultStorage, redisClient)
+	var (
+		resultStore storage.Storage[*types.ActionResponse]
+		backupStore storage.Storage[*teewallets.TEEBackupResponse]
+		backupIndex storage.Storage[common.Hash]
+	)
+
+	if (cfg.Firestore != config.Firestore{}) {
+		fbClient, err := storage.NewFirestoreClient(ctx, cfg.Firestore.ProjectID, cfg.Firestore.DatabaseID, cfg.Firestore.CredentialsFile, cfg.Firestore.URL)
+		if err != nil {
+			logger.Panicf("connecting to Firestore: %v", err)
+		}
+		resultStore = storage.NewFirestoreStorage[*types.ActionResponse](fbClient, "results")
+		backupStore = storage.NewFirestoreStorage[*teewallets.TEEBackupResponse](fbClient, "backups")
+		backupIndex = storage.NewFirestoreStorage[common.Hash](fbClient, "backupIndex")
+	} else {
+		resultStore = storage.NewRedisStorage[*types.ActionResponse]("results", redisClient)
+		backupStore = storage.NewRedisStorage[*teewallets.TEEBackupResponse]("backups", redisClient)
+		backupIndex = storage.NewRedisStorage[common.Hash]("backupIndex", redisClient)
+	}
+
+	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient))
+	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore)
 	resultService := result.NewService(resultStorage)
 
 	infoService := new(info.Service)

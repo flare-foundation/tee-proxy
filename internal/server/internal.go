@@ -22,6 +22,8 @@ import (
 
 var errInvalidQueueID = fmt.Errorf("%w: invalid queueID", status.HTTP[400])
 
+const resultWriteTimeout = 10 * time.Second
+
 type ResultService interface {
 	ProcessAndStore(context.Context, *types.ActionResponse) error
 	Serve(context.Context, common.Hash, types.SubmissionTag) (*types.ActionResponse, error)
@@ -98,7 +100,8 @@ func (i *Internal) registerRoutes() {
 // resultH serves "/result" endpoint.
 // It stores action response from the request body.
 func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), resultWriteTimeout)
+	defer cancel()
 
 	// todo: Limit the size of the body
 	response := new(types.ActionResponse)

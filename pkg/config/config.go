@@ -51,9 +51,18 @@ var (
 	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
 )
 
+// Firestore holds Firestore connection configuration.
+type Firestore struct {
+	URL             string `toml:"url"`              // Firestore URL
+	ProjectID       string `toml:"project_id"`       // Google Cloud project ID.
+	DatabaseID      string `toml:"database_id"`      // Firestore database ID. Empty means default database.
+	CredentialsFile string `toml:"credentials_file"` // Path to service account JSON key. Empty means Application Default Credentials.
+}
+
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
+	Firestore                  Firestore       `toml:"firestore"`                     // Firestore connection configuration.
 	ChainID                    *big.Int        `toml:"chain_id"`                      // Chain ID used for voter registration message hash verification.
 	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
 	Ports                      Ports           `toml:"ports"`                         // Servers ports.

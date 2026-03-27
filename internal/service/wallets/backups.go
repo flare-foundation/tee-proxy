@@ -12,7 +12,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
-	"github.com/redis/go-redis/v9"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"golang.org/x/sync/errgroup"
 
 	"time"
@@ -50,7 +50,7 @@ func (s *Service) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets
 	b, err := s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 	if err != nil {
 		rErr := fmt.Errorf("fetching backup data with hash %s: %w", idHash.Hex(), err)
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, storage.ErrNotFound) {
 			rErr = status.Add(err, 404)
 		}
 		return nil, rErr
@@ -64,7 +64,7 @@ func (s *Service) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallet
 	idHash, err := s.index.Get(ctx, toKey(idPair))
 	if err != nil {
 		rErr := fmt.Errorf("fetching backup id hash for %v: %w", idPair, err)
-		if errors.Is(err, redis.Nil) {
+		if errors.Is(err, storage.ErrNotFound) {
 			rErr = status.Add(err, 404)
 		}
 		return nil, rErr

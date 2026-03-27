@@ -14,6 +14,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -96,10 +97,12 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	c := storage.NewClient(mr.Addr())
 	aq := queue.NewActionQueues(c)
-	rs := result.NewStorage(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c))
 
 	// Setup action and result services
-	walletStorage := wallets.NewService(aq, rs, c)
+	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
+	backupIndex := testutil.NewMemStorage[common.Hash]()
+	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore)
 	resultService := result.NewService(rs)
 
 	infoService := new(info.Service)

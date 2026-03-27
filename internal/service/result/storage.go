@@ -12,7 +12,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
-	"github.com/redis/go-redis/v9"
 )
 
 const (
@@ -20,20 +19,19 @@ const (
 	submitStoringDuration  = 30 * time.Minute
 )
 
-const (
-	Results = "Results"
-)
-
 // ResultStorage provides methods for storing and retrieving action responses.
 type ResultStorage struct {
 	mu sync.Mutex
-	s  *storage.Storage[*types.ActionResponse]
+	s  storage.Storage[*types.ActionResponse]
+	n  storage.Notifier
 }
 
-// NewStorage creates a new ResultStorage via a provided Redis client.
-func NewStorage(client *redis.Client) *ResultStorage {
+// NewStorage creates a new ResultStorage backed by the provided Storage.
+// The Notifier is used for pub/sub notifications when results are stored.
+func NewStorage(s storage.Storage[*types.ActionResponse], n storage.Notifier) *ResultStorage {
 	return &ResultStorage{
-		s: storage.New[*types.ActionResponse](Results, client),
+		s: s,
+		n: n,
 	}
 }
 
@@ -53,7 +51,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 	}
 
 	// do not override final results (0 or 1) or if new status is smaller than other
-	res, _ := rs.s.Get(ctx, id.String()) // error means that the id is not stored, any other type of error will be caught by next call to Redis
+	res, _ := rs.s.Get(ctx, id.String()) // error means that the id is not stored, any other type of error will be caught by next call
 	if res != nil {
 		if res.Result.Status < 2 {
 			return fmt.Errorf("tried to override final status for %s", id.String())
@@ -68,7 +66,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		return fmt.Errorf("storing response %s: %w", id.String(), err)
 	}
 
-	rs.s.Publish(ctx, id.String()) //nolint:errcheck
+	rs.n.Publish(ctx, id.String()) //nolint:errcheck // best-effort notification
 
 	return nil
 }
@@ -78,7 +76,7 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
 
 	response, err := rs.s.Get(ctx, id.String())
-	if errors.Is(err, redis.Nil) {
+	if errors.Is(err, storage.ErrNotFound) {
 		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
 	}
 	if err != nil {
@@ -103,8 +101,9 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 		ActionID:      actionID,
 		SubmissionTag: submissionTag,
 	}
-	pubsub := rs.s.Subscribe(ctx, id.String())
-	defer pubsub.Close() //nolint:errcheck
+
+	sub := rs.n.Subscribe(ctx, id.String())
+	defer sub.Close() //nolint:errcheck // best-effort cleanup
 
 	// Check if it was already stored.
 	response, err := rs.GetResponse(ctx, actionID, submissionTag)
@@ -113,9 +112,9 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 	}
 
 	// Wait for a message on the channel.
-	_, err = pubsub.ReceiveMessage(ctx)
+	_, err = sub.ReceiveMessage(ctx)
 	if err != nil {
-		// Hopeful attempt
+		// Hopeful attempt after error or context cancellation.
 		finalResponse, finalErr := rs.GetResponse(ctx, actionID, submissionTag)
 		if finalErr == nil {
 			return finalResponse, nil

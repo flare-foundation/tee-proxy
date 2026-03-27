@@ -76,7 +76,7 @@ func TestNewKey(t *testing.T) {
 		Data:                   resultEncoded,
 	}
 
-	str := NewService(nil, nil, nil)
+	str := NewService(nil, nil, nil, nil)
 
 	idPair, added, err := str.update(aResult)
 	require.NoError(t, err)

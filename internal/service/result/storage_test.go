@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
@@ -19,8 +20,8 @@ import (
 func TestStoreResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
-
-	s := NewStorage(c)
+	n := storage.NewNotifier(c)
+	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n)
 
 	t.Run("store and retrieve", func(t *testing.T) {
 		actionID, err := random.Hash()
@@ -168,8 +169,8 @@ func TestStoreResponse(t *testing.T) {
 func TestWaitOnResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
-
-	s := NewStorage(c)
+	n := storage.NewNotifier(c)
+	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n)
 
 	t.Run("already stored", func(t *testing.T) {
 		actionID, err := random.Hash()
