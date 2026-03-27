@@ -34,7 +34,7 @@ func (id *ActionSubmissionID) String() string {
 }
 
 type ActionQueues struct {
-	actions     *storage.Storage[*types.Action]
+	actions     storage.Storage[*types.Action]
 	directQueue storage.Queue[*ActionSubmissionID]
 	mainQueue   storage.Queue[*ActionSubmissionID]
 	backupQueue storage.Queue[*ActionSubmissionID]
@@ -42,10 +42,10 @@ type ActionQueues struct {
 
 func NewActionQueues(client *redis.Client) *ActionQueues {
 	return &ActionQueues{
-		actions:     storage.New[*types.Action](Actions, client),
-		directQueue: storage.New[*ActionSubmissionID](DirectQueue, client),
-		mainQueue:   storage.New[*ActionSubmissionID](MainQueue, client),
-		backupQueue: storage.New[*ActionSubmissionID](BackupQueue, client),
+		actions:     storage.NewRedisStorage[*types.Action](Actions, client),
+		directQueue: storage.NewQueue[*ActionSubmissionID](DirectQueue, client),
+		mainQueue:   storage.NewQueue[*ActionSubmissionID](MainQueue, client),
+		backupQueue: storage.NewQueue[*ActionSubmissionID](BackupQueue, client),
 	}
 }
 

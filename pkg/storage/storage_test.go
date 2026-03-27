@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,7 +19,7 @@ func TestStorage(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := NewClient(mr.Addr())
 
-	s := New[TestStruct]("testMain", c)
+	s := NewRedisStorage[TestStruct]("testMain", c)
 
 	t.Run("Ping", func(t *testing.T) {
 		t.Parallel()
@@ -56,7 +55,7 @@ func TestStorage(t *testing.T) {
 
 		_, err = s.Get(t.Context(), item.ID)
 		require.Error(t, err)
-		require.True(t, errors.Is(err, redis.Nil))
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 
 	t.Run("Set and remove", func(t *testing.T) {
@@ -72,7 +71,7 @@ func TestStorage(t *testing.T) {
 
 		_, err = s.Get(t.Context(), item.ID)
 		require.Error(t, err)
-		require.True(t, errors.Is(err, redis.Nil))
+		require.ErrorIs(t, err, ErrNotFound)
 	})
 
 	t.Run("Enqueue and Dequeue", func(t *testing.T) {
@@ -140,7 +139,7 @@ func TestClearDatabase(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := NewClient(mr.Addr())
 
-	s := New[TestStruct]("testClear", c)
+	s := NewRedisStorage[TestStruct]("testClear", c)
 
 	items := []TestStruct{
 		{ID: "1", Name: "Test1"},
@@ -165,7 +164,7 @@ func TestRemove(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := NewClient(mr.Addr())
 
-	s := New[TestStruct]("testRemove", c)
+	s := NewRedisStorage[TestStruct]("testRemove", c)
 
 	item1 := TestStruct{ID: "1", Name: "Test1"}
 	item2 := TestStruct{ID: "2", Name: "Test2"}
@@ -181,7 +180,7 @@ func TestRemove(t *testing.T) {
 
 	_, err = s.Get(t.Context(), item1.ID)
 	require.Error(t, err)
-	require.True(t, errors.Is(err, redis.Nil))
+	require.ErrorIs(t, err, ErrNotFound)
 
 	err = s.Remove(t.Context(), item1.ID)
 	require.NoError(t, err)

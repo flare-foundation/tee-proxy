@@ -12,7 +12,6 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
@@ -45,8 +44,8 @@ type Service struct {
 	KeysForWallet map[common.Hash][]uint64       // slice of keyIDs per walletID
 	Keys          map[IDPair]*pkgwallets.KeyData // key data per IDPair
 
-	index   *storage.Storage[common.Hash]                // latest backup ID hash per IDPair
-	backups *storage.Storage[*wallets.TEEBackupResponse] // backups per backupIDHash
+	index   storage.Storage[common.Hash]                // latest backup ID hash per IDPair
+	backups storage.Storage[*wallets.TEEBackupResponse] // backups per backupIDHash
 
 	aq *queue.ActionQueues
 	rs *result.ResultStorage
@@ -54,19 +53,13 @@ type Service struct {
 	sync.RWMutex
 }
 
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, client *redis.Client) *Service {
-	kfw := make(map[common.Hash][]uint64)
-	k := make(map[IDPair]*pkgwallets.KeyData)
-
-	bp := storage.New[*wallets.TEEBackupResponse]("backup", client)
-	in := storage.New[common.Hash]("backupIndex", client)
-
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse]) *Service {
 	return &Service{
-		KeysForWallet: kfw,
-		Keys:          k,
+		KeysForWallet: make(map[common.Hash][]uint64),
+		Keys:          make(map[IDPair]*pkgwallets.KeyData),
 
-		index:   in,
-		backups: bp,
+		index:   index,
+		backups: backups,
 
 		aq: aq,
 		rs: rs,

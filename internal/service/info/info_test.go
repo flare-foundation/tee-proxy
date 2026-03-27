@@ -39,7 +39,7 @@ func TestInsertBlock(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 	aq := queue.NewActionQueues(c)
-	rs := result.NewStorage(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c))
 
 	s := NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,

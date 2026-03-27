@@ -1,0 +1,189 @@
+package storage
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// RedisStorage is a storage backed by Redis.
+// All storing keys are prefixed with keyPrefix-.
+type RedisStorage[T any] struct {
+	client    *redis.Client
+	keyPrefix string
+}
+
+// NewClient creates a new Redis client connected to the given host.
+func NewClient(host string) *redis.Client {
+	return redis.NewClient(&redis.Options{
+		Addr: host})
+}
+
+// NewRedisStorage creates a new RedisStorage with the Redis client and storing key prefix.
+func NewRedisStorage[T any](keyPrefix string, client *redis.Client) *RedisStorage[T] {
+	return &RedisStorage[T]{
+		client:    client,
+		keyPrefix: keyPrefix,
+	}
+}
+
+// NewNotifier creates a new Notifier backed by Redis.
+func NewNotifier(client *redis.Client) Notifier {
+	return &RedisStorage[any]{client: client}
+}
+
+// NewQueue creates a new RedisStorage with the Redis client and storing key prefix that is used as a queue.
+func NewQueue[T any](keyPrefix string, client *redis.Client) Queue[T] {
+	return &RedisStorage[T]{
+		client:    client,
+		keyPrefix: keyPrefix,
+	}
+}
+
+func (s *RedisStorage[T]) Ping(ctx context.Context) error {
+	return s.client.Ping(ctx).Err()
+}
+
+var ErrEmptyKey = errors.New("empty key")
+
+// Set stores the item with the key without expiration.
+func (s *RedisStorage[T]) Set(ctx context.Context, key string, item T) error {
+	if key == "" {
+		return ErrEmptyKey
+	}
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	return s.client.Set(ctx, s.prefix(key), data, 0).Err()
+}
+
+// SetWithTTL stores the item with the key and expiration.
+func (s *RedisStorage[T]) SetWithTTL(ctx context.Context, key string, item T, expiration time.Duration) error {
+	if key == "" {
+		return ErrEmptyKey
+	}
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	return s.client.Set(ctx, s.prefix(key), data, expiration).Err()
+}
+
+// Publish sends a notification on the given channel.
+func (s *RedisStorage[T]) Publish(ctx context.Context, channel string) error {
+	return s.client.Publish(ctx, channel, "stored").Err()
+}
+
+// Subscribe returns a Subscription for the given channel.
+func (s *RedisStorage[T]) Subscribe(ctx context.Context, channel string) Subscription {
+	return &redisSubscription{ps: s.client.Subscribe(ctx, channel)}
+}
+
+type redisSubscription struct {
+	ps *redis.PubSub
+}
+
+func (r *redisSubscription) ReceiveMessage(ctx context.Context) (string, error) {
+	msg, err := r.ps.ReceiveMessage(ctx)
+	if err != nil {
+		return "", err
+	}
+	return msg.Payload, nil
+}
+
+func (r *redisSubscription) Close() error {
+	return r.ps.Close()
+}
+
+// Get retrieves the value by the key.
+func (s *RedisStorage[T]) Get(ctx context.Context, key string) (T, error) {
+	var value T
+	data, err := s.client.Get(ctx, s.prefix(key)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return value, ErrNotFound
+	}
+	if err != nil {
+		return value, err
+	}
+
+	err = json.Unmarshal(data, &value)
+	return value, err
+}
+
+// GetWithTTL retrieves the value and its remaining expiration duration by the key.
+func (s *RedisStorage[T]) GetWithTTL(ctx context.Context, key string) (T, time.Duration, error) {
+	var value T
+	data, err := s.client.Get(ctx, s.prefix(key)).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return value, 0, ErrNotFound
+	}
+	if err != nil {
+		return value, 0, err
+	}
+
+	err = json.Unmarshal(data, &value)
+	if err != nil {
+		return value, 0, err
+	}
+
+	ttl, err := s.client.TTL(ctx, s.prefix(key)).Result()
+	return value, ttl, err
+}
+
+// Remove deletes the value stored for the key.
+func (s *RedisStorage[T]) Remove(ctx context.Context, key string) error {
+	return s.client.Del(ctx, s.prefix(key)).Err()
+}
+
+// Enqueue enqueues an item to the queue.
+func (s *RedisStorage[T]) Enqueue(ctx context.Context, item T) error {
+	data, err := json.Marshal(item)
+	if err != nil {
+		return err
+	}
+	return s.client.LPush(ctx, s.prefix(""), data).Err()
+}
+
+var ErrEmptyQueue = errors.New("empty queue")
+
+// Dequeue dequeues an item from the queue. If no item is available, ErrEmptyQueue error is returned.
+func (s *RedisStorage[T]) Dequeue(ctx context.Context) (T, error) {
+	var t T
+
+	data, err := s.client.RPop(ctx, s.prefix("")).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return t, ErrEmptyQueue
+	}
+	if err != nil {
+		return t, err
+	}
+	err = json.Unmarshal(data, &t)
+	return t, err
+}
+
+func (s *RedisStorage[T]) QueueLength(ctx context.Context) (int64, error) {
+	return s.client.LLen(ctx, s.prefix("")).Result()
+}
+
+// Clear deletes all storage's entries from database.
+func (s *RedisStorage[T]) Clear(ctx context.Context) error {
+	keys, err := s.client.Keys(ctx, s.prefix("*")).Result()
+	if err != nil {
+		return err
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return s.client.Del(ctx, keys...).Err()
+}
+
+// prefix prefixes key with keyPrefix-.
+func (s *RedisStorage[T]) prefix(key string) string {
+	return s.keyPrefix + "-" + key
+}

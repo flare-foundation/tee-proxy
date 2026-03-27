@@ -49,3 +49,10 @@ max_pending_request = 100
 enable_direct = false
 direct_api_key = ""
 direct_api_key_variable = "DIRECT_API_KEY"
+
+
+[firestore]
+url = ":8086"
+project_id = "your-gcp-project-id"
+database_id = ""  # Firestore database ID. Empty = default database.
+credentials_file = ""  # Path to service account JSON. Empty = Application Default Credentials.
