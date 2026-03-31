@@ -14,11 +14,13 @@ import (
 
 var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 
-func prepareHandler(f func(http.ResponseWriter, *http.Request) error, isInternal bool) http.HandlerFunc {
+func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, isInternal bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		// r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		if maxBodySize > -1 {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		}
 
 		err := f(w, r)
 		if err != nil {

@@ -82,6 +82,7 @@ type Direct struct {
 	APIKey         string `toml:"api_key"`          // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
 	APIKeyVariable string `toml:"api_key_variable"` // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
 	NoAPIKey       bool   `toml:"no_api_key"`       // NoAPIKey disables API key requirement for the /direct endpoint.
+	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, no additional limit is applied.
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
