@@ -36,8 +36,8 @@ const (
 )
 
 var (
-	errSigningPolicyFetchIntervalPositive = errors.New("SigningPolicyFetchInterval has to be positive")
-	errInitialSigningPolicyOffsetNegative = errors.New("InitialSigningPolicyOffset cannot be negative")
+	errSigningPolicyFetchIntervalPositive = errors.New("signingPolicyFetchInterval has to be positive")
+	errInitialSigningPolicyOffsetNegative = errors.New("initialSigningPolicyOffset cannot be negative")
 	errFlareSystemsManagerAddressNotSet   = errors.New("flareSystemsManager address not set")
 	errRelayAddressNotSet                 = errors.New("relay address not set")
 	errVoterRegistryAddressNotSet         = errors.New("voterRegistry address not set")

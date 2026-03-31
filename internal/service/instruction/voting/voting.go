@@ -95,7 +95,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	round, exists := s.Get(data.RewardEpochID)
 	if !exists {
-		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], data.RewardEpochID)
+		return nil, fmt.Errorf("%w: no round %d", status.HTTP[404], data.RewardEpochID)
 	}
 
 	err = s.meta.CheckConsistency(data, signer)
@@ -131,7 +131,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	defer box.Unlock()
 
 	if box.deleted {
-		return nil, fmt.Errorf("%w, voting already ended %s", status.HTTP[400], id.String())
+		return nil, fmt.Errorf("%w: voting already ended %s", status.HTTP[400], id.String())
 	}
 
 	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
@@ -165,7 +165,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 			a, err := box.Action(types.Threshold)
 			if err != nil {
-				logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+				logger.Errorf("failed creating threshold action for %v, %v: %v", id, hash, err)
 			} else {
 				s.Out <- a
 			}

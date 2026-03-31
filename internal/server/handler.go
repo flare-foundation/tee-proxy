@@ -83,7 +83,7 @@ func uint64Param(r *http.Request, param string) (uint64, error) {
 		return 0, invalidParam(param)
 	}
 
-	return s64, err
+	return s64, nil
 }
 
 // uint32Param extracts and validates uint32 path parameter from request.
@@ -94,7 +94,7 @@ func uint32Param(r *http.Request, param string) (uint32, error) {
 		return 0, invalidParam(param)
 	}
 
-	return uint32(s64), err
+	return uint32(s64), nil
 }
 
 func invalidParam(param string) error {

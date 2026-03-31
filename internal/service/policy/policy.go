@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -60,7 +61,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 		prevPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
 		if err != nil {
-			return err
+			return fmt.Errorf("setting initial policy: %w", err)
 		}
 		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
 		if err != nil {
@@ -79,7 +80,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.scAddresses, offset, s.chainID)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating initialize policy action: %w", err)
 	}
 
 	if actualOffset != offset {
@@ -145,7 +146,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 			err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 			if err != nil {
-				logger.Errorf("enqueueing UPDATE_POLICY action: %s", err)
+				logger.Errorf("enqueueing UPDATE_POLICY action: %v", err)
 				continue
 			}
 		}
@@ -181,7 +182,7 @@ func signingPolicyInitializedEventsListener(
 
 			logs, err := database.FetchLogsFull(ctx, db, params)
 			if err != nil {
-				logger.Error("fetch logs error:", err)
+				logger.Errorf("fetching logs: %v", err)
 				continue
 			}
 

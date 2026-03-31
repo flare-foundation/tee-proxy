@@ -25,7 +25,7 @@ const (
 
 var (
 	errAddressAlreadySet = errors.New("address already set")
-	errInvalidTeeID      = fmt.Errorf("%w, invalid teeID", status.HTTP[403])
+	errInvalidTeeID      = fmt.Errorf("%w: invalid teeID", status.HTTP[403])
 )
 
 // Service handles processing and storage of TEE action results.

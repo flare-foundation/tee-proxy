@@ -81,12 +81,12 @@ func (s *Service) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallet
 func (s *Service) initiateBackup(ctx context.Context, id IDPair) error {
 	action, err := teeBackupAction(id)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating backup action: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Backup)
 	if err != nil {
-		return err
+		return fmt.Errorf("enqueueing backup action: %w", err)
 	}
 
 	return nil
@@ -95,7 +95,7 @@ func (s *Service) initiateBackup(ctx context.Context, id IDPair) error {
 func teeBackupAction(idPair IDPair) (*types.Action, error) {
 	msg, err := json.Marshal(idPair)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshaling backup ID pair: %w", err)
 	}
 
 	return queue.PrepareDirectAction(op.Get, op.TEEBackup, msg)
@@ -105,7 +105,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	var b *wallets.TEEBackupResponse
 	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
-		return err
+		return fmt.Errorf("unmarshaling backup response: %w", err)
 	}
 	if b == nil {
 		return errors.New("backup response is nil")
@@ -113,12 +113,12 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 
 	idHash, err := b.BackupID.Hash()
 	if err != nil {
-		return err
+		return fmt.Errorf("hashing backup ID: %w", err)
 	}
 
 	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, expirationTime)
 	if err != nil {
-		return err
+		return fmt.Errorf("storing backup: %w", err)
 	}
 
 	idPair := IDPair{
@@ -127,8 +127,11 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	}
 
 	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, expirationTime)
+	if err != nil {
+		return fmt.Errorf("storing backup index: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func toKey(pair IDPair) string {

@@ -3,6 +3,7 @@ package meta
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -156,19 +157,19 @@ func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) err
 func fdcCheckConsistency(data *instruction.Data, signer common.Address) error {
 	fdcReq, err := fdc.DecodeRequest(data.OriginalMessage)
 	if err != nil {
-		return err
+		return fmt.Errorf("decoding FDC request: %w", err)
 	}
 
 	resBody := data.AdditionalFixedMessage
 	h, _, _, _, err := fdc.HashMessage(fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
-		return err
+		return fmt.Errorf("hashing FDC message: %w", err)
 	}
 
 	sig := data.AdditionalVariableMessage
 	err = utils.VerifySignature(h[:], sig, signer)
 	if err != nil {
-		return err
+		return fmt.Errorf("verifying FDC signature: %w", err)
 	}
 
 	return nil

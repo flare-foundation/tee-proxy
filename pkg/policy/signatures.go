@@ -203,11 +203,11 @@ mainLoop:
 func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID uint32) (*ecdsa.PublicKey, *registry.Signature, error) {
 	inputB, err := hex.DecodeString(input)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("decoding transaction input: %w", err)
 	}
 	spID, hash, sig, err := recoverInputsSignNewSigningPolicy(inputB)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("recovering signing policy inputs: %w", err)
 	}
 	if spID != expectedRewardEpochID || hash.Cmp(expectedHash) != 0 {
 		return nil, nil, errInvalidDataProvider
@@ -215,7 +215,7 @@ func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpoch
 
 	signer, err := recoverSigner(expectedHash, sig)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("recovering signer: %w", err)
 	}
 
 	return signer, sig, nil

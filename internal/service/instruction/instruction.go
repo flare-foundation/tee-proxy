@@ -23,7 +23,7 @@ import (
 
 var (
 	errWrongTeeID     = fmt.Errorf("%w: wrong teeID", status.HTTP[400])
-	errInvalidOP      = fmt.Errorf("%w, invalid pair opType, opCommand ", status.HTTP[400])
+	errInvalidOP      = fmt.Errorf("%w: invalid pair opType, opCommand", status.HTTP[400])
 	errRoundNotStored = fmt.Errorf("%w: round not stored", status.HTTP[404])
 	errNoInstruction  = fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
 )
@@ -70,12 +70,12 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 	hash, err := i.Data.HashForSigning()
 	if err != nil {
-		return nil, fmt.Errorf("hashing instruction %w", err)
+		return nil, fmt.Errorf("hashing instruction: %w", err)
 	}
 
 	signer, err := utils.SignatureToSignersAddress(hash[:], i.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving signer %w", err)
+		return nil, fmt.Errorf("retrieving signer: %w", err)
 	}
 
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
@@ -91,7 +91,7 @@ func (s *Service) Forward(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("instruction forwarding stopped %w", ctx.Err())
+			return fmt.Errorf("instruction forwarding stopped: %w", ctx.Err())
 		case action := <-s.vs.Out:
 			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
@@ -107,7 +107,7 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("listenToPolicies stopped %w", ctx.Err())
+			return fmt.Errorf("listenToPolicies stopped: %w", ctx.Err())
 		case policy := <-s.policies:
 			logger.Debugf("creating round for %d", policy.RewardEpochID)
 			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())

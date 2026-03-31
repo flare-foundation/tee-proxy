@@ -124,7 +124,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("backups triggered")
 			err := s.InitiateBackups(ctx)
 			if err != nil {
-				logger.Errorf("error triggering backup. First error: %v", err)
+				logger.Errorf("triggering backups: %v", err)
 				continue
 			}
 			logger.Debug("backups triggered")
@@ -248,7 +248,7 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 
 	action, err := keysInfoAction()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing key info action result: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
@@ -393,16 +393,16 @@ func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash():
 		id, err := s.updateOrAddKey(action)
 		if err != nil {
-			return IDPair{}, true, err
+			return IDPair{}, true, fmt.Errorf("updating or adding key: %w", err)
 		}
-		return id, true, err
+		return id, true, nil
 
 	case op.KeyDelete.Hash():
 		id, err := s.removeKey(action)
 		if err != nil {
-			return IDPair{}, false, err
+			return IDPair{}, false, fmt.Errorf("removing key: %w", err)
 		}
-		return id, false, err
+		return id, false, nil
 
 	default:
 		return IDPair{}, false, fmt.Errorf("unsupported action op command for key update %v", action.OPCommand)
@@ -412,12 +412,12 @@ func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 	keyInfo, err := parseNewKeyActionResult(action)
 	if err != nil {
-		return IDPair{}, err
+		return IDPair{}, fmt.Errorf("parsing new key action result: %w", err)
 	}
 
 	info, err := parseKeyExistenceProof(keyInfo)
 	if err != nil {
-		return IDPair{}, err
+		return IDPair{}, fmt.Errorf("parsing key existence proof: %w", err)
 	}
 
 	s.Lock()
@@ -451,7 +451,7 @@ func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 func (s *Service) removeKey(action *types.ActionResult) (IDPair, error) {
 	idPair, err := parseKeyDeleteActionResult(action)
 	if err != nil {
-		return IDPair{}, err
+		return IDPair{}, fmt.Errorf("parsing key delete action result: %w", err)
 	}
 
 	s.Lock()

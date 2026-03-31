@@ -57,7 +57,7 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 
 	err := as.actions.SetWithTTL(ctx, id.String(), action, 30*24*time.Hour) // todo: magic constant
 	if err != nil {
-		return err
+		return fmt.Errorf("storing action: %w", err)
 	}
 
 	switch queueID {
@@ -71,7 +71,11 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 		return ErrInvalidQueueID
 	}
 
-	return err
+	if err != nil {
+		return fmt.Errorf("enqueueing to %s: %w", queueID, err)
+	}
+
+	return nil
 }
 
 // Dequeue dequeues action from indicated queue. If no action is available, wrapped ErrEmptyQueue is dequeued.
