@@ -124,12 +124,12 @@ func (e *External) registerRoutes(enableDirect bool) {
 	e.server.Handler = mux
 
 	mux.HandleFunc("POST /instruction", prepareHandler(e.instructionH, instructionSizeLimit, false))
-	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, 0, false))
-	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statusH, 0, false))
-	mux.HandleFunc("GET /info", prepareHandler(e.infoH, 0, false))
-	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walletH, 0, false))
-	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, 0, false))
-	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, 0, false))
+	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statusH, noBody, false))
+	mux.HandleFunc("GET /info", prepareHandler(e.infoH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walletH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, noBody, false))
 
 	if enableDirect {
 		sizeLimit := int64(instructionSizeLimit)

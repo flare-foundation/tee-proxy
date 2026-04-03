@@ -14,11 +14,17 @@ import (
 
 var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 
+// noBody is passed to prepareHandler when the endpoint expects no request body.
+// A value of 0 enforces a zero-byte body limit via http.MaxBytesReader.
+const noBody int64 = 0
+
+// prepareHandler wraps a handler function with common setup.
+// maxBodySize is passed to http.MaxBytesReader; pass a negative value to skip body limiting.
 func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, isInternal bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if maxBodySize > -1 {
+		if maxBodySize >= 0 {
 			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 		}
 
