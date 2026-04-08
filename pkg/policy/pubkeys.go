@@ -48,7 +48,7 @@ func recoverPubKey(
 
 	pub, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, vrLogs[0], chainID)
 	if err != nil {
-		return nil, fmt.Errorf("recovering public key from event: %w", err)
+		return nil, fmt.Errorf("recovering public key from event for %v: %w", signingPolicyAddress, err)
 	}
 
 	return pub, nil
@@ -106,12 +106,17 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 		msg, err = msgArgs.Pack(chainID, rewardEpochID, identityAddress)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("packing voter registry message: %w", err)
 	}
 
 	sigMsg := accounts.TextHash(crypto.Keccak256(msg))
 
-	return crypto.SigToPub(sigMsg, serializeSig(signature))
+	pubKey, err := crypto.SigToPub(sigMsg, serializeSig(signature))
+	if err != nil {
+		return nil, fmt.Errorf("sig to pub: %w", err)
+	}
+
+	return pubKey, nil
 }
 
 // recoverPubKeyFromEvent recovers public key from VoterRegistered event.

@@ -51,7 +51,10 @@ func NewActionQueues(client *redis.Client) *ActionQueues {
 }
 
 func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID processorutils.QueueID) error {
-	id := ActionSubmissionID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
+	id := ActionSubmissionID{
+		ActionID:      action.Data.ID,
+		SubmissionTag: action.Data.SubmissionTag,
+	}
 
 	logger.Debugf("enqueue action %s, type %s, tag %s, queue %s", action.Data.ID, action.Data.Type, action.Data.SubmissionTag, queueID)
 
