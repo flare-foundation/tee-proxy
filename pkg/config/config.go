@@ -73,9 +73,16 @@ type Proxy struct {
 	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
 	DBSyncMaxSleepTime         time.Duration   `toml:"db_sync_max_sleep_time"`        // Max sleep between DB sync retries on startup. Defaults to 10m.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
-	EnableDirect               bool            `toml:"enable_direct"`                 // With EnableDirect set to true, external server has an endpoint to post direct instructions.
-	DirectAPIKey               string          `toml:"direct_api_key"`                // API key for the /direct endpoint. Can also be set via env variable (see DirectAPIKeyVariable).
-	DirectAPIKeyVariable       string          `toml:"direct_api_key_variable"`       // Name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
+	Direct                     Direct          `toml:"direct"`                        // Direct endpoint configuration.
+}
+
+// Direct holds configuration for the /direct endpoint.
+type Direct struct {
+	Enable         bool   `toml:"enable"`           // Enable registers the /direct endpoint on the external server.
+	APIKey         string `toml:"api_key"`          // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
+	APIKeyVariable string `toml:"api_key_variable"` // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
+	NoAPIKey       bool   `toml:"no_api_key"`       // NoAPIKey disables API key requirement for the /direct endpoint.
+	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, defaults to 10 MiB.
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
@@ -105,7 +112,7 @@ func Read(path string) (Proxy, error) {
 			Console:     true,
 		},
 
-		EnableDirect: false,
+		Direct: Direct{},
 	}
 
 	err := toml.ReadTo(path, &c, false)
@@ -145,9 +152,9 @@ func Read(path string) (Proxy, error) {
 		return c, errInitialSigningPolicyOffsetNegative
 	}
 
-	if c.EnableDirect {
-		c.DirectAPIKey = resolveDirectAPIKey(c.DirectAPIKeyVariable, c.DirectAPIKey)
-		if c.DirectAPIKey == "" {
+	if c.Direct.Enable && !c.Direct.NoAPIKey {
+		c.Direct.APIKey = resolveDirectAPIKey(c.Direct.APIKeyVariable, c.Direct.APIKey)
+		if c.Direct.APIKey == "" {
 			return c, errDirectAPIKeyNotSet
 		}
 	}

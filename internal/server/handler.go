@@ -14,50 +14,45 @@ import (
 
 var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 
-func prepareHandler(f func(http.ResponseWriter, *http.Request) error, isInternal bool) http.HandlerFunc {
+// noBody is passed to prepareHandler when the endpoint expects no request body.
+// A value of 0 enforces a zero-byte body limit via http.MaxBytesReader.
+const noBody int64 = 0
+
+// prepareHandler wraps a handler function with common setup.
+// maxBodySize is passed to http.MaxBytesReader; pass a negative value to skip body limiting.
+func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, isInternal bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		// r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		if maxBodySize >= 0 {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		}
 
 		err := f(w, r)
 		if err != nil {
-			if isInternal {
-				handleErrorInternal(w, err)
-			} else {
-				handleErrorExternal(w, err)
-			}
+			handleError(w, err, isInternal)
 		}
 	}
 }
 
-// handleErrorExternal replies to unsuccessful request.
+// handleError replies to unsuccessful request.
 // If error is wrapped HTTP error, status is retrieved, and error is given in response.
 // Otherwise, status 500 and "internal server error" is given in the reply.
-func handleErrorExternal(w http.ResponseWriter, err error) {
+// isInternal parameter only affects the logging.
+func handleError(w http.ResponseWriter, err error, isInternal bool) {
+	source := "external"
+	if isInternal {
+		source = "internal"
+	}
+
 	code := status.ErrToCode(err)
 	reason := err.Error()
 	if code == -1 {
 		code = http.StatusInternalServerError
 		reason = "internal processing error"
 
-		logger.Warnf("error processing external request: %s", err)
+		logger.Warnf("error processing %s request: %s", source, err)
 	}
-
-	http.Error(w, reason, code)
-}
-
-// handleErrorInternal replies to unsuccessful request.
-// If error is wrapped HTTP error, status is retrieved, and error is given in response.
-// Otherwise, status 500 and "internal server error" is given in the reply.
-func handleErrorInternal(w http.ResponseWriter, err error) {
-	code := status.ErrToCode(err)
-	reason := err.Error()
-	if code == -1 {
-		code = http.StatusInternalServerError
-		reason = "internal processing error"
-	}
-	logger.Errorf("error processing internal request: %s", err)
 
 	http.Error(w, reason, code)
 }

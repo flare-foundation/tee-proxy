@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -33,13 +32,17 @@ const (
 	walletID      = "walletID"
 	backupIDHash  = "backupIDHash"
 
-	mib = 2 << 20
+	mib = 1 << 20
+	kib = 1 << 10
+
+	instructionSizeLimit = 10 * mib
+	maxHeaderBytes       = 16 * kib
 )
 
 var (
 	errNoInfoService = errors.New("nil info service")
 
-	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[503])
+	errProxyNotInitialized  = fmt.Errorf("%w: proxy not initialized", status.HTTP[http.StatusServiceUnavailable])
 	errEmptySubmissionTag   = fmt.Errorf("%w: empty submission tag query string", status.HTTP[http.StatusBadRequest])
 	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[http.StatusBadRequest])
 	errSystemDirect         = fmt.Errorf("%w: system op types not allowed in external direct requests", status.HTTP[http.StatusBadRequest])
@@ -56,7 +59,15 @@ type External struct {
 	wallet             *wallets.Service
 
 	privKey *ecdsa.PrivateKey
-	apiKey  string
+	direct  DirectConfig
+}
+
+// DirectConfig holds configuration for the /direct endpoint.
+type DirectConfig struct {
+	Enable      bool
+	APIKey      string
+	NoAPIKey    bool
+	MaxBodySize int64
 }
 
 func NewExternal(
@@ -66,9 +77,8 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
-	enableDirect bool,
 	actionQueues *queue.ActionQueues,
-	apiKey string,
+	direct DirectConfig,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -78,7 +88,7 @@ func NewExternal(
 		ReadHeaderTimeout: 2 * time.Second,
 		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    16 * 1024, // 16 KB
+		MaxHeaderBytes:    maxHeaderBytes,
 	}
 
 	e := External{
@@ -88,10 +98,10 @@ func NewExternal(
 		teeInfo:            teeInfo,
 		wallet:             wallet,
 		privKey:            privateKey,
-		apiKey:             apiKey,
+		direct:             direct,
 	}
 
-	e.registerRoutes(enableDirect)
+	e.registerRoutes(direct.Enable)
 
 	return &e
 }
@@ -113,16 +123,21 @@ func (e *External) registerRoutes(enableDirect bool) {
 	mux := http.NewServeMux()
 	e.server.Handler = mux
 
-	mux.HandleFunc("POST /instruction", prepareHandler(e.instructionH, false))
-	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, false))
-	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statusH, false))
-	mux.HandleFunc("GET /info", prepareHandler(e.infoH, false))
-	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walletH, false))
-	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, false))
-	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, false))
+	mux.HandleFunc("POST /instruction", prepareHandler(e.instructionH, instructionSizeLimit, false))
+	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statusH, noBody, false))
+	mux.HandleFunc("GET /info", prepareHandler(e.infoH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walletH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, noBody, false))
+	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, noBody, false))
 
 	if enableDirect {
-		mux.HandleFunc("POST /direct", prepareHandler(e.directH, false))
+		sizeLimit := int64(instructionSizeLimit)
+		if e.direct.MaxBodySize > 0 {
+			sizeLimit = e.direct.MaxBodySize
+		}
+
+		mux.HandleFunc("POST /direct", prepareHandler(e.directH, sizeLimit, false))
 	}
 }
 
@@ -160,7 +175,7 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 // verifyAPIKey checks that the request contains a valid X-API-Key header.
 func (e *External) verifyAPIKey(r *http.Request) error {
 	key := r.Header.Get("X-API-Key")
-	if subtle.ConstantTimeCompare([]byte(key), []byte(e.apiKey)) != 1 {
+	if subtle.ConstantTimeCompare([]byte(key), []byte(e.direct.APIKey)) != 1 {
 		return errUnauthorized
 	}
 
@@ -171,19 +186,17 @@ func (e *External) verifyAPIKey(r *http.Request) error {
 // The request should provide direct instruction.
 // A direct action and put into queue and also returned to the caller.
 func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
-	err := e.verifyAPIKey(r)
-	if err != nil {
-		return err
+	if !e.direct.NoAPIKey {
+		err := e.verifyAPIKey(r)
+		if err != nil {
+			return err
+		}
 	}
 
-	ctx := r.Context()
-
-	b := io.LimitReader(r.Body, 10*mib)
-
 	i := new(types.DirectInstruction)
-	dec := json.NewDecoder(b)
+	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
-	err = dec.Decode(&i)
+	err := dec.Decode(&i)
 	if err != nil {
 		return ErrInvalidBody
 	}
@@ -198,7 +211,7 @@ func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
 		return ErrInvalidBody
 	}
 
-	err = e.actionQueues.Enqueue(ctx, a, processorutils.Direct)
+	err = e.actionQueues.Enqueue(r.Context(), a, processorutils.Direct)
 	if err != nil {
 		return ErrInvalidBody
 	}
@@ -224,8 +237,6 @@ func validateDirect(i *types.DirectInstruction) error {
 // A "submissionTag" query parameter is optional. It defaults to "threshold".
 // It serves response with the given actionID and submissionTag if present.
 func (e *External) resultH(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
-
 	err := r.ParseForm()
 	if err != nil {
 		return fmt.Errorf("%w: %v", status.HTTP[400], err)
@@ -241,7 +252,7 @@ func (e *External) resultH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	response, err := e.resultService.Serve(ctx, id, st)
+	response, err := e.resultService.Serve(r.Context(), id, st)
 	if err != nil {
 		return err
 	}

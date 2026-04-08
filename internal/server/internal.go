@@ -20,6 +20,10 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
+const (
+	maxResultBodySize = 10 * mib
+)
+
 var errInvalidQueueID = fmt.Errorf("%w: invalid queueID", status.HTTP[400])
 
 const resultWriteTimeout = 10 * time.Second
@@ -89,8 +93,8 @@ func (i *Internal) registerRoutes() {
 	mux := http.NewServeMux()
 	i.server.Handler = mux
 
-	mux.HandleFunc("POST /result", prepareHandler(i.resultH, true))
-	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(i.queueH, true))
+	mux.HandleFunc("POST /result", prepareHandler(i.resultH, maxResultBodySize, true))
+	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(i.queueH, noBody, true))
 
 	mux.HandleFunc("GET /healthy", i.lHandlers.healthy)
 	mux.HandleFunc("GET /startup", i.lHandlers.startup)
@@ -103,7 +107,6 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), resultWriteTimeout)
 	defer cancel()
 
-	// todo: Limit the size of the body
 	response := new(types.ActionResponse)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()

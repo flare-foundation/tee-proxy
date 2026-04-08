@@ -8,6 +8,7 @@ private_key_variable = "PRIVATE_KEY"
 initial_signing_policy_offset = 2
 signing_policy_fetch_interval = "10m"
 
+
 [db]
 host = "localhost"
 port = 3306
@@ -45,10 +46,6 @@ cycle_queue_response_wait = "2s"
 proposal_expiration = "120s"
 max_pending_request = 100
 
-# Direct extension enables POST /direct endpoint (requires API key)
-enable_direct = false
-direct_api_key = ""
-direct_api_key_variable = "DIRECT_API_KEY"
 
 
 [firestore]
@@ -56,3 +53,11 @@ url = ":8086"
 project_id = "your-gcp-project-id"
 database_id = ""  # Firestore database ID. Empty = default database.
 credentials_file = ""  # Path to service account JSON. Empty = Application Default Credentials.
+
+[direct]
+# Direct extension enables POST /direct endpoint (requires API key)
+enable = false
+api_key = ""
+api_key_variable = "DIRECT_API_KEY"
+# Set to true to disable API key requirement for /direct endpoint
+no_api_key = false
