@@ -25,6 +25,11 @@ type Service struct {
 	chainID     *big.Int
 
 	activePolicy *cpolicy.SigningPolicy
+
+	// restartPolicies holds policies loaded on restart that must be
+	// emitted on pChan (for the instruction service's cyclic buffer)
+	// but NOT sent to the node.  Nil on first init.
+	restartPolicies []*cpolicy.SigningPolicy
 }
 
 func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big.Int) *Service {
@@ -37,11 +42,35 @@ func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big
 
 func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeInitialInfo *types.TeeInfoResponse) error {
 	if teeInitialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
-		logger.Infof("starting signing policy updates from epoch %d", teeInitialInfo.TeeInfo.LastSigningPolicyID)
-		err := s.SetInitialPolicy(ctx, db, teeInitialInfo.TeeInfo.LastSigningPolicyID)
+		lastID := teeInitialInfo.TeeInfo.LastSigningPolicyID
+
+		// On restart the node already has policies up to lastID.
+		// Load lastID-1 and lastID so the instruction service's cyclic
+		// buffer has rounds for both the current and previous epoch
+		// (needed during the ~2h window when a new policy is initialized
+		// but the old epoch is still active).
+		//
+		// Neither policy is sent to the node — it already has them.
+		// activePolicy is set to lastID so that UpdatePolicyAction
+		// collects signatures from the correct voters for lastID+1.
+		startID := lastID - 1
+		if lastID == 0 {
+			startID = 0
+		}
+
+		prevPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
 		if err != nil {
 			return err
 		}
+		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
+		if err != nil {
+			return err
+		}
+
+		s.activePolicy = lastPolicy
+		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
+
+		logger.Infof("restart: loaded policies %d and %d (listener starts from %d)", startID, lastID, lastID+1)
 
 		return nil
 	}
@@ -73,27 +102,21 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 
 	logChan := signingPolicyInitializedEventsListener(ctx, db, s.scAddresses.Relay, startID, policyFetchInterval)
 
-	pChan := make(chan cpolicy.SigningPolicy, 1)
-	if s.activePolicy != nil {
+	pChan := make(chan cpolicy.SigningPolicy, 3)
+	if s.restartPolicies != nil {
+		// On restart: emit previously loaded policies so the instruction
+		// service creates cyclic buffer rounds for them.  These are NOT
+		// sent to the node (which already has them).
+		for _, p := range s.restartPolicies {
+			pChan <- *p
+		}
+		s.restartPolicies = nil
+	} else {
 		pChan <- *s.activePolicy
 	}
 	go s.update(ctx, pChan, db, logChan)
 
 	return pChan, nil
-}
-
-func (s *Service) SetInitialPolicy(ctx context.Context, db *gorm.DB, signingPolicyID uint32) error {
-	if s.activePolicy != nil {
-		return errors.New("initial policy already set")
-	}
-
-	p, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, signingPolicyID)
-	if err != nil {
-		return err
-	}
-
-	s.activePolicy = p
-	return nil
 }
 
 // update receives SigningPolicyInitialized events from logsC and:
