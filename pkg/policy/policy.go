@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -83,7 +84,7 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 
 		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress, chainID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, signingPolicy.RewardEpochID, err)
 		}
 
 		pubKeys[j] = types.PubKeyToStruct(pk)
@@ -184,7 +185,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 
 		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, vrAdd, chainID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, nextPolicy.RewardEpochID, err)
 		}
 
 		pubKeys[j] = types.PubKeyToStruct(pk)
