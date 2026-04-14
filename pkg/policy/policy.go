@@ -77,6 +77,10 @@ func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
 func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]byte, error) {
 	pubKeys := make([]types.PublicKey, len(signingPolicy.Voters.Voters()))
 	for j, address := range signingPolicy.Voters.Voters() {
+		if chainID.Cmp(costonChainID) == 0 && signingPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
+			voterRegistryAddress = costonOldVoterRegistryAddress
+		}
+
 		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress, chainID)
 		if err != nil {
 			return nil, err
