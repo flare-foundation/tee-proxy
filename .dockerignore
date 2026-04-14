@@ -38,4 +38,8 @@ Thumbs.db
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
+
+# CI caches
+.go-mod-cache/
+.golangci-cache/

@@ -51,9 +51,12 @@ func TestInsertBlock(t *testing.T) {
 		require.Error(t, err)
 	}()
 
-	time.Sleep(15 * time.Millisecond)
-	a, err := aq.Dequeue(t.Context(), processorutils.Direct)
-	require.NoError(t, err)
+	var a *types.Action
+	require.Eventually(t, func() bool {
+		var err error
+		a, err = aq.Dequeue(t.Context(), processorutils.Direct)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond)
 	require.Equal(t, types.Submit, a.Data.SubmissionTag)
 	require.Equal(t, types.Direct, a.Data.Type)
 
@@ -94,8 +97,9 @@ func TestInsertBlock(t *testing.T) {
 	err = rs.StoreResponse(t.Context(), ar)
 	require.NoError(t, err)
 
-	time.Sleep(100 * time.Millisecond)
-	require.NotNil(t, s.Latest)
-
-	require.Equal(t, s.Latest.TeeInfo.Challenge, latestBlockHash)
+	require.Eventually(t, func() bool {
+		s.RLock()
+		defer s.RUnlock()
+		return s.Latest.TeeInfo.Challenge == latestBlockHash
+	}, 2*time.Second, 10*time.Millisecond)
 }

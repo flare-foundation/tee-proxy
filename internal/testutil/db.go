@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,10 +12,13 @@ import (
 	"gorm.io/gorm"
 )
 
+var dbCounter atomic.Uint64
+
 func InMemoryDB(t *testing.T, name string) (*gorm.DB, string) {
 	t.Helper()
 
-	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", name)
+	id := dbCounter.Add(1)
+	dsn := fmt.Sprintf("file:%s_%d?mode=memory&cache=shared", name, id)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
