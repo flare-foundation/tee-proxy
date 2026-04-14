@@ -33,6 +33,7 @@ type Notifier interface {
 	Subscribe(ctx context.Context, channel string) Subscription
 }
 
+// Queue is a generic FIFO queue backed by a persistent store.
 type Queue[T any] interface {
 	Enqueue(ctx context.Context, item T) error
 	Dequeue(ctx context.Context) (T, error)

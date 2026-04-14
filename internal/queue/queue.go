@@ -23,17 +23,21 @@ const (
 	BackupQueue = "BackupQueue"
 )
 
+// ErrInvalidQueueID is returned when an unrecognized queue ID is provided.
 var ErrInvalidQueueID = errors.New("invalid queue id")
 
+// ActionSubmissionID uniquely identifies an action by its action ID and submission tag.
 type ActionSubmissionID struct {
 	ActionID      common.Hash
 	SubmissionTag types.SubmissionTag
 }
 
+// String returns a combined string representation of the action ID and submission tag.
 func (id *ActionSubmissionID) String() string {
 	return fmt.Sprintf("%s:%s", id.ActionID, id.SubmissionTag)
 }
 
+// ActionQueues manages direct, main, and backup Redis-backed queues for action submission.
 type ActionQueues struct {
 	actions     storage.Storage[*types.Action]
 	directQueue storage.Queue[*ActionSubmissionID]
@@ -41,6 +45,7 @@ type ActionQueues struct {
 	backupQueue storage.Queue[*ActionSubmissionID]
 }
 
+// NewActionQueues creates a new ActionQueues backed by the given Redis client.
 func NewActionQueues(client *redis.Client) *ActionQueues {
 	return &ActionQueues{
 		actions:     storage.NewRedisStorage[*types.Action](Actions, client),
@@ -50,6 +55,7 @@ func NewActionQueues(client *redis.Client) *ActionQueues {
 	}
 }
 
+// Enqueue stores the action and appends its submission ID to the indicated queue.
 func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID processorutils.QueueID) error {
 	id := ActionSubmissionID{
 		ActionID:      action.Data.ID,

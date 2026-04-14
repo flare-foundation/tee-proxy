@@ -28,6 +28,7 @@ var (
 	errNoInstruction  = fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
 )
 
+// Service processes incoming instructions and manages threshold-based voting consensus.
 type Service struct {
 	teeID common.Address
 
@@ -38,6 +39,7 @@ type Service struct {
 	privKey  *ecdsa.PrivateKey
 }
 
+// NewService creates a new instruction Service with the given voting config, TEE identity, signing key, and dependencies.
 func NewService(votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
 	vs := voting.NewStorage(votingCfg, meta)
 
@@ -81,6 +83,7 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
 }
 
+// Run starts the Forward and ListenToPolicies loops concurrently.
 func (s *Service) Run(ctx context.Context) {
 	go s.Forward(ctx)       //nolint:errcheck // todo
 	s.ListenToPolicies(ctx) //nolint:errcheck // todo

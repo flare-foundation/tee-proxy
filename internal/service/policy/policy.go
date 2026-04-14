@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Service fetches signing policies from the blockchain and distributes them via action queues.
 type Service struct {
 	aq          *queue.ActionQueues
 	scAddresses config.Addresses
@@ -33,6 +34,7 @@ type Service struct {
 	restartPolicies []*cpolicy.SigningPolicy
 }
 
+// NewService creates a new policy Service with the given action queues, contract addresses, and chain ID.
 func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big.Int) *Service {
 	return &Service{
 		aq:          aq,
@@ -41,6 +43,8 @@ func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big
 	}
 }
 
+// Initialize prepares the service for operation by loading the active signing policy from the database.
+// On a fresh start it submits an INITIALIZE_POLICY action; on restart it loads existing policies from the node.
 func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeInitialInfo *types.TeeInfoResponse) error {
 	if teeInitialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
 		lastID := teeInitialInfo.TeeInfo.LastSigningPolicyID
@@ -94,6 +98,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 	return s.aq.Enqueue(ctx, action, processorutils.Direct)
 }
 
+// Run starts the signing policy update loop and returns a channel that emits new signing policies.
 func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time.Duration) (<-chan cpolicy.SigningPolicy, error) {
 	if s.activePolicy == nil {
 		return nil, errors.New("not initialized yet")

@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
+// ErrInvalidBody is returned when the request body cannot be decoded.
 var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 
 // noBody is passed to prepareHandler when the endpoint expects no request body.

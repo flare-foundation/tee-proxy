@@ -103,6 +103,7 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 	return encoded, nil
 }
 
+// FetchSigningPolicy fetches and parses the SigningPolicyInitialized event for the given policy ID from the database.
 func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, error) {
 	topics := [4]common.Hash{}
 	topics[0] = SigningPolicyInitializedEventSel
@@ -142,6 +143,7 @@ func prepareSignatures(sigs []*registry.Signature) [][]byte {
 	return msgs
 }
 
+// UpdatePolicyAction prepares an UPDATE_POLICY action from a SigningPolicyInitialized log event.
 func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addresses, log database.Log, activePolicy *policy.SigningPolicy, chainID *big.Int) (*types.Action, *policy.SigningPolicy, error) {
 	event, err := policy.ParseSigningPolicyInitializedEvent(log)
 	if err != nil {

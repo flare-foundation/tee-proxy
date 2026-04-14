@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 )
 
+// Status holds the voting state for a single instruction hash within a round.
 type Status struct {
 	InstructionHash    common.Hash `json:"instructionHash"`
 	Finalized          bool        `json:"finalized"`
@@ -24,12 +25,14 @@ type Status struct {
 	CosignersThreshold uint16      `json:"cosignersThreshold"`
 }
 
+// Statuses aggregates all voting statuses for a given instruction ID within a reward epoch.
 type Statuses struct {
 	InstructionID common.Hash `json:"instructionId"`
 	FinalizedHash common.Hash `json:"finalizedHash"`
 	Status        []Status    `json:"status"`
 }
 
+// Receipt is the vote receipt returned to a voter after a valid instruction is accepted.
 type Receipt struct {
 	InstructionHash               common.Hash   `json:"instructionHash"`
 	Sequence                      uint64        `json:"sequence"`
@@ -39,6 +42,7 @@ type Receipt struct {
 	VoteHash                      common.Hash   `json:"voteHash"`
 }
 
+// Hash computes the ABI-encoded Keccak256 hash of the receipt fields.
 func (r *Receipt) Hash() (common.Hash, error) {
 	rd := tee.TeeStructsVoteReceipt{
 		InstructionHash:               r.InstructionHash,

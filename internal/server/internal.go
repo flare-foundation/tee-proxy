@@ -28,6 +28,7 @@ var errInvalidQueueID = fmt.Errorf("%w: invalid queueID", status.HTTP[400])
 
 const resultWriteTimeout = 10 * time.Second
 
+// ResultService defines the interface for processing and serving action results.
 type ResultService interface {
 	ProcessAndStore(context.Context, *types.ActionResponse) error
 	Serve(context.Context, common.Hash, types.SubmissionTag) (*types.ActionResponse, error)
@@ -35,6 +36,7 @@ type ResultService interface {
 
 var _ ResultService = &result.Service{}
 
+// Internal is the system-facing HTTP server exposing action queue, result, and liveness endpoints.
 type Internal struct {
 	actionQueues *queue.ActionQueues
 
@@ -49,6 +51,7 @@ type liveness interface {
 	Ready(context.Context) error
 }
 
+// NewInternal creates and configures a new Internal server listening on port.
 func NewInternal(port string,
 	actionQueues *queue.ActionQueues,
 	resultService ResultService,

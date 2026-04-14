@@ -39,6 +39,7 @@ type meta struct {
 	ws *wallets.Service
 }
 
+// New creates a Meta implementation backed by the given wallets Service.
 func New(ws *wallets.Service) Meta {
 	return &meta{ws}
 }
