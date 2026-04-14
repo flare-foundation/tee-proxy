@@ -3,6 +3,7 @@ package utils
 import (
 	"crypto/ecdsa"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 	"math/rand"
@@ -22,15 +23,15 @@ import (
 func EncodeSigningPolicy(policy *relay.RelaySigningPolicyInitialized) ([]byte, error) {
 	// Validation
 	if policy == nil {
-		return nil, fmt.Errorf("signing policy is undefined")
+		return nil, errors.New("signing policy is undefined")
 	}
 
 	voters := policy.Voters
 	if len(voters) > 65535 { // 2^16 - 1
-		return nil, fmt.Errorf("too many signers")
+		return nil, errors.New("too many signers")
 	}
 	if len(policy.Weights) != len(voters) {
-		return nil, fmt.Errorf("number of voters and weights do not match")
+		return nil, errors.New("number of voters and weights do not match")
 	}
 
 	// Validate reward epoch ID
@@ -41,7 +42,7 @@ func EncodeSigningPolicy(policy *relay.RelaySigningPolicyInitialized) ([]byte, e
 	// Validate seed
 	seedBytes := policy.Seed.Bytes()
 	if len(seedBytes) > 32 {
-		return nil, fmt.Errorf("seed value too large")
+		return nil, errors.New("seed value too large")
 	}
 
 	// Calculate total size

@@ -107,7 +107,7 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 	defer func() {
 		err := sub.Close()
 		if err != nil {
-			logger.Warnf("closing sub for %v: %w", actionID, err)
+			logger.Warnf("closing sub for %v: %v", actionID, err)
 		}
 	}()
 

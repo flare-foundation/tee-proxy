@@ -136,7 +136,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
 	if err != nil {
-		return nil, fmt.Errorf("adding vote from %s to %v: %v", signer, id, err)
+		return nil, fmt.Errorf("adding vote from %s to %v: %w", signer, id, err)
 	}
 
 	// if box is newly created, save it and scheduleEnd.
