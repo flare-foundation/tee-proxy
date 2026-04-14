@@ -156,6 +156,12 @@ type WalletsInfoResponse struct {
 	Pairs   []IDPair `json:"pairs"`
 }
 
+// KeyProof returns the signed key existence proof for the given wallet/key pair.
+//
+// The returned pointer is safe to use after the lock is released because
+// SignedKeyExistenceProof values are immutable once created: updateOrAddKey replaces
+// the Proof field with a new pointer rather than writing through the existing one.
+// If that invariant ever changes this must be updated to return a copy.
 func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedKeyExistenceProof, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -177,12 +183,16 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 		return nil, errWalletNotFound
 	}
 
-	data, err := s.KeyData(walletID, keys[0])
-	if err != nil {
-		return nil, err
+	id := IDPair{WalletID: walletID, KeyID: keys[0]}
+	data, exists := s.keyDataLocked(id)
+	if !exists {
+		return nil, errKeyDataNotFound
 	}
 
-	return &data.Info, nil
+	// Copy while the lock is held so the caller cannot race with a concurrent
+	// updateOrAddKey that writes keyData.Info = *info to the same struct.
+	info := data.Info
+	return &info, nil
 }
 
 func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyData, error) {
@@ -190,12 +200,19 @@ func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyDa
 	defer s.RUnlock()
 
 	id := IDPair{WalletID: walletID, KeyID: keyID}
-	info, exists := s.Keys[id]
+	data, exists := s.keyDataLocked(id)
 	if !exists {
 		return nil, errKeyDataNotFound
 	}
 
-	return info, nil
+	kd := *data
+	return &kd, nil
+}
+
+// keyDataLocked returns the KeyData entry for id. Caller must hold at least s.RLock.
+func (s *Service) keyDataLocked(id IDPair) (*pkgwallets.KeyData, bool) {
+	data, exists := s.Keys[id]
+	return data, exists
 }
 
 // sync enqueues KEY_INFO action, compares the returned key list with locally cached keys,

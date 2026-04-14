@@ -25,21 +25,22 @@ const expirationTime = 8 * 24 * time.Hour
 
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
 func (s *Service) InitiateBackups(ctx context.Context) error {
-	var eg errgroup.Group
-
 	s.RLock()
-	defer s.RUnlock()
+	ids := make([]IDPair, 0, len(s.Keys))
+	for id := range s.Keys {
+		ids = append(ids, id)
+	}
+	s.RUnlock()
 
-	for key := range s.Keys {
-		// make sure the key id is not edited by the time of execution
-		f := func() error {
-			err := s.initiateBackup(ctx, key)
+	var eg errgroup.Group
+	for _, id := range ids {
+		eg.Go(func() error {
+			err := s.initiateBackup(ctx, id)
 			if err != nil {
-				return fmt.Errorf("initiating backup for key %v: %w", key, err)
+				return fmt.Errorf("initiating backup for key %v: %w", id, err)
 			}
 			return nil
-		}
-		eg.Go(f)
+		})
 	}
 
 	return eg.Wait()
