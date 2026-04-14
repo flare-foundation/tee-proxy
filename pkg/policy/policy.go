@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -77,9 +78,13 @@ func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
 func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]byte, error) {
 	pubKeys := make([]types.PublicKey, len(signingPolicy.Voters.Voters()))
 	for j, address := range signingPolicy.Voters.Voters() {
+		if chainID.Cmp(costonChainID) == 0 && signingPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
+			voterRegistryAddress = costonOldVoterRegistryAddress
+		}
+
 		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress, chainID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, signingPolicy.RewardEpochID, err)
 		}
 
 		pubKeys[j] = types.PubKeyToStruct(pk)
@@ -173,9 +178,14 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 	pubKeys := make([]types.PublicKey, len(nextPolicy.Voters.Voters()))
 
 	for j, address := range nextPolicy.Voters.Voters() {
-		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, voterRegistryAddress, chainID)
+		vrAdd := voterRegistryAddress
+		if chainID.Cmp(costonChainID) == 0 && nextPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
+			vrAdd = costonOldVoterRegistryAddress
+		}
+
+		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, vrAdd, chainID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, nextPolicy.RewardEpochID, err)
 		}
 
 		pubKeys[j] = types.PubKeyToStruct(pk)

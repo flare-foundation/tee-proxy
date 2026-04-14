@@ -17,6 +17,10 @@ import (
 	"gorm.io/gorm"
 )
 
+const costonRegistryMessageBreakingEpoch = 5451
+
+var costonOldVoterRegistryAddress = common.HexToAddress("0xB4B93a3A3ADa93a574E6efeb5f295bf882934cB6")
+
 var (
 	errInvalidLogCountPubKeys = errors.New("invalid number of logs")
 	errWrongAddressRecovered  = errors.New("wrong address recovered")
@@ -95,7 +99,7 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 	var msg []byte
 	var err error
 
-	if chainID == nil || chainID.Cmp(costonChainID) == 0 {
+	if chainID == nil || (chainID.Cmp(costonChainID) == 0 && rewardEpochID < costonRegistryMessageBreakingEpoch) {
 		msg, err = msgArgsLegacy.Pack(rewardEpochID, identityAddress)
 	} else {
 		msg, err = msgArgs.Pack(chainID, rewardEpochID, identityAddress)
