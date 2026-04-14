@@ -84,7 +84,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.scAddresses, offset, s.chainID)
 	if err != nil {
-		return fmt.Errorf("creating initialize policy action: %w", err)
+		return fmt.Errorf("creating initialize policy action for chainID %v: %w", s.chainID, err)
 	}
 
 	if actualOffset != offset {
@@ -140,7 +140,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			logger.Debugf("updating signing policy from %d", s.activePolicy.RewardEpochID)
 			action, p, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
 			if err != nil {
-				logger.Errorf("creating UPDATE_POLICY action: %v", err)
+				logger.Errorf("creating UPDATE_POLICY action for reward epoch %d for chainID %v: %v", s.activePolicy.RewardEpochID+1, s.chainID, err)
 				continue
 			}
 
@@ -151,7 +151,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 			err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 			if err != nil {
-				logger.Errorf("enqueueing UPDATE_POLICY action: %v", err)
+				logger.Errorf("enqueueing UPDATE_POLICY action for reward epoch %d for chainID %v: %v", s.activePolicy.RewardEpochID+1, s.chainID, err)
 				continue
 			}
 		}

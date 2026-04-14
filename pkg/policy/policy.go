@@ -60,7 +60,7 @@ func InitializePolicyAction(
 
 	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("preparing initialize policy message: %w", err)
+		return nil, nil, 0, fmt.Errorf("preparing initialize policy message for reward epoch %d: %w", p.RewardEpochID, err)
 	}
 
 	action, err := prepareInitializePolicyAction(msg)
@@ -187,7 +187,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 
 		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, vrAdd, chainID)
 		if err != nil {
-			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, nextPolicy.RewardEpochID, err)
+			return nil, fmt.Errorf("recovering pub key for %v: %w", address, err)
 		}
 
 		pubKeys[j] = types.PubKeyToStruct(pk)
