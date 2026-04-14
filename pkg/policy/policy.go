@@ -177,7 +177,12 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 	pubKeys := make([]types.PublicKey, len(nextPolicy.Voters.Voters()))
 
 	for j, address := range nextPolicy.Voters.Voters() {
-		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, voterRegistryAddress, chainID)
+		vrAdd := voterRegistryAddress
+		if chainID.Cmp(costonChainID) == 0 && nextPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
+			vrAdd = costonOldVoterRegistryAddress
+		}
+
+		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, vrAdd, chainID)
 		if err != nil {
 			return nil, err
 		}
