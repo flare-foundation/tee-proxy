@@ -93,6 +93,7 @@ func NewExternal(
 
 	e := External{
 		instructionService: instructionService,
+		actionQueues:       actionQueues,
 		resultService:      resultService,
 		server:             server,
 		teeInfo:            teeInfo,
