@@ -14,6 +14,10 @@ import (
 const (
 	kib = 1 << 10
 	mib = 1 << 20
+
+	// maxTotalVariableMessage is the maximum total size of all aggregated variable messages in an action.
+	// This should match the tee-node MaxVariableMessageSize setting.
+	maxTotalVariableMessage = mib
 )
 
 type sizeConstraint struct {
@@ -33,11 +37,6 @@ var (
 		additionalFixedMessage:    0,
 		additionalVariableMessage: 0,
 	}
-	restore = sizeConstraint{
-		originalMessage:           50 * kib,
-		additionalFixedMessage:    100 * kib,
-		additionalVariableMessage: mib,
-	}
 )
 
 var (
@@ -47,15 +46,35 @@ var (
 	errAdditionalVariableTooBig = fmt.Errorf("%w: additional variable message too big", status.HTTP[400])
 )
 
+// restoreConstraint returns size constraints for restore operations.
+// maxProviderVote is the maximal fraction of total weight a single provider can hold.
+// If maxProviderVote is 0 (unset), the per-vote variable message limit defaults to maxTotalVariableMessage.
+func restoreConstraint(maxProviderVote float64) sizeConstraint {
+	variableLimit := maxTotalVariableMessage
+	if maxProviderVote > 0 {
+		variableLimit = int(float64(maxTotalVariableMessage) * maxProviderVote)
+		if variableLimit == 0 {
+			variableLimit = 1
+		}
+	}
+
+	return sizeConstraint{
+		originalMessage:           50 * kib,
+		additionalFixedMessage:    100 * kib,
+		additionalVariableMessage: variableLimit,
+	}
+}
+
 // constraints returns instruction size constraints for opCommand.
-func constraints(opCommand common.Hash) (sizeConstraint, error) {
+// maxProviderVote is used to cap the per-vote variable message size for restore operations.
+func constraints(opCommand common.Hash, maxProviderVote float64) (sizeConstraint, error) {
 	oc := op.HashToOPCommand(opCommand)
 
 	switch oc {
 	case op.InitializePolicy, op.UpdatePolicy, op.KeyInfo, op.TEEInfo, op.TEEBackup:
 		return sizeConstraint{}, errNonInstructionCommand
 	case op.KeyDataProviderRestore, op.KeyDataProviderRestoreTest:
-		return restore, nil
+		return restoreConstraint(maxProviderVote), nil
 	case op.Pay, op.Reissue, op.TEEAttestation, op.KeyGenerate, op.KeyDelete:
 		return noAdditional, nil
 	case op.Prove:
@@ -65,8 +84,9 @@ func constraints(opCommand common.Hash) (sizeConstraint, error) {
 	}
 }
 
-func checkSize(data *instruction.Data) error {
-	c, err := constraints(data.OPCommand)
+// checkSize validates the instruction message sizes against the constraints.
+func checkSize(data *instruction.Data, maxProviderVote float64) error {
+	c, err := constraints(data.OPCommand, maxProviderVote)
 	if err != nil {
 		return err
 	}

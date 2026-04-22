@@ -107,6 +107,9 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	if err != nil {
 		return err
 	}
+	if b == nil {
+		return errors.New("backup response is nil")
+	}
 
 	idHash, err := b.BackupID.Hash()
 	if err != nil {

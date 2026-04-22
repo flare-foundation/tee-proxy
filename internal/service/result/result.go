@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	walletSyncChanSize    = 10
+	keyActionsChanSize    = 10
 	backupsChanSize       = 20
 	backupTriggerChanSize = 1
+	keyInfoChanSize       = 1
 )
 
 var (
@@ -31,12 +32,14 @@ var (
 type Service struct {
 	rs *ResultStorage
 
-	// A channel for wallet update actions (KEY_GENERATE, KEY_DATA_PROVIDER_RESTORE, KEY_DELETE)
-	WalletSync chan *types.ActionResult
+	// A channel for key update actions (KEY_GENERATE, KEY_DATA_PROVIDER_RESTORE, KEY_DELETE)
+	KeyActions chan *types.ActionResult
 	// A channel for backup actions (TEE_BACKUP)
 	Backups chan *types.ActionResult
 	// A channel for backup trigger actions (UPDATE_POLICY)
 	BackupTrigger chan bool
+	// A channel for key info responses (KEY_INFO). Delivered directly, bypassing storage.
+	KeyInfo chan *types.ActionResult
 
 	mu    sync.RWMutex
 	teeID common.Address
@@ -44,16 +47,17 @@ type Service struct {
 
 // NewService creates a new result service.
 func NewService(rs *ResultStorage) *Service {
-	wst := make(chan *types.ActionResult, walletSyncChanSize)
+	kat := make(chan *types.ActionResult, keyActionsChanSize)
 	bst := make(chan *types.ActionResult, backupsChanSize)
-
 	btt := make(chan bool, backupTriggerChanSize)
+	kit := make(chan *types.ActionResult, keyInfoChanSize)
 
 	return &Service{
 		rs:            rs,
-		WalletSync:    wst,
+		KeyActions:    kat,
 		Backups:       bst,
 		BackupTrigger: btt,
+		KeyInfo:       kit,
 	}
 }
 
@@ -79,6 +83,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r)
 		if err != nil {
+			logger.Errorf("recover signer for result %s: %v, result log: %s", r.Result.ID, err, r.Result.Log)
 			return err
 		}
 
@@ -87,13 +92,21 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		}
 	}
 
+	if r.Result.Status == 0 {
+		logger.Errorf("received failed result %s, tag %s, opType %s, opCommand %s, log: %s",
+			r.Result.ID, r.Result.SubmissionTag, op.HashToOPType(r.Result.OPType), op.HashToOPCommand(r.Result.OPCommand), r.Result.Log)
+	} else {
+		logger.Debugf("received result %s, tag %s, opType %s, opCommand %s, status %d",
+			r.Result.ID, r.Result.SubmissionTag, op.HashToOPType(r.Result.OPType), op.HashToOPCommand(r.Result.OPCommand), r.Result.Status)
+	}
+
 	if r.Result.Status == 1 && r.Result.SubmissionTag != types.End {
 		switch r.Result.OPCommand {
 		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDelete.Hash():
 			select {
-			case s.WalletSync <- &r.Result:
+			case s.KeyActions <- &r.Result:
 			default:
-				logger.Error("wallet synchronization channel full")
+				logger.Error("key actions channel full")
 			}
 		case op.TEEBackup.Hash():
 			select {
@@ -107,6 +120,13 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 			default:
 				logger.Error("backup trigger channel full")
 			}
+		case op.KeyInfo.Hash():
+			select {
+			case s.KeyInfo <- &r.Result:
+			default:
+				logger.Error("key info channel full")
+			}
+			return nil
 		}
 	}
 
@@ -119,7 +139,7 @@ func (s *Service) Serve(ctx context.Context, actionID common.Hash, submissionTag
 }
 
 func recoverSigner(ar *types.ActionResponse) (common.Address, error) {
-	hash := accounts.TextHash(crypto.Keccak256(ar.Result.Data))
+	hash := accounts.TextHash((&ar.Result).Hash())
 
 	pub, err := crypto.SigToPub(hash, ar.Signature)
 	if err != nil {

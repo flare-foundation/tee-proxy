@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	maxResultBodySize = 10 * mib
+	maxResultBodySize = 25 * mib
 )
 
 var errInvalidQueueID = fmt.Errorf("%w: invalid queueID", status.HTTP[400])

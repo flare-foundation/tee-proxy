@@ -128,6 +128,7 @@ func (e *External) registerRoutes(enableDirect bool) {
 	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, noBody, false))
 	mux.HandleFunc(fmt.Sprintf("GET /action/status/{%s}/{%s}", rewardEpochID, instructionID), prepareHandler(e.statusH, noBody, false))
 	mux.HandleFunc("GET /info", prepareHandler(e.infoH, noBody, false))
+	mux.HandleFunc("GET /wallet/info", prepareHandler(e.walletInfoH, noBody, false))
 	mux.HandleFunc(fmt.Sprintf("GET /wallet/{%s}/{%s}", walletID, keyID), prepareHandler(e.walletH, noBody, false))
 	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}", backupIDHash), prepareHandler(e.backupH, noBody, false))
 	mux.HandleFunc(fmt.Sprintf("GET /backup/{%s}/{%s}", walletID, keyID), prepareHandler(e.backupLatestH, noBody, false))
@@ -334,6 +335,12 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return nil
+}
+
+// walletInfoH serves wallet/info endpoint.
+// It returns summary information about all stored wallets and keys.
+func (e *External) walletInfoH(w http.ResponseWriter, _ *http.Request) error {
+	return json.NewEncoder(w).Encode(e.wallet.WalletsInfo())
 }
 
 // walletH serves wallet/{walletID}/{keyID} endpoint.
