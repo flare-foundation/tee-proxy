@@ -26,7 +26,11 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
 
-const keyInfoResponseTimeout = 3 * time.Minute
+const (
+	keyInfoResponseTimeout  = 3 * time.Minute
+	keyProofResponseTimeout = 3 * time.Minute
+	keyProofBatchSize       = 100
+)
 
 var (
 	errKeyProofNotFound    = fmt.Errorf("%w: key proof not found", status.HTTP[404])
@@ -47,8 +51,9 @@ type Service struct {
 	index   storage.Storage[common.Hash]                // latest backup ID hash per IDPair
 	backups storage.Storage[*wallets.TEEBackupResponse] // backups per backupIDHash
 
-	aq *queue.ActionQueues
-	rs *result.ResultStorage
+	aq      *queue.ActionQueues
+	rs      *result.ResultStorage
+	keyInfo <-chan *types.ActionResult
 
 	sync.RWMutex
 }
@@ -66,7 +71,8 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 	}
 }
 
-func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult) {
+func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult, keyInfo <-chan *types.ActionResult) {
+	s.keyInfo = keyInfo
 	for {
 		select {
 		case <-ctx.Done():
@@ -126,6 +132,30 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 	}
 }
 
+// WalletsInfo returns summary information about all stored wallets and keys.
+func (s *Service) WalletsInfo() WalletsInfoResponse {
+	s.RLock()
+	defer s.RUnlock()
+
+	keys := make([]IDPair, 0, len(s.Keys))
+	for id := range s.Keys {
+		keys = append(keys, id)
+	}
+
+	return WalletsInfoResponse{
+		Wallets: len(s.KeysForWallet),
+		Keys:    len(s.Keys),
+		Pairs:   keys,
+	}
+}
+
+// WalletsInfoResponse contains summary information about stored wallets.
+type WalletsInfoResponse struct {
+	Wallets int      `json:"wallets"`
+	Keys    int      `json:"keys"`
+	Pairs   []IDPair `json:"pairs"`
+}
+
 func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedKeyExistenceProof, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -168,73 +198,190 @@ func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyDa
 	return info, nil
 }
 
-// sync enqueues KEY_INFO action, waits for the response, and updated keys storage according to it.
-//
-// On each sync, maps s.Keys and s.KeysForWallet are build anew.
+// sync enqueues KEY_INFO action, compares the returned key list with locally cached keys,
+// fetches proofs via KEY_PROOF in batches for keys that are missing locally or whose nonce
+// has changed, and removes stale entries.
 func (s *Service) sync(ctx context.Context) error {
-	action, err := keysInfoAction()
+	remoteKeys, err := s.fetchKeyInfo(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("fetching key info: %w", err)
 	}
 
-	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
-	if err != nil {
-		return err
+	toFetch := s.keysNeedingProof(remoteKeys)
+
+	for batch := range slices.Chunk(toFetch, keyProofBatchSize) {
+		proofs, err := s.fetchKeyProofs(ctx, batch)
+		if err != nil {
+			return fmt.Errorf("fetching key proofs: %w", err)
+		}
+
+		s.Lock()
+		for _, proof := range proofs {
+			info, err := parseKeyExistenceProof(proof)
+			if err != nil {
+				s.Unlock()
+				return fmt.Errorf("parsing key proof: %w", err)
+			}
+
+			id := IDPair{WalletID: info.WalletID, KeyID: info.KeyID}
+			s.Keys[id] = &pkgwallets.KeyData{Info: *info, Proof: proof}
+
+			if !slices.Contains(s.KeysForWallet[info.WalletID], info.KeyID) {
+				s.KeysForWallet[info.WalletID] = append(s.KeysForWallet[info.WalletID], info.KeyID)
+			}
+		}
+		s.Unlock()
 	}
 
-	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
-	if err != nil {
-		return err
-	}
-
-	newKeysForWallet, newKeys, err := newKeys(&response.Result)
-	if err != nil {
-		return err
-	}
-
-	s.Lock()
-	defer s.Unlock()
-	s.Keys = newKeys
-	s.KeysForWallet = newKeysForWallet
+	s.removeStaleKeys(remoteKeys)
 
 	return nil
 }
 
-func newKeys(r *types.ActionResult) (map[common.Hash][]uint64, map[IDPair]*pkgwallets.KeyData, error) {
-	proofs, err := parseKeyInfoActionResult(r)
+// fetchKeyInfo sends a KEY_INFO action and returns the list of key infos from the tee-node.
+func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
+	// Drain stale results from a previous timed-out request.
+	select {
+	case <-s.keyInfo:
+	default:
+	}
+
+	action, err := keysInfoAction()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	keysForWallet := make(map[common.Hash][]uint64, len(proofs))
-	keys := make(map[IDPair]*pkgwallets.KeyData, len(proofs))
+	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
+	if err != nil {
+		return nil, err
+	}
 
-	for _, proof := range proofs {
-		info, err := parseKeyExistenceProof(proof)
-		if err != nil {
-			return nil, nil, err
-		}
+	timer := time.NewTimer(keyInfoResponseTimeout)
+	defer timer.Stop()
 
-		k, exists := keysForWallet[info.WalletID]
+	var ar *types.ActionResult
+	select {
+	case ar = <-s.keyInfo:
+	case <-timer.C:
+		return nil, errors.New("key info response timeout")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	return parseKeyInfoResult(ar)
+}
+
+// keysNeedingProof returns the key ID pairs from remote that are not in the local cache
+// or whose nonce differs from the cached value.
+func (s *Service) keysNeedingProof(remote []types.KeyInfo) []IDPair {
+	s.RLock()
+	defer s.RUnlock()
+
+	toFetch := make([]IDPair, 0)
+	for _, info := range remote {
+		id := IDPair{WalletID: info.WalletID, KeyID: info.KeyID}
+		storedKey, exists := s.Keys[id]
 		if !exists {
-			k = make([]uint64, 0, 1)
-			keysForWallet[info.WalletID] = k
+			toFetch = append(toFetch, id)
+			continue
 		}
-		keysForWallet[info.WalletID] = append(k, info.KeyID)
-
-		id := IDPair{
-			WalletID: info.WalletID,
-			KeyID:    info.KeyID,
+		if storedKey.Info.Nonce == nil || storedKey.Info.Nonce.Uint64() != info.Nonce {
+			toFetch = append(toFetch, id)
 		}
-
-		keyData := &pkgwallets.KeyData{
-			Info:  *info,
-			Proof: proof,
-		}
-		keys[id] = keyData
 	}
 
-	return keysForWallet, keys, nil
+	return toFetch
+}
+
+// removeStaleKeys removes locally cached keys that are no longer present on the tee-node.
+func (s *Service) removeStaleKeys(remote []types.KeyInfo) {
+	remoteSet := make(map[IDPair]bool, len(remote))
+	for _, info := range remote {
+		remoteSet[IDPair{WalletID: info.WalletID, KeyID: info.KeyID}] = true
+	}
+
+	s.Lock()
+	defer s.Unlock()
+
+	for id := range s.Keys {
+		if !remoteSet[id] {
+			delete(s.Keys, id)
+
+			s.KeysForWallet[id.WalletID] = slices.DeleteFunc(s.KeysForWallet[id.WalletID], func(k uint64) bool {
+				return k == id.KeyID
+			})
+			if len(s.KeysForWallet[id.WalletID]) == 0 {
+				delete(s.KeysForWallet, id.WalletID)
+			}
+		}
+	}
+}
+
+// fetchKeyProofs sends a KEY_PROOF action for the given batch of key IDs and waits for the response.
+func (s *Service) fetchKeyProofs(ctx context.Context, batch []IDPair) ([]*wallets.SignedKeyExistenceProof, error) {
+	msg, err := json.Marshal(batch)
+	if err != nil {
+		return nil, err
+	}
+
+	action, err := queue.PrepareDirectAction(op.Get, op.KeyProof, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyProofResponseTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseKeyProofResult(&response.Result)
+}
+
+// parseKeyInfoResult parses a KEY_INFO response into a list of key infos.
+func parseKeyInfoResult(r *types.ActionResult) ([]types.KeyInfo, error) {
+	if r.Status != 1 {
+		return nil, errInvalidActionResult
+	}
+	if r.OPType != op.Get.Hash() {
+		return nil, errInvalidOpType
+	}
+	if r.OPCommand != op.KeyInfo.Hash() {
+		return nil, errInvalidOpCommand
+	}
+
+	var infos []types.KeyInfo
+	err := json.Unmarshal(r.Data, &infos)
+	if err != nil {
+		return nil, err
+	}
+
+	return infos, nil
+}
+
+// parseKeyProofResult parses a KEY_PROOF response into signed existence proofs.
+func parseKeyProofResult(r *types.ActionResult) ([]*wallets.SignedKeyExistenceProof, error) {
+	if r.Status != 1 {
+		return nil, errInvalidActionResult
+	}
+	if r.OPType != op.Get.Hash() {
+		return nil, errInvalidOpType
+	}
+	if r.OPCommand != op.KeyProof.Hash() {
+		return nil, errInvalidOpCommand
+	}
+
+	var proofs []*wallets.SignedKeyExistenceProof
+	err := json.Unmarshal(r.Data, &proofs)
+	if err != nil {
+		return nil, err
+	}
+
+	return proofs, nil
 }
 
 func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
@@ -328,28 +475,6 @@ func keysInfoAction() (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Get, op.KeyInfo, nil)
 }
 
-func parseKeyInfoActionResult(r *types.ActionResult) ([]*wallets.SignedKeyExistenceProof, error) {
-	if r.Status != 1 {
-		return nil, errInvalidActionResult
-	}
-
-	if r.OPType != op.Get.Hash() {
-		return nil, errInvalidOpType
-	}
-
-	if r.OPCommand != op.KeyInfo.Hash() {
-		return nil, errInvalidOpCommand
-	}
-
-	var res = make([]*wallets.SignedKeyExistenceProof, 0)
-	err := json.Unmarshal(r.Data, &res)
-	if err != nil {
-		return nil, err
-	}
-
-	return res, nil
-}
-
 // parseKeyDeleteActionResult parses action result for "KEY_DELETE" and returns the IDPair from result data.
 func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 	if r.Status != 1 {
@@ -409,13 +534,20 @@ func parseKeyExistenceProof(proof *wallets.SignedKeyExistenceProof) (*pkgwallets
 
 // PeriodicWalletsSyncTrigger adds a signal to the channel once per duration.
 func PeriodicWalletsSyncTrigger(ctx context.Context, c chan bool, d time.Duration) {
+	ticker := time.NewTicker(d)
+	defer ticker.Stop()
+
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return
+		case c <- true:
 		}
 
-		c <- true
-
-		time.Sleep(d)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
 }

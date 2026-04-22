@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
@@ -114,7 +113,7 @@ func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletID [32]byte, keyID uin
 	res, err := pc.Rs.WaitOnResponse(t.Context(), a.Data.ID, types.Submit, utils.TestTimeConfig.Timeout)
 	require.NoError(t, err)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeID)
+	err = teeUtils.VerifySignature(res.Result.Hash(), res.Signature, teeID)
 	require.NoError(t, err)
 
 	var backupResponse wallets.TEEBackupResponse

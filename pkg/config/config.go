@@ -47,6 +47,7 @@ var (
 	errMaxPendingRequestsPositive         = errors.New("maxPendingRequests has to be positive")
 	errHistorySizeTooSmall                = errors.New("historySize has to be at least 2")
 	errFinalizedBufferSizePositive        = errors.New("finalizedBufferSize has to be positive")
+	errMaxProviderVoteOutOfRange          = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
 	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
 	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
 )
@@ -222,6 +223,7 @@ type Voting struct {
 	MaxPendingRequests  uint          `toml:"max_pending_request"`   // Maximal number of open (unfinalized) proposals per provider. It defaults to 100.
 	HistorySize         int           `toml:"history_size"`          // Number of most recent signing policy rounds to keep in memory. Defaults to 3.
 	FinalizedBufferSize int           `toml:"finalized_buffer_size"` // Buffer size for the finalized instructions channel. Defaults to 10.
+	MaxProviderVote     float64       `toml:"max_provider_vote"`     // Maximal possible fraction (0,1] of total weight a single provider can hold. Used to cap per-vote variable message size for restore operations. If unset, no cap is applied.
 }
 
 // SetDefault sets default values if applicable.
@@ -262,6 +264,10 @@ func (v *Voting) validate() error {
 
 	if v.FinalizedBufferSize <= 0 {
 		return errFinalizedBufferSizePositive
+	}
+
+	if v.MaxProviderVote < 0 || v.MaxProviderVote > 1 {
+		return errMaxProviderVoteOutOfRange
 	}
 
 	return nil

@@ -83,7 +83,7 @@ func (s *Storage) StoreNewRound(policy *policy.SigningPolicy) {
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*voting.Receipt, error) {
 	id := data.InstructionID
 
-	err := checkSize(data)
+	err := checkSize(data, s.config.MaxProviderVote)
 	if err != nil {
 		return nil, err
 	}

@@ -2,6 +2,8 @@ package initialize
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -35,7 +37,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	logger.Set(cfg.Logging)
-	database.SetErrorLogger(logger.GetLogger())
+	database.SetErrorLogger(logger.Logger())
 
 	db, err := database.Connect(&cfg.DB)
 	if err != nil {
@@ -47,7 +49,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 		MaxSleepTime:       cfg.DBSyncMaxSleepTime,
 		OutOfSyncTolerance: outOfSyncTolerance,
 		MinSleepTime:       1 * time.Second,
-	}, logger.GetLogger())
+	}, logger.Logger())
 	if err != nil {
 		logger.Panicf("c-chain indexer: %v", err)
 	}
@@ -90,7 +92,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	defer livenessService.SignalStartupFinished()
 
 	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
-	go internalServer.Serve() //nolint:errcheck // todo
+	go runServer("internal", internalServer.Serve)
 
 	*infoService = info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
 
@@ -113,7 +115,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	walletsSyncTrigger := make(chan bool, 1)
-	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.WalletSync, resultService.Backups)
+	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.KeyActions, resultService.Backups, resultService.KeyInfo)
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, walletSyncPeriod)
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses, cfg.ChainID)
@@ -137,7 +139,16 @@ func Initialize(ctx context.Context, cfgPath string) {
 		NoAPIKey: cfg.Direct.NoAPIKey,
 	}
 	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
-	go externalServer.Serve() //nolint:errcheck // todo
+	go runServer("external", externalServer.Serve)
+}
+
+// runServer invokes serve and panics if it returns an error other than http.ErrServerClosed,
+// so the process exits and the container restarts instead of silently running without an HTTP server.
+func runServer(name string, serve func() error) {
+	err := serve()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Panicf("%s server stopped: %v", name, err)
+	}
 }
 
 // parseTeeID extracts the TEE ID from the TEE info as the address corresponding to the public key.

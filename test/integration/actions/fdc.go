@@ -62,7 +62,7 @@ func FDCProve(
 
 	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.FDC2, op.Prove, pc.TeeID, 1)
 
-	err = teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, pc.TeeID)
+	err = teeUtils.VerifySignature(res.Result.Hash(), res.Signature, pc.TeeID)
 	require.NoError(t, err)
 
 	var fdcResponse fdc.ProveResponse

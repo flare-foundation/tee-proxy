@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	teeUtils "github.com/flare-foundation/tee-node/pkg/utils"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -256,7 +255,7 @@ func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
 
-	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeID)
+	err := teeUtils.VerifySignature(res.Result.Hash(), res.Signature, teeID)
 	require.NoError(t, err)
 }
 
@@ -286,7 +285,7 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash,
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
 
-	err := teeUtils.VerifySignature(crypto.Keccak256(res.Result.Data), res.Signature, teeID)
+	err := teeUtils.VerifySignature(res.Result.Hash(), res.Signature, teeID)
 	require.NoError(t, err)
 
 	return &res
