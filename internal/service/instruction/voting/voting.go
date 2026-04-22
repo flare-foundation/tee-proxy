@@ -125,14 +125,17 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		}
 	}
 
-	vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
-
 	box.Lock()
 	defer box.Unlock()
 
 	if box.deleted {
 		return nil, fmt.Errorf("%w: voting already ended %s", status.HTTP[400], id.String())
 	}
+
+	// box.proposal.cosigners is read under box.Lock because scheduleEnd's
+	// deferred delete() writes it under the same lock. Without this ordering,
+	// a second AddVote arriving as the box expires races with delete().
+	vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
 
 	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
 	if err != nil {
