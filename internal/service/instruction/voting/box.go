@@ -95,7 +95,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 
 	t, err := meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get threshold: %w", err)
+		return nil, fmt.Errorf("reading threshold: %w", err)
 	}
 
 	var threshold uint16
@@ -110,7 +110,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 
 	cosigners, cosignerThreshold, err := meta.Cosigners(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get cosigners: %w", err)
+		return nil, fmt.Errorf("reading cosigners: %w", err)
 	}
 
 	err = round.limiter.Increment(signer)
@@ -120,7 +120,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 
 	box, err := newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create new vote box: %w", err)
+		return nil, fmt.Errorf("creating new vote box: %w", err)
 	}
 
 	box.StartTime = time.Now()

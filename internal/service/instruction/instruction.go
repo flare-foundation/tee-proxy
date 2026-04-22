@@ -110,7 +110,7 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("listenToPolicies stopped: %w", ctx.Err())
+			return fmt.Errorf("policy listener stopped: %w", ctx.Err())
 		case policy := <-s.policies:
 			logger.Debugf("creating round for %d", policy.RewardEpochID)
 			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())

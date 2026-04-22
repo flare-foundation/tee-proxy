@@ -113,7 +113,7 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 
 	pubKey, err := crypto.SigToPub(sigMsg, serializeSig(signature))
 	if err != nil {
-		return nil, fmt.Errorf("sig to pub: %w", err)
+		return nil, fmt.Errorf("recovering public key from signature: %w", err)
 	}
 
 	return pubKey, nil
