@@ -16,7 +16,6 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
-	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -368,29 +367,27 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 	require.Equal(t, uint16(7), status.Status[0].Weight, "Should have combined weight (1+3+3=7)")
 	require.True(t, status.Status[0].Finalized, "Should be finalized")
 
-	time.Sleep(200 * time.Millisecond)
-
-	// Most importantly: verify only ONE action was enqueued
-	actionCount := 0
-	for {
-		action, err := s.aq.Dequeue(context.Background(), processorutils.Main)
+	var action *types.Action
+	require.Eventually(t, func() bool {
+		a, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
-			require.ErrorIs(t, err, storage.ErrEmptyQueue)
-			break // No more actions in queue
+			return false
 		}
-		actionCount++
+		action = a
+		return true
+	}, 2*time.Second, 10*time.Millisecond, "threshold action was not enqueued")
 
-		// Verify the action is correct
-		require.Equal(t, iData.InstructionID, action.Data.ID, "Action should have correct instruction ID")
-		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
-		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
+	require.Equal(t, iData.InstructionID, action.Data.ID, "Action should have correct instruction ID")
+	require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
+	require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
+	require.Len(t, action.Signatures, 2, "Queued action should contain two signatures has")
 
-		require.Len(t, action.Signatures, 2, "Queued action should contain two signatures has")
-	}
+	require.Never(t, func() bool {
+		_, err := s.aq.Dequeue(context.Background(), processorutils.Main)
+		return err == nil
+	}, 200*time.Millisecond, 20*time.Millisecond, "more than one threshold action was enqueued")
 
-	require.Equal(t, actionCount, 1)
-
-	t.Logf("✓ Concurrent threshold crossing handled correctly: %d action enqueued", actionCount)
+	t.Logf("✓ Concurrent threshold crossing handled correctly: 1 action enqueued")
 }
 
 func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
@@ -446,27 +443,25 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 	require.Equal(t, policy.Voters.TotalWeight, status.Status[0].Weight, "Should have all votes")
 	require.True(t, status.Status[0].Finalized, "Should be finalized")
 
-	time.Sleep(200 * time.Millisecond)
-
-	// Most importantly: verify only ONE action was enqueued
-	actionCount := 0
-	for {
-		action, err := s.aq.Dequeue(context.Background(), processorutils.Main)
+	var action *types.Action
+	require.Eventually(t, func() bool {
+		a, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
-			require.ErrorIs(t, err, storage.ErrEmptyQueue)
-			break // No more actions in queue
+			return false
 		}
-		actionCount++
+		action = a
+		return true
+	}, 2*time.Second, 10*time.Millisecond, "threshold action was not enqueued")
 
-		// Verify the action is correct
-		require.Equal(t, iData.InstructionID, action.Data.ID, "Action should have correct instruction ID")
-		require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
-		require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
+	require.Equal(t, iData.InstructionID, action.Data.ID, "Action should have correct instruction ID")
+	require.Equal(t, types.Threshold, action.Data.SubmissionTag, "Action should have Threshold tag")
+	require.Equal(t, types.Instruction, action.Data.Type, "Action should be Instruction type")
+	require.Len(t, action.Signatures, n/2+1, "wrong number of signatures")
 
-		require.Len(t, action.Signatures, n/2+1, "wrong number of signatures")
-	}
+	require.Never(t, func() bool {
+		_, err := s.aq.Dequeue(context.Background(), processorutils.Main)
+		return err == nil
+	}, 200*time.Millisecond, 20*time.Millisecond, "more than one threshold action was enqueued")
 
-	require.Equal(t, actionCount, 1)
-
-	t.Logf("✓ Concurrent threshold crossing handled correctly: %d action enqueued", actionCount)
+	t.Logf("✓ Concurrent threshold crossing handled correctly: 1 action enqueued")
 }

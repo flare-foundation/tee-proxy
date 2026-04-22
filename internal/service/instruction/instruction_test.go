@@ -86,9 +86,12 @@ func TestVoting(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), sr2.Sequence)
 
-	time.Sleep(2000 * time.Millisecond)
-	a, err := s.aq.Dequeue(t.Context(), processorutils.Main)
-	require.NoError(t, err)
+	var a *types.Action
+	require.Eventually(t, func() bool {
+		var err error
+		a, err = s.aq.Dequeue(t.Context(), processorutils.Main)
+		return err == nil
+	}, 2*time.Second, 10*time.Millisecond, "threshold action was not enqueued")
 	require.Equal(t, a.Data.ID, iData.InstructionID)
 	require.Equal(t, a.Data.SubmissionTag, types.Threshold)
 	require.Equal(t, a.Data.Type, types.Instruction)

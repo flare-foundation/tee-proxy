@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"math/big"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -11,8 +12,6 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	teeServer "github.com/flare-foundation/tee-node/pkg/server"
-
-	"github.com/flare-foundation/go-flare-common/pkg/logger"
 
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 
@@ -60,7 +59,14 @@ func TestProxyTeeIntegration(t *testing.T) {
 	}
 
 	go teeServer.StartServerPMW(teePort)
-	time.Sleep(time.Second)
+	require.Eventually(t, func() bool {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", teePort), 100*time.Millisecond)
+		if err != nil {
+			return false
+		}
+		conn.Close() //nolint:errcheck // best-effort cleanup
+		return true
+	}, 5*time.Second, 50*time.Millisecond, "TEE server did not start listening within timeout")
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
 	integrationUtils.SetProxyURLOnTEE(t, teePort, proxyUrl)
 
@@ -69,12 +75,11 @@ func TestProxyTeeIntegration(t *testing.T) {
 	// End of setup
 
 	policy, voters, providerPrivKeys, providerPubKeysMap := integrationactions.InitializePolicy(t, cfg, startingEpochID)
-	ok := integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
 		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.Hash())
-	})
-	require.True(t, ok, "Policy not initialized on TEE")
-	logger.Info("Initialized policy")
+	}, 5*time.Second, 100*time.Millisecond, "Policy not initialized on TEE")
+	t.Log("Initialized policy")
 
 	cfg.Pc <- *policy
 
@@ -82,7 +87,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	var keyID = uint64(1)
 	walletProof := integrationactions.GenerateWallet(t, cfg, cfg.TeeID, walletID, keyID, providerPrivKeys, adminWalletPublicKeys, policy.RewardEpochID)
 	require.False(t, walletProof.Restored, "getting wallet response")
-	logger.Info("Created wallet proof")
+	t.Log("Created wallet proof")
 
 	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         walletID,
@@ -98,18 +103,18 @@ func TestProxyTeeIntegration(t *testing.T) {
 		BatchEndTs:       0,
 	}
 	integrationactions.SignTransaction(t, cfg, cfg.TeeID, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
-	logger.Info("Signed transaction")
+	t.Log("Signed transaction")
 
 	walletBackup := integrationactions.GetBackup(t, cfg, walletID, keyID, cfg.TeeID)
-	logger.Info("Got backup")
+	t.Log("Got backup")
 
 	nonce := big.NewInt(1)
 	integrationactions.DeleteWallet(t, cfg, walletID, keyID, providerPrivKeys, policy.RewardEpochID, nonce)
 	nonce.Add(nonce, common.Big1)
-	logger.Info("Deleted wallet")
+	t.Log("Deleted wallet")
 
 	recoveredWalletProof := integrationactions.RecoverWallet(t, cfg, walletID, keyID, providerPrivKeys, adminPrivKeys, policy.RewardEpochID, nonce, walletBackup)
-	logger.Info("Recovered wallet")
+	t.Log("Recovered wallet")
 	walletProof.Restored = true
 
 	walletProof.Nonce = nonce
@@ -119,17 +124,16 @@ func TestProxyTeeIntegration(t *testing.T) {
 
 	fdcResponse := integrationactions.FDCProve(t, cfg, providerPrivKeys, adminPrivKeys, policy.RewardEpochID)
 	require.NotNil(t, fdcResponse)
-	logger.Info("FDC proof completed")
+	t.Log("FDC proof completed")
 
 	startingEpochID++
 	newPolicy, _, _, _ := integrationactions.UpdatePolicy(t, cfg, startingEpochID, voters, providerPrivKeys, providerPubKeysMap)
-	logger.Info("Updated policy")
+	t.Log("Updated policy")
 
-	ok = integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
 		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(newPolicy.Hash())
-	})
-	require.True(t, ok, "TEE info did not update to new policy hash in time")
+	}, 5*time.Second, 100*time.Millisecond, "TEE info did not update to new policy hash in time")
 
 	cleanup()
 	wgProxy.Wait()

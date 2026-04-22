@@ -316,6 +316,9 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, uint64(0), r1.Sequence)
 
+	// Wait for the proposal to expire (ProposalExpiration is 100ms in this test's config).
+	// Not replaced with polling: repeated AddVote calls would change semantics, and this
+	// sleep is waiting on a pure time-based trigger, not a pollable condition.
 	time.Sleep(100 * time.Millisecond)
 
 	_, err = s.AddVote(i, a2, s2)

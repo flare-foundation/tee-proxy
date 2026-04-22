@@ -233,17 +233,3 @@ func GetWalletInfo(t *testing.T, pc *ProxyConfig, walletID [32]byte, keyID uint6
 	makeRequests(t, url, &res)
 	return &res
 }
-
-func WaitFor(t *testing.T, interval, timeout time.Duration, fn func() bool) bool {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		if fn() {
-			return true
-		}
-		if time.Now().After(deadline) {
-			return false
-		}
-		time.Sleep(interval)
-	}
-}
