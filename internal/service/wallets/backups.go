@@ -25,21 +25,22 @@ const expirationTime = 8 * 24 * time.Hour
 
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
 func (s *Service) InitiateBackups(ctx context.Context) error {
-	var eg errgroup.Group
-
 	s.RLock()
-	defer s.RUnlock()
+	ids := make([]IDPair, 0, len(s.Keys))
+	for id := range s.Keys {
+		ids = append(ids, id)
+	}
+	s.RUnlock()
 
-	for key := range s.Keys {
-		// make sure the key id is not edited by the time of execution
-		f := func() error {
-			err := s.initiateBackup(ctx, key)
+	var eg errgroup.Group
+	for _, id := range ids {
+		eg.Go(func() error {
+			err := s.initiateBackup(ctx, id)
 			if err != nil {
-				return fmt.Errorf("initiating backup for key %v: %w", key, err)
+				return fmt.Errorf("initiating backup for key %v: %w", id, err)
 			}
 			return nil
-		}
-		eg.Go(f)
+		})
 	}
 
 	return eg.Wait()
@@ -81,12 +82,12 @@ func (s *Service) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallet
 func (s *Service) initiateBackup(ctx context.Context, id IDPair) error {
 	action, err := teeBackupAction(id)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating backup action: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Backup)
 	if err != nil {
-		return err
+		return fmt.Errorf("enqueueing backup action: %w", err)
 	}
 
 	return nil
@@ -95,7 +96,7 @@ func (s *Service) initiateBackup(ctx context.Context, id IDPair) error {
 func teeBackupAction(idPair IDPair) (*types.Action, error) {
 	msg, err := json.Marshal(idPair)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshaling backup ID pair: %w", err)
 	}
 
 	return queue.PrepareDirectAction(op.Get, op.TEEBackup, msg)
@@ -105,7 +106,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	var b *wallets.TEEBackupResponse
 	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
-		return err
+		return fmt.Errorf("unmarshaling backup response: %w", err)
 	}
 	if b == nil {
 		return errors.New("backup response is nil")
@@ -113,12 +114,12 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 
 	idHash, err := b.BackupID.Hash()
 	if err != nil {
-		return err
+		return fmt.Errorf("hashing backup ID: %w", err)
 	}
 
 	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, expirationTime)
 	if err != nil {
-		return err
+		return fmt.Errorf("storing backup: %w", err)
 	}
 
 	idPair := IDPair{
@@ -127,8 +128,11 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	}
 
 	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, expirationTime)
+	if err != nil {
+		return fmt.Errorf("storing backup index: %w", err)
+	}
 
-	return err
+	return nil
 }
 
 func toKey(pair IDPair) string {

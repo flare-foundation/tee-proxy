@@ -72,7 +72,7 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 
 		if errCount > 5 {
-			logger.Errorf("tee info update unsuccessful in %d attempts: latest error: %s", errCount, err)
+			logger.Errorf("tee info update unsuccessful in %d attempts: latest error: %v", errCount, err)
 		}
 	}
 }
@@ -106,22 +106,22 @@ func newInfoAction(challenge common.Hash) (*types.Action, error) {
 func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("fetching latest block: %w", err)
 	}
 
 	action, err := newInfoAction(common.HexToHash(block.Hash))
 	if err != nil {
-		return err
+		return fmt.Errorf("creating info action: %w", err)
 	}
 
 	err = s.actionQueues.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
-		return err
+		return fmt.Errorf("enqueueing info action: %w", err)
 	}
 
 	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	if err != nil {
-		return err
+		return fmt.Errorf("waiting for info response: %w", err)
 	}
 	if response.Result.Status != 1 {
 		return fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
@@ -131,7 +131,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 
 	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
-		return err
+		return fmt.Errorf("unmarshaling info response: %w", err)
 	}
 
 	s.Lock()

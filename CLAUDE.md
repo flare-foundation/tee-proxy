@@ -17,7 +17,7 @@ cp config.example.toml config/config.toml
 export PRIVATE_KEY=0x...
 ```
 
-Requires: Redis server, MySQL/SQLite database with C-chain indexer data, and the `tee-node` repo cloned as a sibling directory (`../tee-node`) per the `replace` directive in go.mod.
+Requires: Redis server, MySQL/SQLite database with C-chain indexer data.
 
 ## Architecture
 
@@ -61,7 +61,7 @@ Client ← External Server ← Result Storage ←──────────�
 ### Key Dependencies
 
 - `github.com/flare-foundation/go-flare-common` — Shared logging, database, utilities
-- `github.com/flare-foundation/tee-node` — TEE processor (local replace: `../tee-node`)
+- `github.com/flare-foundation/tee-node` — TEE processor
 - `github.com/ethereum/go-ethereum` — Ethereum cryptography and ABI encoding
 - `github.com/redis/go-redis/v9` — Redis client for queuing and storage
 - `github.com/alicebob/miniredis/v2` — In-memory Redis for tests

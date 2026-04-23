@@ -95,7 +95,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 
 	t, err := meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get threshold %w", err)
+		return nil, fmt.Errorf("reading threshold: %w", err)
 	}
 
 	var threshold uint16
@@ -110,7 +110,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 
 	cosigners, cosignerThreshold, err := meta.Cosigners(&data.DataFixed)
 	if err != nil {
-		return nil, fmt.Errorf("cannot get cosigners %w", err)
+		return nil, fmt.Errorf("reading cosigners: %w", err)
 	}
 
 	err = round.limiter.Increment(signer)
@@ -120,7 +120,7 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 
 	box, err := newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
 	if err != nil {
-		return nil, fmt.Errorf("cannot create new vote box %w", err)
+		return nil, fmt.Errorf("creating new vote box: %w", err)
 	}
 
 	box.StartTime = time.Now()
@@ -137,7 +137,7 @@ func newVoteBox(data *instruction.DataFixed, proposer common.Address, threshold 
 
 	hash, err := data.InitialVoteHash()
 	if err != nil {
-		return nil, fmt.Errorf("computing initial hash %w", err)
+		return nil, fmt.Errorf("computing initial hash: %w", err)
 	}
 	iHash, err := data.HashFixed()
 	if err != nil {
@@ -173,7 +173,7 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 
 	m, err := json.Marshal(vb.proposal.instruction)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling action data, %w", err)
+		return nil, fmt.Errorf("marshaling action data: %w", err)
 	}
 
 	ad := types.ActionData{
@@ -309,7 +309,7 @@ func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 	if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
 		a, err := vb.Action(types.Threshold)
 		if err != nil {
-			logger.Errorf("failed crating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
+			logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
 		} else {
 			out <- a
 		}
@@ -320,7 +320,7 @@ func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
 
 	a, err := vb.Action(types.End)
 	if err != nil {
-		logger.Errorf("failed crating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+		logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
 	} else {
 		out <- a
 	}

@@ -1,6 +1,7 @@
 # Go Coding Guide for Claude
 
-This is the Flare Go style guide. Follow these conventions when writing Go code for Flare projects.
+This is the Flare Go style guide.
+Follow these conventions when writing Go code for Flare projects.
 Where these rules conflict with general Go conventions, these rules take precedence.
 
 ## Linting
@@ -19,15 +20,20 @@ Place it directly above a block (package, struct, function) or inline on a singl
 
 ## Naming
 
-- Use the shortest name that sufficiently describes the item. Omit words clear from context.
-- The smaller the scope, the shorter the name. Common abbreviations (`db`, `cfg`) are fine.
+- Use the shortest name that sufficiently describes the item.
+  Omit words clear from context.
+- The smaller the scope, the shorter the name.
+  Common abbreviations (`db`, `cfg`) are fine.
 - Names should describe purpose, not value.
-- Only camelCase and PascalCase are allowed. Never use `_` in any identifier, including test function names.
+- Only camelCase and PascalCase are allowed.
+  Never use `_` in any identifier, including test function names.
 - For initialisms and acronyms, all letters must have the same case: `ID`, `URL`, `HTTP` — not `Id`, `Url`, `Http`.
 
 ### Functions and Methods
 
-- Do not use `Get` as a prefix. Use `Compute`, `Fetch`, or a descriptive verb — and only when the operation takes meaningful time. For simple accessors, just name the concept directly.
+- Do not use `Get` as a prefix.
+  Use `Compute`, `Fetch`, or a descriptive verb — and only when the operation takes meaningful time.
+  For simple accessors, just name the concept directly.
 - Receiver variables must be very short (one or two letters) and consistent across all methods of the same type.
 
 ### Modules
@@ -56,9 +62,23 @@ github.com/flare-foundation/<name-of-the-repo>
 - Prefer `errors.New` over `fmt.Errorf` when there are no format arguments.
 - Use `%w` for error wrapping, `%v` for error formatting in log messages.
 - Error types end with `Error` or `error`; error variables start with `Err`.
-- `errors.New("text")` and another `errors.New("text")` are distinct errors. Use package-level variables when code needs to match on a specific error.
+- `errors.New("text")` and another `errors.New("text")` are distinct errors.
+  Use package-level variables when code needs to match on a specific error.
 - Never expose internal error details through a server API.
-- Always handle errors. If intentionally ignoring one, document it:
+- Message style for wrapped errors: gerund phrase describing the action that failed, no package or function prefix.
+  The caller's stack provides context; the package name is already in the import path.
+
+  ```go
+  return fmt.Errorf("fetching chain ID: %w", err)       // good
+  return fmt.Errorf("fetch chain ID: %w", err)          // avoid — noun/imperative
+  return fmt.Errorf("pkg: Func: chain ID: %w", err)     // avoid — prefix noise
+  return fmt.Errorf("failed to fetch chain ID: %w", err) // avoid — "failed to" is redundant
+  ```
+
+  For static (non-wrapped) errors a descriptive phrase is fine — gerund is not required.
+
+- Always handle errors.
+  If intentionally ignoring one, document it:
 
 ```go
 //nolint:errcheck,gosec // reason for ignoring
@@ -67,20 +87,24 @@ github.com/flare-foundation/<name-of-the-repo>
 ## Comments
 
 - Doc comments are complete sentences starting with the name of the item they describe.
-- Describe what the item does, not how. Only include "how" if it is not obvious from the code.
+- Describe what the item does, not how.
+  Only include "how" if it is not obvious from the code.
 
 ## Logging
 
 - Use the logger from [`go-flare-common`](https://github.com/flare-foundation/go-flare-common).
-- Exported code must not log directly. If logging is needed, accept a logger as an interface and let the caller configure it.
+- Exported code must not log directly.
+  If logging is needed, accept a logger as an interface and let the caller configure it.
 
 ## Dependencies
 
-Prefer the standard library. Add external dependencies only when necessary.
+Prefer the standard library.
+Add external dependencies only when necessary.
 
 ### go-flare-common
 
-[`go-flare-common`](https://github.com/flare-foundation/go-flare-common) is the shared library across Flare Go projects. It includes:
+[`go-flare-common`](https://github.com/flare-foundation/go-flare-common) is the shared library across Flare Go projects.
+It includes:
 
 - Logging utilities
 - abigen contract bindings
@@ -90,7 +114,8 @@ All changes to this repo must be backwards compatible and well tested.
 
 ### go-ethereum and avalanchego
 
-These are largely interchangeable in the Flare ecosystem. Prefer them for:
+These are largely interchangeable in the Flare ecosystem.
+Prefer them for:
 
 - `abi` — working with ABIs
 - `crypto` — Ethereum-ecosystem cryptography
@@ -101,7 +126,8 @@ These are largely interchangeable in the Flare ecosystem. Prefer them for:
 
 Use `abigen` to generate type-safe Go bindings from smart contract ABIs.
 
-Standard practice: create a directory named after the package (derived from the contract name). Place the ABI file and a Go file with a `go:generate` directive there:
+Standard practice: create a directory named after the package (derived from the contract name).
+Place the ABI file and a Go file with a `go:generate` directive there:
 
 ```go
 //go:generate abigen --abi=neki.abi --pkg=neki --type Neki --out=autogen.go
@@ -127,7 +153,8 @@ go generate ./...
 
 ### Time durations
 
-Never use raw integers for durations. Always multiply by the time unit:
+Never use raw integers for durations.
+Always multiply by the time unit:
 
 ```go
 x = 12 * time.Second  // correct
@@ -171,4 +198,5 @@ To assert at compile time that `*X` implements interface `Y`:
 var _ Y = &X{}
 ```
 
-Place this near the type definition. A missing method causes a compile error immediately.
+Place this near the type definition.
+A missing method causes a compile error immediately.

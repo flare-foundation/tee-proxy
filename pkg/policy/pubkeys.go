@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -39,7 +40,7 @@ func recoverPubKey(
 ) (*ecdsa.PublicKey, error) {
 	vrLogs, err := fetchVoterRegistered(ctx, db, voterRegistryAddress, signingPolicyID, signingPolicyAddress)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching voter registered event: %w", err)
 	}
 	if len(vrLogs) != 1 {
 		return nil, errInvalidLogCountPubKeys
@@ -47,7 +48,7 @@ func recoverPubKey(
 
 	pub, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, vrLogs[0], chainID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("recovering public key from event for %v: %w", signingPolicyAddress, err)
 	}
 
 	return pub, nil
@@ -105,24 +106,29 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 		msg, err = msgArgs.Pack(chainID, rewardEpochID, identityAddress)
 	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("packing voter registry message: %w", err)
 	}
 
 	sigMsg := accounts.TextHash(crypto.Keccak256(msg))
 
-	return crypto.SigToPub(sigMsg, serializeSig(signature))
+	pubKey, err := crypto.SigToPub(sigMsg, serializeSig(signature))
+	if err != nil {
+		return nil, fmt.Errorf("recovering public key from signature: %w", err)
+	}
+
+	return pubKey, nil
 }
 
 // recoverPubKeyFromEvent recovers public key from VoterRegistered event.
 func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, log database.Log, chainID *big.Int) (*ecdsa.PublicKey, error) {
 	event, err := policy.ParseVoterRegisteredEvent(log)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing voter registered event: %w", err)
 	}
 
 	pub, err := recoverPubKeyFromRegistration(event.Voter, signingPolicyID, &event.Signature, chainID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("recovering public key from registration: %w", err)
 	}
 
 	recoveredAddress := crypto.PubkeyToAddress(*pub)

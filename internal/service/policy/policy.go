@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Service fetches signing policies from the blockchain and distributes them via action queues.
 type Service struct {
 	aq          *queue.ActionQueues
 	scAddresses config.Addresses
@@ -32,6 +34,7 @@ type Service struct {
 	restartPolicies []*cpolicy.SigningPolicy
 }
 
+// NewService creates a new policy Service with the given action queues, contract addresses, and chain ID.
 func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big.Int) *Service {
 	return &Service{
 		aq:          aq,
@@ -40,6 +43,8 @@ func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big
 	}
 }
 
+// Initialize prepares the service for operation by loading the active signing policy from the database.
+// On a fresh start it submits an INITIALIZE_POLICY action; on restart it loads existing policies from the node.
 func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeInitialInfo *types.TeeInfoResponse) error {
 	if teeInitialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
 		lastID := teeInitialInfo.TeeInfo.LastSigningPolicyID
@@ -60,11 +65,11 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 		prevPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
 		if err != nil {
-			return err
+			return fmt.Errorf("setting initial policy: %w", err)
 		}
 		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
 		if err != nil {
-			return err
+			return fmt.Errorf("loading last policy %d: %w", lastID, err)
 		}
 
 		s.activePolicy = lastPolicy
@@ -79,7 +84,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.scAddresses, offset, s.chainID)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating initialize policy action for chainID %v: %w", s.chainID, err)
 	}
 
 	if actualOffset != offset {
@@ -93,6 +98,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 	return s.aq.Enqueue(ctx, action, processorutils.Direct)
 }
 
+// Run starts the signing policy update loop and returns a channel that emits new signing policies.
 func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time.Duration) (<-chan cpolicy.SigningPolicy, error) {
 	if s.activePolicy == nil {
 		return nil, errors.New("not initialized yet")
@@ -134,7 +140,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			logger.Debugf("updating signing policy from %d", s.activePolicy.RewardEpochID)
 			action, p, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
 			if err != nil {
-				logger.Errorf("creating UPDATE_POLICY action: %v", err)
+				logger.Errorf("creating UPDATE_POLICY action for reward epoch %d for chainID %v: %v", s.activePolicy.RewardEpochID+1, s.chainID, err)
 				continue
 			}
 
@@ -145,7 +151,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 			err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 			if err != nil {
-				logger.Errorf("enqueueing UPDATE_POLICY action: %s", err)
+				logger.Errorf("enqueueing UPDATE_POLICY action for reward epoch %d for chainID %v: %v", s.activePolicy.RewardEpochID+1, s.chainID, err)
 				continue
 			}
 		}
@@ -181,7 +187,7 @@ func signingPolicyInitializedEventsListener(
 
 			logs, err := database.FetchLogsFull(ctx, db, params)
 			if err != nil {
-				logger.Error("fetch logs error:", err)
+				logger.Errorf("fetching logs: %v", err)
 				continue
 			}
 

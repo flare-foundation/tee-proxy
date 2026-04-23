@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -103,7 +104,12 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 	}
 
 	sub := rs.n.Subscribe(ctx, id.String())
-	defer sub.Close() //nolint:errcheck // best-effort cleanup
+	defer func() {
+		err := sub.Close()
+		if err != nil {
+			logger.Warnf("closing sub for %v: %v", actionID, err)
+		}
+	}()
 
 	// Check if it was already stored.
 	response, err := rs.GetResponse(ctx, actionID, submissionTag)

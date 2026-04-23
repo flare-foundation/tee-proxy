@@ -21,6 +21,7 @@ func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*typ
 	return DirectInstructionToAction(di)
 }
 
+// DirectInstructionToAction converts a DirectInstruction into an Action with a randomly generated ID.
 func DirectInstructionToAction(i *types.DirectInstruction) (*types.Action, error) {
 	id, err := random.Hash()
 	if err != nil {

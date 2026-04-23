@@ -36,8 +36,8 @@ const (
 )
 
 var (
-	errSigningPolicyFetchIntervalPositive = errors.New("SigningPolicyFetchInterval has to be positive")
-	errInitialSigningPolicyOffsetNegative = errors.New("InitialSigningPolicyOffset cannot be negative")
+	errSigningPolicyFetchIntervalPositive = errors.New("signingPolicyFetchInterval has to be positive")
+	errInitialSigningPolicyOffsetNegative = errors.New("initialSigningPolicyOffset cannot be negative")
 	errFlareSystemsManagerAddressNotSet   = errors.New("flareSystemsManager address not set")
 	errRelayAddressNotSet                 = errors.New("relay address not set")
 	errVoterRegistryAddressNotSet         = errors.New("voterRegistry address not set")
@@ -60,6 +60,7 @@ type Firestore struct {
 	CredentialsFile string `toml:"credentials_file"` // Path to service account JSON key. Empty means Application Default Credentials.
 }
 
+// Proxy holds the full configuration for the TEE proxy service.
 type Proxy struct {
 	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
 	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
@@ -203,6 +204,7 @@ func (a Addresses) validate() error {
 	return nil
 }
 
+// Ports holds the listen port configuration for the internal and external HTTP servers.
 type Ports struct {
 	Internal string `toml:"internal"`
 	External string `toml:"external"`
@@ -218,6 +220,7 @@ func (a Ports) validate() error {
 	return nil
 }
 
+// Voting holds tuning parameters for the instruction voting consensus.
 type Voting struct {
 	ProposalExpiration  time.Duration `toml:"proposal_expiration"`   // Duration the voting for a proposal is open for. Default is 120s
 	MaxPendingRequests  uint          `toml:"max_pending_request"`   // Maximal number of open (unfinalized) proposals per provider. It defaults to 100.

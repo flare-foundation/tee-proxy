@@ -45,7 +45,7 @@ func InitializePolicyAction(
 
 	logs, err := database.FetchLatestLogsByAddressAndTopic0(ctx, db, params)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, fmt.Errorf("fetching signing policy logs: %w", err)
 	}
 
 	if len(logs) == 0 {
@@ -53,19 +53,19 @@ func InitializePolicyAction(
 	}
 	event, err := policy.ParseSigningPolicyInitializedEvent(logs[len(logs)-1])
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, fmt.Errorf("parsing signing policy event: %w", err)
 	}
 
 	p := policy.NewSigningPolicy(event, nil)
 
 	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, fmt.Errorf("preparing initialize policy message for reward epoch %d: %w", p.RewardEpochID, err)
 	}
 
 	action, err := prepareInitializePolicyAction(msg)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, fmt.Errorf("preparing initialize policy action: %w", err)
 	}
 
 	return action, p, len(logs) - 1, nil
@@ -97,12 +97,13 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 
 	encoded, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshaling initialize policy request: %w", err)
 	}
 
 	return encoded, nil
 }
 
+// FetchSigningPolicy fetches and parses the SigningPolicyInitialized event for the given policy ID from the database.
 func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, error) {
 	topics := [4]common.Hash{}
 	topics[0] = SigningPolicyInitializedEventSel
@@ -116,7 +117,7 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 
 	logs, err := database.FetchLogsFull(ctx, db, params)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetching signing policy %d logs: %w", signingPolicyID, err)
 	}
 
 	if len(logs) != 1 {
@@ -125,7 +126,7 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 
 	event, err := policy.ParseSigningPolicyInitializedEvent(logs[0])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing signing policy %d event: %w", signingPolicyID, err)
 	}
 
 	return policy.NewSigningPolicy(event, nil), nil
@@ -142,22 +143,23 @@ func prepareSignatures(sigs []*registry.Signature) [][]byte {
 	return msgs
 }
 
+// UpdatePolicyAction prepares an UPDATE_POLICY action from a SigningPolicyInitialized log event.
 func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addresses, log database.Log, activePolicy *policy.SigningPolicy, chainID *big.Int) (*types.Action, *policy.SigningPolicy, error) {
 	event, err := policy.ParseSigningPolicyInitializedEvent(log)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("parsing signing policy event: %w", err)
 	}
 
 	p := policy.NewSigningPolicy(event, nil)
 
 	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("preparing update policy message: %w", err)
 	}
 
 	action, err := prepareUpdatePolicyAction(msg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("preparing update policy action: %w", err)
 	}
 
 	return action, p, nil
@@ -172,7 +174,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 
 	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("collecting signatures: %w", err)
 	}
 
 	pubKeys := make([]types.PublicKey, len(nextPolicy.Voters.Voters()))
@@ -185,7 +187,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 
 		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, vrAdd, chainID)
 		if err != nil {
-			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, nextPolicy.RewardEpochID, err)
+			return nil, fmt.Errorf("recovering pub key for %v: %w", address, err)
 		}
 
 		pubKeys[j] = types.PubKeyToStruct(pk)
@@ -201,7 +203,7 @@ func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemMa
 
 	msg, err := json.Marshal(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshaling update policy request: %w", err)
 	}
 
 	return msg, nil

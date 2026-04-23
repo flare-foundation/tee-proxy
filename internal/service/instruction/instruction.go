@@ -23,11 +23,12 @@ import (
 
 var (
 	errWrongTeeID     = fmt.Errorf("%w: wrong teeID", status.HTTP[400])
-	errInvalidOP      = fmt.Errorf("%w, invalid pair opType, opCommand ", status.HTTP[400])
+	errInvalidOP      = fmt.Errorf("%w: invalid pair opType, opCommand", status.HTTP[400])
 	errRoundNotStored = fmt.Errorf("%w: round not stored", status.HTTP[404])
 	errNoInstruction  = fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
 )
 
+// Service processes incoming instructions and manages threshold-based voting consensus.
 type Service struct {
 	teeID common.Address
 
@@ -38,6 +39,7 @@ type Service struct {
 	privKey  *ecdsa.PrivateKey
 }
 
+// NewService creates a new instruction Service with the given voting config, TEE identity, signing key, and dependencies.
 func NewService(votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
 	vs := voting.NewStorage(votingCfg, meta)
 
@@ -70,17 +72,18 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 	hash, err := i.Data.HashForSigning()
 	if err != nil {
-		return nil, fmt.Errorf("hashing instruction %w", err)
+		return nil, fmt.Errorf("hashing instruction: %w", err)
 	}
 
 	signer, err := utils.SignatureToSignersAddress(hash[:], i.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving signer %w", err)
+		return nil, fmt.Errorf("retrieving signer: %w", err)
 	}
 
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
 }
 
+// Run starts the Forward and ListenToPolicies loops concurrently.
 func (s *Service) Run(ctx context.Context) {
 	go s.Forward(ctx)       //nolint:errcheck // todo
 	s.ListenToPolicies(ctx) //nolint:errcheck // todo
@@ -91,7 +94,7 @@ func (s *Service) Forward(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("instruction forwarding stopped %w", ctx.Err())
+			return fmt.Errorf("instruction forwarding stopped: %w", ctx.Err())
 		case action := <-s.vs.Out:
 			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
@@ -107,7 +110,7 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("listenToPolicies stopped %w", ctx.Err())
+			return fmt.Errorf("policy listener stopped: %w", ctx.Err())
 		case policy := <-s.policies:
 			logger.Debugf("creating round for %d", policy.RewardEpochID)
 			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())

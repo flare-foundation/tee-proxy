@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	teeServer "github.com/flare-foundation/tee-node/pkg/server"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -40,13 +39,11 @@ func TestProxyTeeIntegration2(t *testing.T) {
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
 
 	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochID)
-	ok := integrationUtils.WaitFor(t, 100*time.Millisecond, 5*time.Second, func() bool {
+	require.Eventually(t, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
 		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.Hash())
-	})
-
-	require.True(t, ok, "Policy not initialized on TEE")
-	logger.Info("Initialized policy")
+	}, 5*time.Second, 100*time.Millisecond, "Policy not initialized on TEE")
+	t.Log("Initialized policy")
 
 	cfg.Pc <- *policy
 
@@ -56,7 +53,6 @@ func TestProxyTeeIntegration2(t *testing.T) {
 
 	SendCustomInstruction(t, cfg, providerPrivKeys, startingEpochID)
 
-	require.True(t, ok)
 	cleanup()
 }
 
@@ -78,7 +74,8 @@ func SendCustomInstruction(t *testing.T, pc *integrationUtils.ProxyConfig, privK
 	res := integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID, 1)
 	require.Equal(t, "successfully posted to extension", string(res.Result.Data))
 
-	time.Sleep(1 * time.Second)
-	res = integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID, 1)
-	require.Equal(t, "Action (type: instruction) processed successfully", res.Result.Log)
+	require.Eventually(t, func() bool {
+		res = integrationUtils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, MyOp, MyCommand, pc.TeeID, 1)
+		return res.Result.Log == "Action (type: instruction) processed successfully"
+	}, 2*time.Second, 50*time.Millisecond, "action was not processed by extension within timeout")
 }

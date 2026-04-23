@@ -49,6 +49,7 @@ var (
 	errUnauthorized         = fmt.Errorf("%w: unauthorized", status.HTTP[http.StatusUnauthorized])
 )
 
+// External is the client-facing HTTP server exposing instruction, result, wallet, and TEE info endpoints.
 type External struct {
 	server *http.Server
 
@@ -70,6 +71,7 @@ type DirectConfig struct {
 	MaxBodySize int64
 }
 
+// NewExternal creates and configures a new External server listening on port.
 func NewExternal(
 	port string,
 	instructionService *instruction.Service,

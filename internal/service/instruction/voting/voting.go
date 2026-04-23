@@ -95,7 +95,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	round, exists := s.Get(data.RewardEpochID)
 	if !exists {
-		return nil, fmt.Errorf("%w no round %d", status.HTTP[404], data.RewardEpochID)
+		return nil, fmt.Errorf("%w: no round %d", status.HTTP[404], data.RewardEpochID)
 	}
 
 	err = s.meta.CheckConsistency(data, signer)
@@ -125,18 +125,21 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		}
 	}
 
-	vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
-
 	box.Lock()
 	defer box.Unlock()
 
 	if box.deleted {
-		return nil, fmt.Errorf("%w, voting already ended %s", status.HTTP[400], id.String())
+		return nil, fmt.Errorf("%w: voting already ended %s", status.HTTP[400], id.String())
 	}
+
+	// box.proposal.cosigners is read under box.Lock because scheduleEnd's
+	// deferred delete() writes it under the same lock. Without this ordering,
+	// a second AddVote arriving as the box expires races with delete().
+	vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
 
 	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
 	if err != nil {
-		return nil, fmt.Errorf("adding vote from %s to %v: %v", signer, id, err)
+		return nil, fmt.Errorf("adding vote from %s to %v: %w", signer, id, err)
 	}
 
 	// if box is newly created, save it and scheduleEnd.
@@ -165,7 +168,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 			a, err := box.Action(types.Threshold)
 			if err != nil {
-				logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+				logger.Errorf("failed creating threshold action for %v, %v: %v", id, hash, err)
 			} else {
 				s.Out <- a
 			}

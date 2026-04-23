@@ -25,7 +25,7 @@ const (
 
 var (
 	errAddressAlreadySet = errors.New("address already set")
-	errInvalidTeeID      = fmt.Errorf("%w, invalid teeID", status.HTTP[403])
+	errInvalidTeeID      = fmt.Errorf("%w: invalid teeID", status.HTTP[403])
 )
 
 // Service handles processing and storage of TEE action results.
@@ -84,7 +84,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		signer, err := recoverSigner(r)
 		if err != nil {
 			logger.Errorf("recover signer for result %s: %v, result log: %s", r.Result.ID, err, r.Result.Log)
-			return err
+			return fmt.Errorf("recovering signer: %w", err)
 		}
 
 		if signer.Cmp(s.teeID) != 0 {

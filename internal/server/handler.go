@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
+// ErrInvalidBody is returned when the request body cannot be decoded.
 var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 
 // noBody is passed to prepareHandler when the endpoint expects no request body.
@@ -83,7 +84,7 @@ func uint64Param(r *http.Request, param string) (uint64, error) {
 		return 0, invalidParam(param)
 	}
 
-	return s64, err
+	return s64, nil
 }
 
 // uint32Param extracts and validates uint32 path parameter from request.
@@ -94,7 +95,7 @@ func uint32Param(r *http.Request, param string) (uint32, error) {
 		return 0, invalidParam(param)
 	}
 
-	return uint32(s64), err
+	return uint32(s64), nil
 }
 
 func invalidParam(param string) error {

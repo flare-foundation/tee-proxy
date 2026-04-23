@@ -203,6 +203,9 @@ func TestWaitOnResponse(t *testing.T) {
 			require.Equal(t, res, retrievedRes)
 		})
 
+		// The 100ms gap is part of the assertion: the final require.Less below proves
+		// WaitOnResponse unblocked via pub/sub shortly after StoreResponse rather than
+		// polling. Do not replace with require.Eventually.
 		time.Sleep(100 * time.Millisecond)
 
 		err = s.StoreResponse(t.Context(), res)

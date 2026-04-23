@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -29,12 +30,12 @@ func init() {
 	// flare systems manager
 	flareSystemsManagerABI, err := system.FlareSystemsManagerMetaData.GetAbi()
 	if err != nil {
-		panic(fmt.Errorf("cannot get flareSystemsManagerABI: %w", err))
+		panic(fmt.Errorf("loading flareSystemsManager ABI: %w", err))
 	}
 
 	signNewSigningPolicyMethod, ok := flareSystemsManagerABI.Methods["signNewSigningPolicy"]
 	if !ok {
-		panic(fmt.Errorf("cannot get signNewSigningPolicy method: %w", err))
+		panic(errors.New("signNewSigningPolicy method not found in flareSystemsManager ABI"))
 	}
 	copy(signNewSigningPolicySel[:], signNewSigningPolicyMethod.ID)
 	signNewSigningPolicyArgs = signNewSigningPolicyMethod.Inputs
@@ -42,24 +43,24 @@ func init() {
 	// relay
 	relayABI, err := relay.RelayMetaData.GetAbi()
 	if err != nil {
-		panic(fmt.Errorf("cannot get relayABI: %w", err))
+		panic(fmt.Errorf("loading relay ABI: %w", err))
 	}
 
 	signingPolicyEvent, ok := relayABI.Events["SigningPolicyInitialized"]
 	if !ok {
-		panic(fmt.Errorf("cannot get SigningPolicyInitialized event: %w", err))
+		panic(errors.New("SigningPolicyInitialized event not found in relay ABI"))
 	}
 	SigningPolicyInitializedEventSel = signingPolicyEvent.ID
 
 	// voter registry
 	voterRegistryABI, err := registry.RegistryMetaData.GetAbi()
 	if err != nil {
-		panic(fmt.Errorf("cannot get voterRegistryABI: %w", err))
+		panic(fmt.Errorf("loading voterRegistry ABI: %w", err))
 	}
 
 	voterRegisteredEvent, ok := voterRegistryABI.Events["VoterRegistered"]
 	if !ok {
-		panic(fmt.Errorf("cannot get VoterRegistered event: %w", err))
+		panic(errors.New("VoterRegistered event not found in voterRegistry ABI"))
 	}
 	voterRegisteredEventSel = voterRegisteredEvent.ID
 

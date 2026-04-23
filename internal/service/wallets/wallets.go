@@ -124,7 +124,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("backups triggered")
 			err := s.InitiateBackups(ctx)
 			if err != nil {
-				logger.Errorf("error triggering backup. First error: %v", err)
+				logger.Errorf("triggering backups: %v", err)
 				continue
 			}
 			logger.Debug("backups triggered")
@@ -156,6 +156,12 @@ type WalletsInfoResponse struct {
 	Pairs   []IDPair `json:"pairs"`
 }
 
+// KeyProof returns the signed key existence proof for the given wallet/key pair.
+//
+// The returned pointer is safe to use after the lock is released because
+// SignedKeyExistenceProof values are immutable once created: updateOrAddKey replaces
+// the Proof field with a new pointer rather than writing through the existing one.
+// If that invariant ever changes this must be updated to return a copy.
 func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedKeyExistenceProof, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -177,12 +183,16 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 		return nil, errWalletNotFound
 	}
 
-	data, err := s.KeyData(walletID, keys[0])
-	if err != nil {
-		return nil, err
+	id := IDPair{WalletID: walletID, KeyID: keys[0]}
+	data, exists := s.keyDataLocked(id)
+	if !exists {
+		return nil, errKeyDataNotFound
 	}
 
-	return &data.Info, nil
+	// Copy while the lock is held so the caller cannot race with a concurrent
+	// updateOrAddKey that writes keyData.Info = *info to the same struct.
+	info := data.Info
+	return &info, nil
 }
 
 func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyData, error) {
@@ -190,12 +200,19 @@ func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyDa
 	defer s.RUnlock()
 
 	id := IDPair{WalletID: walletID, KeyID: keyID}
-	info, exists := s.Keys[id]
+	data, exists := s.keyDataLocked(id)
 	if !exists {
 		return nil, errKeyDataNotFound
 	}
 
-	return info, nil
+	kd := *data
+	return &kd, nil
+}
+
+// keyDataLocked returns the KeyData entry for id. Caller must hold at least s.RLock.
+func (s *Service) keyDataLocked(id IDPair) (*pkgwallets.KeyData, bool) {
+	data, exists := s.Keys[id]
+	return data, exists
 }
 
 // sync enqueues KEY_INFO action, compares the returned key list with locally cached keys,
@@ -248,7 +265,7 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 
 	action, err := keysInfoAction()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing key info action result: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
@@ -393,16 +410,16 @@ func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash():
 		id, err := s.updateOrAddKey(action)
 		if err != nil {
-			return IDPair{}, true, err
+			return IDPair{}, true, fmt.Errorf("updating or adding key: %w", err)
 		}
-		return id, true, err
+		return id, true, nil
 
 	case op.KeyDelete.Hash():
 		id, err := s.removeKey(action)
 		if err != nil {
-			return IDPair{}, false, err
+			return IDPair{}, false, fmt.Errorf("removing key: %w", err)
 		}
-		return id, false, err
+		return id, false, nil
 
 	default:
 		return IDPair{}, false, fmt.Errorf("unsupported action op command for key update %v", action.OPCommand)
@@ -412,12 +429,12 @@ func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 	keyInfo, err := parseNewKeyActionResult(action)
 	if err != nil {
-		return IDPair{}, err
+		return IDPair{}, fmt.Errorf("parsing new key action result: %w", err)
 	}
 
 	info, err := parseKeyExistenceProof(keyInfo)
 	if err != nil {
-		return IDPair{}, err
+		return IDPair{}, fmt.Errorf("parsing key existence proof: %w", err)
 	}
 
 	s.Lock()
@@ -451,7 +468,7 @@ func (s *Service) updateOrAddKey(action *types.ActionResult) (IDPair, error) {
 func (s *Service) removeKey(action *types.ActionResult) (IDPair, error) {
 	idPair, err := parseKeyDeleteActionResult(action)
 	if err != nil {
-		return IDPair{}, err
+		return IDPair{}, fmt.Errorf("parsing key delete action result: %w", err)
 	}
 
 	s.Lock()
