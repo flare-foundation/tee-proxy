@@ -107,9 +107,6 @@ func (i *Internal) registerRoutes() {
 // resultH serves "/result" endpoint.
 // It stores action response from the request body.
 func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), resultWriteTimeout)
-	defer cancel()
-
 	response := new(types.ActionResponse)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -120,10 +117,15 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 
 	logger.Debugf("received response for %v tag: %v, status %v", response.Result.ID, response.Result.SubmissionTag, response.Result.Status)
 
-	err = i.resultService.ProcessAndStore(ctx, response)
-	if err != nil {
-		return err
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
+		defer cancel()
+
+		if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
+			logger.Errorf("processing result %v: %v", response.Result.ID, err)
+		}
+	}()
+
 	return nil
 }
 
