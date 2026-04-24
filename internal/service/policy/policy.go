@@ -63,13 +63,17 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 			startID = 0
 		}
 
-		prevPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
-		if err != nil {
-			return fmt.Errorf("setting initial policy: %w", err)
-		}
 		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
 		if err != nil {
 			return fmt.Errorf("loading last policy %d: %w", lastID, err)
+		}
+
+		prevPolicy := lastPolicy
+		if startID != lastID {
+			prevPolicy, err = policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
+			if err != nil {
+				return fmt.Errorf("loading previous policy %d: %w", startID, err)
+			}
 		}
 
 		s.activePolicy = lastPolicy
