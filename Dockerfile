@@ -4,7 +4,6 @@ FROM golang:1.25.1-alpine AS builder
 WORKDIR /app/tee-proxy
 
 COPY . .
-
 RUN go mod download
 
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o main ./cmd/proxy

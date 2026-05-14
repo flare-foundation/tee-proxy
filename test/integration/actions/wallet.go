@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// GenerateWallet Sends KEY_GENERATE instruction for wallet with specified admins, verifies ITeeWalletKeyManagerKeyExistence proof and checks that wallet is present in proxy wallet storage.
+// GenerateWallet Sends KEY_GENERATE instruction for wallet with specified admins, verifies IWalletKeyManagerKeyExistence proof and checks that wallet is present in proxy wallet storage.
 func GenerateWallet(
 	t *testing.T,
 	pc *utils.ProxyConfig,
@@ -37,16 +37,16 @@ func GenerateWallet(
 	privKeys []*ecdsa.PrivateKey,
 	adminWalletPublicKeys []commonwallet.PublicKey,
 	rewardEpochID uint32,
-) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+) *commonwallet.IWalletKeyManagerKeyExistence {
 	t.Helper()
 
-	originalMessage := commonwallet.ITeeWalletKeyManagerKeyGenerate{
+	originalMessage := commonwallet.IWalletKeyManagerKeyGenerate{
 		TeeId:       teeID,
 		WalletId:    walletID,
 		KeyId:       keyID,
 		KeyType:     wallets.XRPType,
 		SigningAlgo: wallets.XRPSignAlgo,
-		ConfigConstants: commonwallet.ITeeWalletKeyManagerKeyConfigConstants{
+		ConfigConstants: commonwallet.IWalletKeyManagerKeyConfigConstants{
 			AdminsPublicKeys:   adminWalletPublicKeys,
 			AdminsThreshold:    uint64(len(adminWalletPublicKeys)),
 			Cosigners:          make([]common.Address, 0), // todo: add cosigners
@@ -74,7 +74,7 @@ func GenerateWallet(
 	err = json.Unmarshal(res.Result.Data, &swe)
 	require.NoError(t, err)
 
-	walletExistenceProof, err := structs.Decode[commonwallet.ITeeWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, swe.KeyExistence)
+	walletExistenceProof, err := structs.Decode[commonwallet.IWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, swe.KeyExistence)
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
@@ -116,7 +116,7 @@ func DeleteWallet(
 ) {
 	t.Helper()
 
-	originalMessage := commonwallet.ITeeWalletKeyManagerKeyDelete{
+	originalMessage := commonwallet.IWalletKeyManagerKeyDelete{
 		TeeId:    pc.TeeID,
 		WalletId: walletID,
 		KeyId:    keyID,
@@ -157,7 +157,7 @@ func DeleteWallet(
 	utils.VerifyVotingStatus(t, votingStatus, 0, 0, testutil.TotalWeight/2)
 }
 
-// RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies ITeeWalletKeyManagerKeyExistence proof and checks that recovered wallet is in proxy wallet storage.
+// RecoverWallet Recovers providers & admins wallet shares, sends KEY_DATA_PROVIDER_RESTORE instruction, verifies IWalletKeyManagerKeyExistence proof and checks that recovered wallet is in proxy wallet storage.
 func RecoverWallet(
 	t *testing.T,
 	pc *utils.ProxyConfig,
@@ -167,7 +167,7 @@ func RecoverWallet(
 	rewardEpochID uint32,
 	nonce *big.Int,
 	walletBackup *backup.WalletBackup,
-) *commonwallet.ITeeWalletKeyManagerKeyExistence {
+) *commonwallet.IWalletKeyManagerKeyExistence {
 	t.Helper()
 
 	tpk := types.PubKeyToStruct(pc.TeePubKey)
@@ -176,11 +176,11 @@ func RecoverWallet(
 		Y: tpk.Y,
 	}
 
-	originalMessage := commonwallet.ITeeWalletBackupManagerKeyDataProviderRestore{
+	originalMessage := commonwallet.IWalletBackupManagerKeyDataProviderRestore{
 		TeePublicKey: teePK,
 		BackupUrl:    "blabla",
 		Nonce:        nonce,
-		BackupId: commonwallet.ITeeWalletBackupManagerBackupId{
+		BackupId: commonwallet.IWalletBackupManagerBackupId{
 			TeeId:         pc.TeeID,
 			WalletId:      walletID,
 			KeyId:         keyID,

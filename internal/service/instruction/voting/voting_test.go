@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/fdc2"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/stretchr/testify/require"
@@ -112,8 +112,8 @@ func TestFDCMessageValidity(t *testing.T) {
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
-	fdcReq := connector.IFdc2HubFdc2AttestationRequest{
-		Header: connector.IFdc2HubFdc2RequestHeader{
+	fdcReq := fdc2.IFdc2HubFdc2AttestationRequest{
+		Header: fdc2.IFdc2HubFdc2RequestHeader{
 			ThresholdBIPS:   5000,
 			SourceId:        crypto.Keccak256Hash([]byte("todo")),
 			AttestationType: crypto.Keccak256Hash([]byte("todo")),
@@ -163,8 +163,8 @@ func TestFDCMessage(t *testing.T) {
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
-	fdcReq := connector.IFdc2HubFdc2AttestationRequest{
-		Header: connector.IFdc2HubFdc2RequestHeader{
+	fdcReq := fdc2.IFdc2HubFdc2AttestationRequest{
+		Header: fdc2.IFdc2HubFdc2RequestHeader{
 			ThresholdBIPS:   5000,
 			SourceId:        crypto.Keccak256Hash([]byte("todo")),
 			AttestationType: crypto.Keccak256Hash([]byte("todo")),

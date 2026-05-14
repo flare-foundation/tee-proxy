@@ -9,7 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payments"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/xrpl"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
@@ -22,13 +22,13 @@ func SignTransaction(
 	t *testing.T,
 	pc *utils.ProxyConfig,
 	teeID common.Address,
-	paymentInstruction payment.ITeePaymentsPaymentInstructionMessage,
+	paymentInstruction payments.ITeePaymentsPaymentInstructionMessage,
 	privKeys []*ecdsa.PrivateKey,
 	rewardEpochID uint32,
 ) *types.ActionResponse {
 	t.Helper()
 
-	originalMessageEncoded, err := abi.Arguments{payment.MessageArguments[op.Pay]}.Pack(paymentInstruction)
+	originalMessageEncoded, err := abi.Arguments{payments.MessageArguments[op.Pay]}.Pack(paymentInstruction)
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())

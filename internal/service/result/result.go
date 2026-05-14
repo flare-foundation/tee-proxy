@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	keyActionsChanSize    = 10
-	backupsChanSize       = 20
+	keyActionsChanSize    = 1000
+	backupsChanSize       = 1000
 	backupTriggerChanSize = 1
 	keyInfoChanSize       = 1
 )
