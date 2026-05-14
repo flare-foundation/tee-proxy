@@ -97,10 +97,10 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/ferranbt/fastssz v0.1.4 h1:OCDB+dYDEQDvAgtAGnTSidK1Pe2tW3nFV40XyMkTeDY=
 github.com/ferranbt/fastssz v0.1.4/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20260416121615-dd8e17527a39 h1:wAeTsf/CuB0I6kUrxirbzm4LTQwaP524SlBdRJZZsk0=
-github.com/flare-foundation/go-flare-common v1.2.1-0.20260416121615-dd8e17527a39/go.mod h1:P3lw8U/kjQtV05XtWKTKBqhlM3VOv60zZ1eye89iaf4=
-github.com/flare-foundation/tee-node v0.0.20-0.20260422082922-c20f3a112ab9 h1:JqSzCtMDSUc0LT5dE+Al0d+oGBzSA+LrFY4Pz3fT5mg=
-github.com/flare-foundation/tee-node v0.0.20-0.20260422082922-c20f3a112ab9/go.mod h1:eMgOdswx3QVi2FwdTqqs1HgW5XkMyJznzSV0U8B5wTM=
+github.com/flare-foundation/go-flare-common v1.2.1-0.20260424152410-876c09e65794 h1:US343QH96upTDwx4tUdyLoFdZLiGUzJidWYYi5X3kQQ=
+github.com/flare-foundation/go-flare-common v1.2.1-0.20260424152410-876c09e65794/go.mod h1:P3lw8U/kjQtV05XtWKTKBqhlM3VOv60zZ1eye89iaf4=
+github.com/flare-foundation/tee-node v0.0.20-0.20260514064441-4ba385122662 h1:u6TN74ylzak/jLMbNPDHXR2BT842+S4rKRrHmyRKdhw=
+github.com/flare-foundation/tee-node v0.0.20-0.20260514064441-4ba385122662/go.mod h1:5bmxZ8lfVJJ14X251WllBFn+EkT0D8EHMipZpwtEkrc=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/gballet/go-libpcsclite v0.0.0-20190607065134-2772fd86a8ff h1:tY80oXqGNY4FhTFhk+o9oFHGINQ/+vhlm8HFzi6znCI=

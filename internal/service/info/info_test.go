@@ -14,7 +14,6 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
@@ -76,7 +75,7 @@ func TestInsertBlock(t *testing.T) {
 			Challenge: latestBlockHash,
 			State:     types.TeeState{},
 		},
-		Attestation: hexutil.Bytes{},
+		Attestation: "",
 	}
 	m, err := json.Marshal(resp)
 	require.NoError(t, err)

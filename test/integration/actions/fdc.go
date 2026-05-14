@@ -11,7 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/connector"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/fdc2"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/verification"
 	"github.com/flare-foundation/tee-node/pkg/fdc"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -33,8 +33,8 @@ func FDCProve(
 
 	cosignerAddresses, cosignerAndProvider := CosignerAddressesAndProvider(cosignerPrivKeys, providerPrivKeys)
 	cosignersThreshold := uint64(len(cosignerAddresses))
-	originalMessage := connector.IFdc2HubFdc2AttestationRequest{
-		Header: connector.IFdc2HubFdc2RequestHeader{
+	originalMessage := fdc2.IFdc2HubFdc2AttestationRequest{
+		Header: fdc2.IFdc2HubFdc2RequestHeader{
 			AttestationType: [32]byte{},
 			SourceId:        common.Hash{},
 			ThresholdBIPS:   uint16(TotalWeight * 0.6),
@@ -106,11 +106,11 @@ func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provider
 }
 
 // GetAdditionalFixedMessage returns the additional fixed message, the variable messages (signatures) and the private keys for the provider and cosigner
-func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [32]byte, originalMessage connector.IFdc2HubFdc2AttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
+func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [32]byte, originalMessage fdc2.IFdc2HubFdc2AttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
 	t.Helper()
 
-	additionalFixedMessage := verification.ITeeVerificationTeeAttestation{
-		TeeMachine: verification.ITeeMachineRegistryTeeMachineWithAttestationData{
+	additionalFixedMessage := verification.IVerificationTeeAttestation{
+		TeeMachine: verification.IMachineManagerTeeMachineWithAttestationData{
 			TeeId:        pc.TeeID,
 			InitialTeeId: common.Address{},
 			Url:          "blabla",

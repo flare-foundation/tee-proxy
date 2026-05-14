@@ -6,8 +6,8 @@ require (
 	cloud.google.com/go/firestore v1.21.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.16.7
-	github.com/flare-foundation/go-flare-common v1.2.1-0.20260416121615-dd8e17527a39
-	github.com/flare-foundation/tee-node v0.0.20-0.20260422082922-c20f3a112ab9
+	github.com/flare-foundation/go-flare-common v1.2.1-0.20260424152410-876c09e65794
+	github.com/flare-foundation/tee-node v0.0.20-0.20260514064441-4ba385122662
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.18.0
@@ -37,7 +37,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect; indirectgo get github.com/flare-foundation/go-flare-common@55718085e3a3725317c21134d0d33a595543fdbe
 	github.com/ethereum/c-kzg-4844/v2 v2.1.5 // indirect
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect

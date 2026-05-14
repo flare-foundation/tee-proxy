@@ -17,7 +17,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payment"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/payments"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 
 	integrationactions "github.com/flare-foundation/tee-proxy/test/integration/actions"
@@ -89,9 +89,9 @@ func TestProxyTeeIntegration(t *testing.T) {
 	require.False(t, walletProof.Restored, "getting wallet response")
 	t.Log("Created wallet proof")
 
-	paymentInstruction := payment.ITeePaymentsPaymentInstructionMessage{
+	paymentInstruction := payments.ITeePaymentsPaymentInstructionMessage{
 		WalletId:         walletID,
-		TeeIdKeyIdPairs:  []payment.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyID}},
+		TeeIdKeyIdPairs:  []payments.TeeIdKeyIdPair{{TeeId: cfg.TeeID, KeyId: keyID}},
 		SenderAddress:    "rN5N6fJbc8xyViPDeQFMQMpYfVHuxSGV2G",
 		RecipientAddress: "rJQesZZEQzW9J3Eb1X1Snc7E6YGk7kTMoK",
 		Amount:           big.NewInt(1000000000),

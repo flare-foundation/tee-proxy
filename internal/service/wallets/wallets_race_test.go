@@ -31,13 +31,13 @@ func makeKeyGenActionResult(t *testing.T, walletID common.Hash, keyID uint64) *t
 
 	teeID := crypto.PubkeyToAddress(teeKey.PublicKey)
 
-	actionMsg := wallet.ITeeWalletKeyManagerKeyGenerate{
+	actionMsg := wallet.IWalletKeyManagerKeyGenerate{
 		SigningAlgo: wallets.XRPSignAlgo,
 		KeyType:     wallets.XRPType,
 		TeeId:       teeID,
 		WalletId:    walletID,
 		KeyId:       keyID,
-		ConfigConstants: wallet.ITeeWalletKeyManagerKeyConfigConstants{
+		ConfigConstants: wallet.IWalletKeyManagerKeyConfigConstants{
 			AdminsPublicKeys: []wallet.PublicKey{{
 				X: common.BigToHash(adminKey.X),
 				Y: common.BigToHash(adminKey.Y),

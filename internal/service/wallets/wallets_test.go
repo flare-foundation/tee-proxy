@@ -27,13 +27,13 @@ func TestNewKey(t *testing.T) {
 
 	walletID := common.BytesToHash([]byte("walletID"))
 
-	actionMsg := &wallet.ITeeWalletKeyManagerKeyGenerate{
+	actionMsg := &wallet.IWalletKeyManagerKeyGenerate{
 		SigningAlgo: wallets.XRPSignAlgo,
 		KeyType:     wallets.XRPType,
 		TeeId:       teeID,
 		WalletId:    walletID,
 		KeyId:       0,
-		ConfigConstants: wallet.ITeeWalletKeyManagerKeyConfigConstants{
+		ConfigConstants: wallet.IWalletKeyManagerKeyConfigConstants{
 			AdminsPublicKeys: []wallet.PublicKey{{
 				X: common.BigToHash(adminKey.X),
 				Y: common.BigToHash(adminKey.Y),
