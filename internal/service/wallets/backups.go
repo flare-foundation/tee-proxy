@@ -15,13 +15,9 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"golang.org/x/sync/errgroup"
 
-	"time"
-
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
 )
-
-const expirationTime = 8 * 24 * time.Hour
 
 // initiateBackupsConcurrency caps concurrent TEE_BACKUP enqueues at epoch rollover.
 const initiateBackupsConcurrency = 10
@@ -121,7 +117,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 		return fmt.Errorf("hashing backup ID: %w", err)
 	}
 
-	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, expirationTime)
+	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, s.backupTTL)
 	if err != nil {
 		return fmt.Errorf("storing backup: %w", err)
 	}
@@ -131,7 +127,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 		KeyID:    b.BackupID.KeyID,
 	}
 
-	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, expirationTime)
+	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, s.backupTTL)
 	if err != nil {
 		return fmt.Errorf("storing backup index: %w", err)
 	}

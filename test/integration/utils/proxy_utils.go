@@ -96,13 +96,15 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	db := mockDB(t)
 
 	c := storage.NewClient(mr.Addr())
-	aq := queue.NewActionQueues(c)
-	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c))
+	storageCfg := config.Storage{}
+	storageCfg.SetDefault()
+	aq := queue.NewActionQueues(c, storageCfg.ActionTTL)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
 
 	// Setup action and result services
 	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
 	backupIndex := testutil.NewMemStorage[common.Hash]()
-	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore)
+	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
 	resultService := result.NewService(rs)
 
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{

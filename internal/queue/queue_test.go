@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -20,7 +21,7 @@ func TestActionQueues(t *testing.T) {
 	defer mr.Close()
 	defer c.Close() //nolint:errcheck
 
-	q := NewActionQueues(c)
+	q := NewActionQueues(c, time.Hour)
 
 	ctx := context.Background()
 

@@ -21,7 +21,7 @@ func TestStoreResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 	n := storage.NewNotifier(c)
-	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n)
+	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, 30*time.Minute)
 
 	t.Run("store and retrieve", func(t *testing.T) {
 		actionID, err := random.Hash()
@@ -170,7 +170,7 @@ func TestWaitOnResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 	n := storage.NewNotifier(c)
-	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n)
+	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, 30*time.Minute)
 
 	t.Run("already stored", func(t *testing.T) {
 		actionID, err := random.Hash()

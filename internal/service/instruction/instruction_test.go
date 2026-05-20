@@ -502,7 +502,7 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 		panic("cannot generate key")
 	}
 
-	aq := queue.NewActionQueues(c)
+	aq := queue.NewActionQueues(c, time.Hour)
 	s := &Service{
 		teeID:    teeID,
 		vs:       vs,

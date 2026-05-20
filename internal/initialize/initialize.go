@@ -61,7 +61,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	redisClient := storage.NewClient(cfg.RedisPort)
-	actionQueues := queue.NewActionQueues(redisClient)
+	actionQueues := queue.NewActionQueues(redisClient, cfg.Storage.ActionTTL)
 
 	var (
 		resultStore storage.Storage[*types.ActionResponse]
@@ -83,8 +83,8 @@ func Initialize(ctx context.Context, cfgPath string) {
 		backupIndex = storage.NewRedisStorage[common.Hash]("backupIndex", redisClient)
 	}
 
-	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient))
-	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore)
+	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
+	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
 	resultService := result.NewService(resultStorage)
 
 	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)

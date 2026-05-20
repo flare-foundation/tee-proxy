@@ -3,6 +3,7 @@ package wallets
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
@@ -76,7 +77,7 @@ func TestNewKey(t *testing.T) {
 		Data:                   resultEncoded,
 	}
 
-	str := NewService(nil, nil, nil, nil)
+	str := NewService(nil, nil, nil, nil, time.Hour)
 
 	idPair, added, err := str.update(aResult)
 	require.NoError(t, err)

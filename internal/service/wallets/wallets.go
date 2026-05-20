@@ -51,14 +51,15 @@ type Service struct {
 	index   storage.Storage[common.Hash]                // latest backup ID hash per IDPair
 	backups storage.Storage[*wallets.TEEBackupResponse] // backups per backupIDHash
 
-	aq      *queue.ActionQueues
-	rs      *result.ResultStorage
-	keyInfo <-chan *types.ActionResult
+	aq        *queue.ActionQueues
+	rs        *result.ResultStorage
+	keyInfo   <-chan *types.ActionResult
+	backupTTL time.Duration
 
 	sync.RWMutex
 }
 
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse]) *Service {
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration) *Service {
 	return &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
@@ -66,8 +67,9 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 		index:   index,
 		backups: backups,
 
-		aq: aq,
-		rs: rs,
+		aq:        aq,
+		rs:        rs,
+		backupTTL: backupTTL,
 	}
 }
 

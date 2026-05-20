@@ -15,28 +15,27 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
-const (
-	defaultStoringDuration = 14 * 24 * time.Hour
-	submitStoringDuration  = 30 * time.Minute
-)
-
 // ResultStorage provides methods for storing and retrieving action responses.
 type ResultStorage struct {
-	mu sync.Mutex
-	s  storage.Storage[*types.ActionResponse]
-	n  storage.Notifier
+	mu              sync.Mutex
+	s               storage.Storage[*types.ActionResponse]
+	n               storage.Notifier
+	resultTTL       time.Duration
+	submitResultTTL time.Duration
 }
 
-// NewStorage creates a new ResultStorage backed by the provided Storage.
-// The Notifier is used for pub/sub notifications when results are stored.
-func NewStorage(s storage.Storage[*types.ActionResponse], n storage.Notifier) *ResultStorage {
+// NewStorage builds a ResultStorage. resultTTL applies to Threshold/End results,
+// submitResultTTL to Submit results.
+func NewStorage(s storage.Storage[*types.ActionResponse], n storage.Notifier, resultTTL, submitResultTTL time.Duration) *ResultStorage {
 	return &ResultStorage{
-		s: s,
-		n: n,
+		s:               s,
+		n:               n,
+		resultTTL:       resultTTL,
+		submitResultTTL: submitResultTTL,
 	}
 }
 
-// StoreResponse stores response with identifier actionID:submissionTag for 2 weeks for end and threshold actions, or half an hour for submit actions.
+// StoreResponse stores response under actionID:submissionTag with the appropriate TTL.
 func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.ActionResponse) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -46,9 +45,9 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		SubmissionTag: response.Result.SubmissionTag,
 	}
 
-	storingDur := defaultStoringDuration
+	storingDur := rs.resultTTL
 	if response.Result.SubmissionTag == types.Submit {
-		storingDur = submitStoringDuration
+		storingDur = rs.submitResultTTL
 	}
 
 	// do not override final results (0 or 1) or if new status is smaller than other

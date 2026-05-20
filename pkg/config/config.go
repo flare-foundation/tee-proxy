@@ -33,6 +33,11 @@ const (
 	defaultFinalizedBufferSize = 10
 
 	defaultDBSyncMaxSleepTime = 10 * time.Minute
+
+	defaultActionTTL       = 14 * 24 * time.Hour
+	defaultResultTTL       = 14 * 24 * time.Hour
+	defaultSubmitResultTTL = 30 * time.Minute
+	defaultBackupTTL       = 8 * 24 * time.Hour
 )
 
 var (
@@ -50,6 +55,7 @@ var (
 	errMaxProviderVoteOutOfRange          = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
 	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
 	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
+	errStorageTTLPositive                 = errors.New("storage ttl values have to be positive")
 )
 
 // Firestore holds Firestore connection configuration.
@@ -76,6 +82,37 @@ type Proxy struct {
 	DBSyncMaxSleepTime         time.Duration   `toml:"db_sync_max_sleep_time"`        // Max sleep between DB sync retries on startup. Defaults to 10m.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
 	Direct                     Direct          `toml:"direct"`                        // Direct endpoint configuration.
+	Storage                    Storage         `toml:"storage"`                       // TTLs applied to Redis/Firestore-backed persistent storage.
+}
+
+// Storage holds TTLs for persistent stores (Redis/Firestore).
+type Storage struct {
+	ActionTTL       time.Duration `toml:"action_ttl"`        // Retention for queued action bodies. Defaults to 14 days.
+	ResultTTL       time.Duration `toml:"result_ttl"`        // Retention for Threshold/End results. Defaults to 14 days.
+	SubmitResultTTL time.Duration `toml:"submit_result_ttl"` // Retention for Submit results. Defaults to 30 minutes.
+	BackupTTL       time.Duration `toml:"backup_ttl"`        // Retention for backup bodies and index. Defaults to 8 days.
+}
+
+func (s *Storage) SetDefault() {
+	if s.ActionTTL <= 0 {
+		s.ActionTTL = defaultActionTTL
+	}
+	if s.ResultTTL <= 0 {
+		s.ResultTTL = defaultResultTTL
+	}
+	if s.SubmitResultTTL <= 0 {
+		s.SubmitResultTTL = defaultSubmitResultTTL
+	}
+	if s.BackupTTL <= 0 {
+		s.BackupTTL = defaultBackupTTL
+	}
+}
+
+func (s *Storage) validate() error {
+	if s.ActionTTL <= 0 || s.ResultTTL <= 0 || s.SubmitResultTTL <= 0 || s.BackupTTL <= 0 {
+		return errStorageTTLPositive
+	}
+	return nil
 }
 
 // Direct holds configuration for the /direct endpoint.
@@ -106,6 +143,13 @@ func Read(path string) (Proxy, error) {
 		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
 		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
 		DBSyncMaxSleepTime:         defaultDBSyncMaxSleepTime,
+
+		Storage: Storage{
+			ActionTTL:       defaultActionTTL,
+			ResultTTL:       defaultResultTTL,
+			SubmitResultTTL: defaultSubmitResultTTL,
+			BackupTTL:       defaultBackupTTL,
+		},
 
 		Logging: logger.Config{
 			Level:       "DEBUG",
@@ -152,6 +196,12 @@ func Read(path string) (Proxy, error) {
 
 	if c.InitialSigningPolicyOffset < 0 {
 		return c, errInitialSigningPolicyOffsetNegative
+	}
+
+	c.Storage.SetDefault()
+	err = c.Storage.validate()
+	if err != nil {
+		return c, err
 	}
 
 	if c.Direct.Enable && !c.Direct.NoAPIKey {

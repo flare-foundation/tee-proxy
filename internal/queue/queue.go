@@ -43,15 +43,17 @@ type ActionQueues struct {
 	directQueue storage.Queue[*ActionSubmissionID]
 	mainQueue   storage.Queue[*ActionSubmissionID]
 	backupQueue storage.Queue[*ActionSubmissionID]
+	actionTTL   time.Duration
 }
 
 // NewActionQueues creates a new ActionQueues backed by the given Redis client.
-func NewActionQueues(client *redis.Client) *ActionQueues {
+func NewActionQueues(client *redis.Client, actionTTL time.Duration) *ActionQueues {
 	return &ActionQueues{
 		actions:     storage.NewRedisStorage[*types.Action](Actions, client),
 		directQueue: storage.NewQueue[*ActionSubmissionID](DirectQueue, client),
 		mainQueue:   storage.NewQueue[*ActionSubmissionID](MainQueue, client),
 		backupQueue: storage.NewQueue[*ActionSubmissionID](BackupQueue, client),
+		actionTTL:   actionTTL,
 	}
 }
 
@@ -64,7 +66,7 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 
 	logger.Debugf("enqueue action %s, type %s, tag %s, queue %s", action.Data.ID, action.Data.Type, action.Data.SubmissionTag, queueID)
 
-	err := as.actions.SetWithTTL(ctx, id.String(), action, 30*24*time.Hour) // todo: magic constant
+	err := as.actions.SetWithTTL(ctx, id.String(), action, as.actionTTL)
 	if err != nil {
 		return fmt.Errorf("storing action: %w", err)
 	}
