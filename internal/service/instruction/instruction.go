@@ -40,8 +40,8 @@ type Service struct {
 }
 
 // NewService creates a new instruction Service with the given voting config, TEE identity, signing key, and dependencies.
-func NewService(votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
-	vs := voting.NewStorage(votingCfg, meta)
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
+	vs := voting.NewStorage(ctx, votingCfg, meta)
 
 	return Service{
 		teeID: teeID,

@@ -28,6 +28,7 @@ import (
 const (
 	outOfSyncTolerance = 1 * time.Minute
 	walletSyncPeriod   = 1 * time.Hour
+	shutdownTimeout    = 10 * time.Second
 )
 
 func Initialize(ctx context.Context, cfgPath string) {
@@ -89,7 +90,6 @@ func Initialize(ctx context.Context, cfgPath string) {
 	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
 
 	livenessService := liveness.New(db, redisClient, infoService)
-	defer livenessService.SignalStartupFinished()
 
 	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
 	go runServer("internal", internalServer.Serve)
@@ -128,7 +128,7 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 
 	meta := meta.New(walletService)
-	instructionService := instruction.NewService(&cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
+	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
 	directCfg := server.DirectConfig{
@@ -138,6 +138,22 @@ func Initialize(ctx context.Context, cfgPath string) {
 	}
 	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
 	go runServer("external", externalServer.Serve)
+
+	livenessService.SignalStartupFinished()
+
+	// Block until shutdown is signalled via ctx, then drain the HTTP servers.
+	<-ctx.Done()
+	logger.Info("context cancelled, shutting down HTTP servers")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := internalServer.Close(shutdownCtx); err != nil {
+		logger.Warnf("shutting down internal server: %v", err)
+	}
+	if err := externalServer.Close(shutdownCtx); err != nil {
+		logger.Warnf("shutting down external server: %v", err)
+	}
 }
 
 // runServer invokes serve and panics if it returns an error other than http.ErrServerClosed,

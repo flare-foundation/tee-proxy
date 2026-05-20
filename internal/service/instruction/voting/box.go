@@ -1,6 +1,7 @@
 package voting
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,8 +37,6 @@ type proposal struct {
 
 	cosigners         map[common.Address]bool
 	cosignerThreshold uint16
-
-	sync.Mutex
 }
 
 // newProposal assembles a new proposal.
@@ -286,42 +285,62 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
-func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
-	time.Sleep(time.Until(vb.EndTime))
-
-	vb.Lock()
-	defer vb.Unlock()
-
-	defer vb.delete()
-
-	opCommand := vb.proposal.instruction.OPCommand
-	opType := vb.proposal.instruction.OPType
-
-	if !vb.Finalized {
-		logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
-		return
-	}
-
-	boxes.RLock()
-	defer boxes.RUnlock()
-
-	// send threshold action for KeyDataProviderRestore at the end of voting
-	if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
-		a, err := vb.Action(types.Threshold)
-		if err != nil {
-			logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
-		} else {
-			out <- a
+func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxes *voteBoxes) {
+	// Cancellable wait so shutdown doesn't leak per-box goroutines.
+	if d := time.Until(vb.EndTime); d > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(d):
 		}
-	} else if vb.iHash != boxes.FinalizedHash {
-		logger.Debugf("closing finalized box %v, %v that was finalized after %v", vb.iID, vb.iHash, boxes.FinalizedHash)
-		return
 	}
 
-	a, err := vb.Action(types.End)
-	if err != nil {
-		logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
-	} else {
+	// Build actions under the locks, send after — a full `out` must not block the locks.
+	actions := func() []*types.Action {
+		// Acquire boxes.RLock before vb.Lock so the order matches AddVote
+		// (boxes → box) and avoids a lock-order inversion deadlock.
+		boxes.RLock()
+		defer boxes.RUnlock()
+
+		vb.Lock()
+		defer vb.Unlock()
+
+		defer vb.delete()
+
+		opCommand := vb.proposal.instruction.OPCommand
+		opType := vb.proposal.instruction.OPType
+
+		if !vb.Finalized {
+			logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
+			return nil
+		}
+
+		var as []*types.Action
+
+		// send threshold action for KeyDataProviderRestore at the end of voting
+		if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
+			a, err := vb.Action(types.Threshold)
+			if err != nil {
+				logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
+			} else {
+				as = append(as, a)
+			}
+		} else if vb.iHash != boxes.FinalizedHash {
+			logger.Debugf("closing finalized box %v, %v that was finalized after %v", vb.iID, vb.iHash, boxes.FinalizedHash)
+			return as
+		}
+
+		a, err := vb.Action(types.End)
+		if err != nil {
+			logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+		} else {
+			as = append(as, a)
+		}
+
+		return as
+	}()
+
+	for _, a := range actions {
 		out <- a
 	}
 }

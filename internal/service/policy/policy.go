@@ -202,7 +202,11 @@ func signingPolicyInitializedEventsListener(
 				continue
 			}
 
-			time.Sleep(fetchInterval)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(fetchInterval):
+			}
 		}
 	}()
 

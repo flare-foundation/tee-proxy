@@ -1,6 +1,7 @@
 package voting
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -48,9 +49,12 @@ type Storage struct {
 
 	// Channel for actions created by voting.
 	Out chan *types.Action
+
+	// Service-lifetime ctx; per-box goroutines outlive the request that spawns them.
+	ctx context.Context //nolint:containedctx // service-lifetime ctx, see comment
 }
 
-func NewStorage(config *config.Voting, meta meta.Meta) *Storage {
+func NewStorage(ctx context.Context, config *config.Voting, meta meta.Meta) *Storage {
 	out := make(chan *types.Action, config.FinalizedBufferSize)
 
 	config = config.SetDefault()
@@ -60,6 +64,7 @@ func NewStorage(config *config.Voting, meta meta.Meta) *Storage {
 		config: *config,
 		meta:   meta,
 		Out:    out,
+		ctx:    ctx,
 	}
 }
 
@@ -103,76 +108,90 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		return nil, fmt.Errorf("%w: inconsistent data: %w", status.HTTP[400], err)
 	}
 
-	// Do not allow creating two sets of boxes at once. Release lock if set of boxes exists.
-	round.Lock()
-	boxes, existsBs := round.Voting.M[id]
-	if !existsBs {
-		boxes = newVoteBoxes()
-		defer round.Unlock() // we only save it at the end if no errors are returned
-	} else {
-		round.Unlock()
-	}
+	var receipt voting.Receipt
+	var actionToSend *types.Action
 
-	// Do not allow creating working with two boxes at once
-	boxes.Lock()
-	defer boxes.Unlock()
-
-	box, existsB := boxes.M[hash]
-	if !existsB {
-		box, err = startVoteBox(data, signer, round, s.meta, s.config.ProposalExpiration)
-		if err != nil {
-			return nil, err
+	// Hold locks only inside this closure; the channel send below stays unlocked.
+	err = func() error {
+		round.Lock()
+		boxes, existsBs := round.Voting.M[id]
+		if !existsBs {
+			boxes = newVoteBoxes()
+			defer round.Unlock() // we only save it at the end if no errors are returned
+		} else {
+			round.Unlock()
 		}
-	}
 
-	box.Lock()
-	defer box.Unlock()
+		boxes.Lock()
+		defer boxes.Unlock()
 
-	if box.deleted {
-		return nil, fmt.Errorf("%w: voting already ended %s", status.HTTP[400], id.String())
-	}
-
-	// box.proposal.cosigners is read under box.Lock because scheduleEnd's
-	// deferred delete() writes it under the same lock. Without this ordering,
-	// a second AddVote arriving as the box expires races with delete().
-	vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
-
-	receipt, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
-	if err != nil {
-		return nil, fmt.Errorf("adding vote from %s to %v: %w", signer, id, err)
-	}
-
-	// if box is newly created, save it and scheduleEnd.
-	if !existsB {
-		boxes.M[hash] = box
-		go box.scheduleEnd(s.Out, boxes)
-	}
-
-	// if boxes are newly created save them
-	if !existsBs {
-		round.Voting.M[id] = boxes
-	}
-
-	if finalized {
-		round.limiter.Decrement(box.Proposer)
-
-		switch {
-		case data.OPType == op.Wallet.Hash() && data.OPCommand == op.KeyDataProviderRestore.Hash():
-			// only sent "threshold" action at the end of voting if finalized
-		default:
-			if boxes.FinalizedHash.Cmp(common.Hash{}) == 0 {
-				boxes.FinalizedHash = hash
-			} else if boxes.FinalizedHash.Cmp(hash) != 0 {
-				logger.Infof("instruction id %v already finalized with %v also reached threshold with %v", box.iID, boxes.FinalizedHash, hash)
-			}
-
-			a, err := box.Action(types.Threshold)
+		box, existsB := boxes.M[hash]
+		if !existsB {
+			var err error
+			box, err = startVoteBox(data, signer, round, s.meta, s.config.ProposalExpiration)
 			if err != nil {
-				logger.Errorf("failed creating threshold action for %v, %v: %v", id, hash, err)
-			} else {
-				s.Out <- a
+				return err
 			}
 		}
+
+		box.Lock()
+		defer box.Unlock()
+
+		if box.deleted {
+			return fmt.Errorf("%w: voting already ended %s", status.HTTP[400], id.String())
+		}
+
+		// box.proposal.cosigners is read under box.Lock because scheduleEnd's
+		// deferred delete() writes it under the same lock. Without this ordering,
+		// a second AddVote arriving as the box expires races with delete().
+		vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
+
+		r, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
+		if err != nil {
+			return fmt.Errorf("adding vote from %s to %v: %w", signer, id, err)
+		}
+		receipt = r
+
+		if !existsB {
+			boxes.M[hash] = box
+			go box.scheduleEnd(s.ctx, s.Out, boxes)
+		}
+
+		if !existsBs {
+			round.Voting.M[id] = boxes
+		}
+
+		if finalized {
+			round.limiter.Decrement(box.Proposer)
+
+			switch {
+			case data.OPType == op.Wallet.Hash() && data.OPCommand == op.KeyDataProviderRestore.Hash():
+				// only sent "threshold" action at the end of voting if finalized
+			default:
+				if boxes.FinalizedHash.Cmp(common.Hash{}) == 0 {
+					boxes.FinalizedHash = hash
+				} else if boxes.FinalizedHash.Cmp(hash) != 0 {
+					logger.Infof("instruction id %v already finalized with %v also reached threshold with %v", box.iID, boxes.FinalizedHash, hash)
+				}
+
+				a, err := box.Action(types.Threshold)
+				if err != nil {
+					logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+				} else {
+					actionToSend = a
+				}
+			}
+		}
+
+		return nil
+	}()
+
+	if err != nil {
+		return nil, err
+	}
+
+	if actionToSend != nil {
+		s.Out <- actionToSend
 	}
 
 	return &receipt, nil

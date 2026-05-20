@@ -192,7 +192,11 @@ mainLoop:
 
 		from = to
 		errCount = 0
-		time.Sleep(sleepBetweenSignatureQueries)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(sleepBetweenSignatureQueries):
+		}
 	}
 
 	return sigs, nil
