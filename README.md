@@ -31,6 +31,20 @@ Start the proxy
 go run ./...
 ```
 
+## Ports
+
+The proxy listens on two TCP ports with different trust models:
+
+- **`6662` (external)** — client-facing.
+  Public by design: all `GET` routes (`/info`, `/wallet/*`, `/backup/*`, `/action/*`) are unauthenticated.
+  `POST /instruction` verifies a per-payload signature; `POST /direct` (if enabled) requires an API key.
+  TLS must be terminated upstream (ingress, sidecar, or front-proxy) — the server speaks cleartext HTTP.
+- **`6661` (internal)** — TEE-node-facing.
+  No app-layer authentication; access control is assumed to be enforced by the network.
+  `POST /queue/*` is unauthenticated; `POST /result` verifies the TEE's signature but still relies on network isolation for the startup window.
+  This port must **not** be reachable from outside the pod/host.
+  Deployments must enforce this (e.g., Kubernetes `NetworkPolicy`, bind to loopback, or sidecar-only access).
+
 ## Direct Endpoint
 
 The `POST /direct` endpoint allows submitting direct instructions that bypass the C-chain.

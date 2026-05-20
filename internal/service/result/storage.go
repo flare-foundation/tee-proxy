@@ -16,6 +16,8 @@ import (
 )
 
 // ResultStorage provides methods for storing and retrieving action responses.
+//
+// mu serialises StoreResponse so the override-guard read-then-write stays atomic; reads do not take it.
 type ResultStorage struct {
 	mu              sync.Mutex
 	s               storage.Storage[*types.ActionResponse]
