@@ -8,11 +8,14 @@ import (
 )
 
 var HTTP = map[int]error{
-	http.StatusBadRequest:      errors.New("'bad request'"),
-	http.StatusUnauthorized:    errors.New("'unauthorized'"),
-	http.StatusForbidden:       errors.New("'forbidden'"),
-	http.StatusNotFound:        errors.New("'not found'"),
-	http.StatusTooManyRequests: errors.New("'too many requests'"),
+	http.StatusBadRequest:            errors.New("'bad request'"),
+	http.StatusUnauthorized:          errors.New("'unauthorized'"),
+	http.StatusForbidden:             errors.New("'forbidden'"),
+	http.StatusNotFound:              errors.New("'not found'"),
+	http.StatusConflict:              errors.New("'conflict'"),
+	http.StatusGone:                  errors.New("'gone'"),
+	http.StatusRequestEntityTooLarge: errors.New("'payload too large'"),
+	http.StatusTooManyRequests:       errors.New("'too many requests'"),
 
 	http.StatusInternalServerError: errors.New("'internal server error'"),
 	http.StatusServiceUnavailable:  errors.New("'service unavailable'"),
@@ -21,7 +24,8 @@ var HTTP = map[int]error{
 // ErrToCode returns a http code for an error.
 //
 // Works only if err is wrapped HTTP Error. Otherwise -1 is returned.
-// If an error consists of more wrapped HTTP errors, only one is returned but not deterministically.
+// By convention, each error must wrap at most one HTTP error from this package.
+// Wrapping multiple ones is a bug — the returned code is then not deterministic.
 func ErrToCode(err error) int {
 	for j := range HTTP {
 		if errors.Is(err, HTTP[j]) {

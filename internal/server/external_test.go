@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -251,4 +253,23 @@ func TestResultHErrorPaths(t *testing.T) {
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errInvalidSubmissionTag)
 	})
+}
+
+// TestPrepareHandlerMaxBytesReturns413 verifies oversized bodies surface as 413, not 400/500.
+func TestPrepareHandlerMaxBytesReturns413(t *testing.T) {
+	const maxBodySize int64 = 16
+
+	// Handler reads the full body so MaxBytesReader has a chance to trip.
+	handler := prepareHandler(func(_ http.ResponseWriter, r *http.Request) error {
+		_, err := io.ReadAll(r.Body)
+		return err
+	}, maxBodySize, false)
+
+	body := strings.Repeat("x", int(maxBodySize)+1)
+	req := httptest.NewRequest(http.MethodPost, "/whatever", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }

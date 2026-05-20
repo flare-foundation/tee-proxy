@@ -105,7 +105,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	err = s.meta.CheckConsistency(data, signer)
 	if err != nil {
-		return nil, fmt.Errorf("%w: inconsistent data: %w", status.HTTP[400], err)
+		return nil, fmt.Errorf("%w: inconsistent data: %v", status.HTTP[400], err)
 	}
 
 	var receipt voting.Receipt
@@ -138,7 +138,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		defer box.Unlock()
 
 		if box.deleted {
-			return fmt.Errorf("%w: voting already ended %s", status.HTTP[400], id.String())
+			return fmt.Errorf("%w: voting already ended %s", status.HTTP[410], id.String())
 		}
 
 		// box.proposal.cosigners is read under box.Lock because scheduleEnd's

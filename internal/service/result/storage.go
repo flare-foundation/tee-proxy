@@ -78,7 +78,7 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 
 	response, err := rs.s.Get(ctx, id.String())
 	if errors.Is(err, storage.ErrNotFound) {
-		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
+		return nil, fmt.Errorf("%w: response not in storage: %v", status.HTTP[404], err)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading response for %s: %w", id.String(), err)

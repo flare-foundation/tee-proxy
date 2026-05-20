@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -44,6 +45,14 @@ func handleError(w http.ResponseWriter, err error, isInternal bool) {
 	source := "external"
 	if isInternal {
 		source = "internal"
+	}
+
+	// Body-size violations from http.MaxBytesReader surface as *http.MaxBytesError.
+	// Map directly to 413 — ErrInvalidBody would otherwise drop that signal.
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+		return
 	}
 
 	code := status.ErrToCode(err)
