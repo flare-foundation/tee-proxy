@@ -102,7 +102,11 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 	logger.Info("initial TEE info fetched")
 
-	go infoService.Run(ctx) //nolint:errcheck // todo
+	go func() {
+		if err := infoService.Run(ctx); err != nil {
+			logger.Errorf("info service exited: %v", err)
+		}
+	}()
 
 	teeID, err := parseTeeID(initialInfo)
 	if err != nil {

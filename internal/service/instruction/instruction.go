@@ -82,8 +82,14 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 // Run starts the Forward and ListenToPolicies loops concurrently.
 func (s *Service) Run(ctx context.Context) {
-	go s.Forward(ctx)       //nolint:errcheck // todo
-	s.ListenToPolicies(ctx) //nolint:errcheck // todo
+	go func() {
+		if err := s.Forward(ctx); err != nil {
+			logger.Errorf("instruction forward exited: %v", err)
+		}
+	}()
+	if err := s.ListenToPolicies(ctx); err != nil {
+		logger.Errorf("listen to policies exited: %v", err)
+	}
 }
 
 // Forward listens to the out channel and enqueues received actions.

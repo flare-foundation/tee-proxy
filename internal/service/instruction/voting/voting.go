@@ -168,10 +168,11 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 			case data.OPType == op.Wallet.Hash() && data.OPCommand == op.KeyDataProviderRestore.Hash():
 				// only sent "threshold" action at the end of voting if finalized
 			default:
+				// Two boxes with the same instructionID can each finalize; dedup happens downstream.
 				if boxes.FinalizedHash.Cmp(common.Hash{}) == 0 {
 					boxes.FinalizedHash = hash
 				} else if boxes.FinalizedHash.Cmp(hash) != 0 {
-					logger.Infof("instruction id %v already finalized with %v also reached threshold with %v", box.iID, boxes.FinalizedHash, hash)
+					logger.Warnf("instruction id %v already finalized with %v, emitting additional threshold action for %v", box.iID, boxes.FinalizedHash, hash)
 				}
 
 				a, err := box.Action(types.Threshold)
