@@ -140,7 +140,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 
 // Serve returns response for actionID with provided submissionTag if present.
 func (s *Service) Serve(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
-	return s.rs.GetResponse(ctx, actionID, submissionTag)
+	return s.rs.FetchResponse(ctx, actionID, submissionTag)
 }
 
 func recoverSigner(ar *types.ActionResponse) (common.Address, error) {

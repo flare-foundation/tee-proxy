@@ -129,7 +129,7 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	meta := meta.New(walletService)
-	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, privKey, policyChan, actionQueues, meta)
+	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
 	directCfg := server.DirectConfig{

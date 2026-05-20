@@ -2,7 +2,6 @@ package instruction
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -36,11 +35,10 @@ type Service struct {
 
 	policies <-chan policy.SigningPolicy
 	aq       *queue.ActionQueues
-	privKey  *ecdsa.PrivateKey
 }
 
-// NewService creates a new instruction Service with the given voting config, TEE identity, signing key, and dependencies.
-func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
+// NewService creates a new instruction Service with the given voting config, TEE identity, and dependencies.
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
 	vs := voting.NewStorage(ctx, votingCfg, meta)
 
 	return Service{
@@ -49,7 +47,6 @@ func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Addr
 
 		policies: policiesChan,
 		aq:       aq,
-		privKey:  privKey,
 	}
 }
 

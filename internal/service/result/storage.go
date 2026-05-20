@@ -71,8 +71,8 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 	return nil
 }
 
-// GetResponse returns action response for action id and submission tag.
-func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
+// FetchResponse returns action response for action id and submission tag.
+func (rs *ResultStorage) FetchResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
 	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
 
 	response, err := rs.s.Get(ctx, id.String())
@@ -111,7 +111,7 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 	}()
 
 	// Check if it was already stored.
-	response, err := rs.GetResponse(ctx, actionID, submissionTag)
+	response, err := rs.FetchResponse(ctx, actionID, submissionTag)
 	if err == nil && response != nil {
 		return response, nil
 	}
@@ -120,12 +120,12 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 	_, err = sub.ReceiveMessage(ctx)
 	if err != nil {
 		// Hopeful attempt after error or context cancellation.
-		finalResponse, finalErr := rs.GetResponse(ctx, actionID, submissionTag)
+		finalResponse, finalErr := rs.FetchResponse(ctx, actionID, submissionTag)
 		if finalErr == nil {
 			return finalResponse, nil
 		}
 		return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
 	}
 
-	return rs.GetResponse(ctx, actionID, submissionTag)
+	return rs.FetchResponse(ctx, actionID, submissionTag)
 }

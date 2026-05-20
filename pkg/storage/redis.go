@@ -116,26 +116,6 @@ func (s *RedisStorage[T]) Get(ctx context.Context, key string) (T, error) {
 	return value, err
 }
 
-// GetWithTTL retrieves the value and its remaining expiration duration by the key.
-func (s *RedisStorage[T]) GetWithTTL(ctx context.Context, key string) (T, time.Duration, error) {
-	var value T
-	data, err := s.client.Get(ctx, s.prefix(key)).Bytes()
-	if errors.Is(err, redis.Nil) {
-		return value, 0, ErrNotFound
-	}
-	if err != nil {
-		return value, 0, err
-	}
-
-	err = json.Unmarshal(data, &value)
-	if err != nil {
-		return value, 0, err
-	}
-
-	ttl, err := s.client.TTL(ctx, s.prefix(key)).Result()
-	return value, ttl, err
-}
-
 // Remove deletes the value stored for the key.
 func (s *RedisStorage[T]) Remove(ctx context.Context, key string) error {
 	return s.client.Del(ctx, s.prefix(key)).Err()

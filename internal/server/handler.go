@@ -22,7 +22,8 @@ const noBody int64 = 0
 
 // prepareHandler wraps a handler function with common setup.
 // maxBodySize is passed to http.MaxBytesReader; pass a negative value to skip body limiting.
-func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, isInternal bool) http.HandlerFunc {
+// logAsInternal only affects how the request is labelled in error logs (it is NOT an auth flag).
+func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, logAsInternal bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -32,7 +33,7 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySiz
 
 		err := f(w, r)
 		if err != nil {
-			handleError(w, err, isInternal)
+			handleError(w, err, logAsInternal)
 		}
 	}
 }
@@ -40,10 +41,10 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySiz
 // handleError replies to unsuccessful request.
 // If error is wrapped HTTP error, status is retrieved, and error is given in response.
 // Otherwise, status 500 and "internal server error" is given in the reply.
-// isInternal parameter only affects the logging.
-func handleError(w http.ResponseWriter, err error, isInternal bool) {
+// logAsInternal only affects how the request is labelled in error logs.
+func handleError(w http.ResponseWriter, err error, logAsInternal bool) {
 	source := "external"
-	if isInternal {
+	if logAsInternal {
 		source = "internal"
 	}
 
