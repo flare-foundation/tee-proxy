@@ -21,6 +21,9 @@ const (
 	DirectQueue = "DirectQueue"
 	MainQueue   = "MainQueue"
 	BackupQueue = "BackupQueue"
+
+	// queueDepthWarnThreshold logs a warning past this depth; not a hard cap.
+	queueDepthWarnThreshold = 100
 )
 
 // ErrInvalidQueueID is returned when an unrecognized queue ID is provided.
@@ -57,6 +60,19 @@ func NewActionQueues(client *redis.Client, actionTTL time.Duration) *ActionQueue
 	}
 }
 
+func (as *ActionQueues) queueByID(queueID processorutils.QueueID) (storage.Queue[*ActionSubmissionID], error) {
+	switch queueID {
+	case processorutils.Main:
+		return as.mainQueue, nil
+	case processorutils.Direct:
+		return as.directQueue, nil
+	case processorutils.Backup:
+		return as.backupQueue, nil
+	default:
+		return nil, ErrInvalidQueueID
+	}
+}
+
 // Enqueue stores the action and appends its submission ID to the indicated queue.
 func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queueID processorutils.QueueID) error {
 	id := ActionSubmissionID{
@@ -66,24 +82,23 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 
 	logger.Debugf("enqueue action %s, type %s, tag %s, queue %s", action.Data.ID, action.Data.Type, action.Data.SubmissionTag, queueID)
 
-	err := as.actions.SetWithTTL(ctx, id.String(), action, as.actionTTL)
+	queue, err := as.queueByID(queueID)
+	if err != nil {
+		return err
+	}
+
+	err = as.actions.SetWithTTL(ctx, id.String(), action, as.actionTTL)
 	if err != nil {
 		return fmt.Errorf("storing action: %w", err)
 	}
 
-	switch queueID {
-	case processorutils.Main:
-		err = as.mainQueue.Enqueue(ctx, &id)
-	case processorutils.Direct:
-		err = as.directQueue.Enqueue(ctx, &id)
-	case processorutils.Backup:
-		err = as.backupQueue.Enqueue(ctx, &id)
-	default:
-		return ErrInvalidQueueID
-	}
-
+	err = queue.Enqueue(ctx, &id)
 	if err != nil {
 		return fmt.Errorf("enqueueing to %s: %w", queueID, err)
+	}
+
+	if length, lerr := queue.QueueLength(ctx); lerr == nil && length > queueDepthWarnThreshold {
+		logger.Warnf("queue %s depth %d exceeds threshold %d", queueID, length, queueDepthWarnThreshold)
 	}
 
 	return nil
@@ -91,17 +106,9 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 
 // Dequeue dequeues action from indicated queue. If no action is available, wrapped ErrEmptyQueue is dequeued.
 func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.QueueID) (*types.Action, error) {
-	var queue storage.Queue[*ActionSubmissionID]
-
-	switch queueID {
-	case processorutils.Main:
-		queue = as.mainQueue
-	case processorutils.Direct:
-		queue = as.directQueue
-	case processorutils.Backup:
-		queue = as.backupQueue
-	default:
-		return nil, ErrInvalidQueueID
+	queue, err := as.queueByID(queueID)
+	if err != nil {
+		return nil, err
 	}
 
 	storingID, err := queue.Dequeue(ctx)
