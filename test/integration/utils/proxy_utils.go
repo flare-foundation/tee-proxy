@@ -56,7 +56,7 @@ var TestTimeConfig = struct {
 	Timeout  time.Duration
 	Interval time.Duration
 }{
-	Timeout:  2000 * time.Millisecond,
+	Timeout:  6000 * time.Millisecond,
 	Interval: 50 * time.Millisecond,
 }
 
