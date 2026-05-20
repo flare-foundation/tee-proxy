@@ -30,6 +30,11 @@ var (
 	errSignatureAlreadyStored = fmt.Errorf("%w: signature already stored", status.HTTP[403])
 )
 
+// eventFutureSlack is the allowed slippage between the local clock and the
+// event timestamp: how far into the future (relative to local time) an
+// instruction's event can claim to be while still accepted.
+const eventFutureSlack = 15 * time.Second
+
 type proposal struct {
 	instruction *instruction.DataFixed
 
@@ -86,7 +91,7 @@ type voteBox struct {
 func startVoteBox(data *instruction.Data, signer common.Address, round *Round, meta meta.Meta, expirationTime time.Duration) (*voteBox, error) {
 	eventTime := time.Unix(int64(data.Timestamp), 0)
 
-	allowedTime := eventTime.Add(-15 * time.Second) // confirm this number
+	allowedTime := eventTime.Add(-eventFutureSlack)
 
 	if time.Now().Before(allowedTime) {
 		return nil, errVotingBeforeEvent

@@ -169,8 +169,12 @@ func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Policy, op.UpdatePolicy, msg)
 }
 
+// policyRolloverSignatureDeadline caps how long collectSignatures waits for
+// on-chain signNewSigningPolicy endorsements during a policy rollover.
+const policyRolloverSignatureDeadline = 3 * time.Hour
+
 func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64, chainID *big.Int) ([]byte, error) {
-	deadline := time.Now().Add(3 * time.Hour) // todo
+	deadline := time.Now().Add(policyRolloverSignatureDeadline)
 
 	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy)
 	if err != nil {
