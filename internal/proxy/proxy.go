@@ -1,4 +1,4 @@
-package initialize
+package proxy
 
 import (
 	"context"
@@ -31,7 +31,8 @@ const (
 	shutdownTimeout    = 10 * time.Second
 )
 
-func Initialize(ctx context.Context, cfgPath string) {
+// Run boots the proxy and blocks until ctx is cancelled, then drains the HTTP servers.
+func Run(ctx context.Context, cfgPath string) {
 	cfg, err := config.Read(cfgPath)
 	if err != nil {
 		logger.Panicf("reading config: %v", err)

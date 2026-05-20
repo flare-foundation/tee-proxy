@@ -3,10 +3,10 @@ package init
 import (
 	"context"
 
-	"github.com/flare-foundation/tee-proxy/internal/initialize"
+	"github.com/flare-foundation/tee-proxy/internal/proxy"
 )
 
 // Init is only used for testing purposes.
 func Init(ctx context.Context, cfgPath string) {
-	initialize.Initialize(ctx, cfgPath)
+	proxy.Run(ctx, cfgPath)
 }

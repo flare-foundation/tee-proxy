@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/flare-foundation/tee-proxy/internal/initialize"
+	"github.com/flare-foundation/tee-proxy/internal/proxy"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 )
@@ -22,7 +22,7 @@ func main() {
 
 	done := make(chan struct{})
 	go func() {
-		initialize.Initialize(ctx, cfgPath)
+		proxy.Run(ctx, cfgPath)
 		close(done)
 	}()
 
@@ -33,11 +33,11 @@ func main() {
 	case sig := <-signalChan:
 		logger.Infof("Received %v signal, shutting down", sig)
 	case <-done:
-		logger.Info("Initialization returned, shutting down")
+		logger.Info("Run returned, shutting down")
 	}
 	cancel()
 
-	// Give Initialize a bounded window to drain HTTP servers and exit.
+	// Give Run a bounded window to drain HTTP servers and exit.
 	select {
 	case <-done:
 	case <-time.After(forceShutdownTimeout):

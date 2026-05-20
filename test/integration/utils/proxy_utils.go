@@ -86,7 +86,7 @@ func mockDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// RunProxy simulates behavior of internal/initialize.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
+// RunProxy simulates behavior of internal/proxy/proxy.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
 func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.PrivateKey, wg *sync.WaitGroup) (*ProxyConfig, func()) {
 	t.Helper()
 
