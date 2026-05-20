@@ -23,6 +23,9 @@ import (
 
 const expirationTime = 8 * 24 * time.Hour
 
+// initiateBackupsConcurrency caps concurrent TEE_BACKUP enqueues at epoch rollover.
+const initiateBackupsConcurrency = 10
+
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
 func (s *Service) InitiateBackups(ctx context.Context) error {
 	s.RLock()
@@ -33,6 +36,7 @@ func (s *Service) InitiateBackups(ctx context.Context) error {
 	s.RUnlock()
 
 	var eg errgroup.Group
+	eg.SetLimit(initiateBackupsConcurrency)
 	for _, id := range ids {
 		eg.Go(func() error {
 			err := s.initiateBackup(ctx, id)
