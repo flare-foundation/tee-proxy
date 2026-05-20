@@ -61,8 +61,8 @@ func (l *liveness) Startup(_ context.Context) error {
 }
 
 func (l *liveness) Ready(ctx context.Context) error {
-	l.Lock()
-	defer l.Unlock()
+	l.RLock()
+	defer l.RUnlock()
 
 	if !l.startUpFinished {
 		return ErrStartUpNotFinished

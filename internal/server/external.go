@@ -261,7 +261,7 @@ func (e *External) resultH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	response.ProxySignature, err = crypto.Sign(accounts.TextHash(crypto.Keccak256(response.Result.Data)), e.privKey)
+	response.ProxySignature, err = crypto.Sign(accounts.TextHash(response.Result.Hash()), e.privKey)
 	if err != nil {
 		return err
 	}

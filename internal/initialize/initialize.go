@@ -86,15 +86,13 @@ func Initialize(ctx context.Context, cfgPath string) {
 	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore)
 	resultService := result.NewService(resultStorage)
 
-	infoService := new(info.Service)
+	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
 
 	livenessService := liveness.New(db, redisClient, infoService)
 	defer livenessService.SignalStartupFinished()
 
 	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
 	go runServer("internal", internalServer.Serve)
-
-	*infoService = info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
 
 	logger.Info("fetching initial TEE info")
 	initialInfo, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)

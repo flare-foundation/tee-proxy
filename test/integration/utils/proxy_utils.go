@@ -105,7 +105,10 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore)
 	resultService := result.NewService(rs)
 
-	infoService := new(info.Service)
+	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
+		CycleInternal:          StorageTimeConfig.CycleInternal,
+		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
+	})
 
 	livenessService := liveness.New(db, c, infoService)
 
@@ -115,11 +118,6 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		logger.Info("Starting internal server")
 		err := internal.Serve()
 		require.Error(t, err)
-	})
-
-	*infoService = info.NewService(db, aq, rs, &config.InfoTiming{
-		CycleInternal:          StorageTimeConfig.CycleInternal,
-		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 	})
 
 	initialInfo, err := infoService.FetchInfo(t.Context(), 5*time.Second)

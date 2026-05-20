@@ -40,8 +40,8 @@ type Service struct {
 	sync.RWMutex
 }
 
-func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming) Service {
-	return Service{
+func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming) *Service {
+	return &Service{
 		Latest:      new(types.TeeInfoResponse),
 		LastUpdated: time.Unix(0, 0),
 

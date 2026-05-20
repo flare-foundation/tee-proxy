@@ -26,6 +26,8 @@ const (
 var (
 	errAddressAlreadySet = errors.New("address already set")
 	errInvalidTeeID      = fmt.Errorf("%w: invalid teeID", status.HTTP[403])
+	// errBootstrapNotTeeInfo rejects non-TEE_INFO responses arriving before SetIdentity.
+	errBootstrapNotTeeInfo = fmt.Errorf("%w: expected TEE_INFO response before identity is set", status.HTTP[403])
 )
 
 // Service handles processing and storage of TEE action results.
@@ -90,6 +92,9 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		if signer.Cmp(s.teeID) != 0 {
 			return errInvalidTeeID
 		}
+	} else if r.Result.OPCommand != op.TEEInfo.Hash() {
+		// Pre-SetIdentity: signatures cannot be verified, so only TEE_INFO is accepted.
+		return errBootstrapNotTeeInfo
 	}
 
 	if r.Result.Status == 0 {
