@@ -71,6 +71,6 @@ enable = false
 api_key = ""
 api_key_variable = "DIRECT_API_KEY"
 # Set to true to disable API key requirement for /direct endpoint
-no_api_key = false
+api_key_optional = false
 # Max body size on /direct. 0 defaults to 10 MiB.
 max_body_size = 0

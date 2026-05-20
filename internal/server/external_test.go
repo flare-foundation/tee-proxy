@@ -132,8 +132,8 @@ func TestVerifyAPIKey(t *testing.T) {
 	}
 }
 
-func TestVerifyAPIKeyNoAPIKey(t *testing.T) {
-	e := &External{direct: DirectConfig{APIKey: "secret", NoAPIKey: true}}
+func TestVerifyAPIKeyAPIKeyOptional(t *testing.T) {
+	e := &External{direct: DirectConfig{APIKey: "secret", APIKeyOptional: true}}
 
 	req := httptest.NewRequest(http.MethodPost, "/direct", nil)
 	// No X-API-Key header set.
@@ -143,8 +143,8 @@ func TestVerifyAPIKeyNoAPIKey(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errUnauthorized)
 
-	// The NoAPIKey flag causes directH to skip the verifyAPIKey call.
-	assert.True(t, e.direct.NoAPIKey)
+	// The APIKeyOptional flag causes directH to skip the verifyAPIKey call.
+	assert.True(t, e.direct.APIKeyOptional)
 }
 
 func TestSubmissionTagParam(t *testing.T) {

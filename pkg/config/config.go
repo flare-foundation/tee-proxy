@@ -120,7 +120,7 @@ type Direct struct {
 	Enable         bool   `toml:"enable"`           // Enable registers the /direct endpoint on the external server.
 	APIKey         string `toml:"api_key"`          // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
 	APIKeyVariable string `toml:"api_key_variable"` // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
-	NoAPIKey       bool   `toml:"no_api_key"`       // NoAPIKey disables API key requirement for the /direct endpoint.
+	APIKeyOptional bool   `toml:"api_key_optional"` // APIKeyOptional disables the API key requirement for the /direct endpoint.
 	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, defaults to 10 MiB.
 }
 
@@ -204,7 +204,7 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
-	if c.Direct.Enable && !c.Direct.NoAPIKey {
+	if c.Direct.Enable && !c.Direct.APIKeyOptional {
 		c.Direct.APIKey = resolveDirectAPIKey(c.Direct.APIKeyVariable, c.Direct.APIKey)
 		if c.Direct.APIKey == "" {
 			return c, errDirectAPIKeyNotSet
