@@ -31,6 +31,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
+	"github.com/flare-foundation/tee-proxy/pkg/attestation"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
@@ -110,7 +111,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
-	})
+	}, &attestation.Config{Enabled: false})
 
 	livenessService := liveness.New(db, c, infoService)
 

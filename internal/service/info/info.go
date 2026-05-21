@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/flare-foundation/tee-proxy/pkg/attestation"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 
 	"time"
@@ -30,17 +31,22 @@ type Service struct {
 	Latest      *types.TeeInfoResponse
 	LastUpdated time.Time
 
+	// lastAttestationErr is sticky: once set, never cleared. A failed attestation
+	// indicates possible compromise; the orchestrator should restart the pod.
+	lastAttestationErr error
+
 	db *gorm.DB
 
 	actionQueues    *queue.ActionQueues
 	responseStorage *result.ResultStorage
 
-	timingConfig *config.InfoTiming
+	timingConfig   *config.InfoTiming
+	attestationCfg *attestation.Config
 
 	sync.RWMutex
 }
 
-func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming) *Service {
+func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config) *Service {
 	return &Service{
 		Latest:      new(types.TeeInfoResponse),
 		LastUpdated: time.Unix(0, 0),
@@ -49,7 +55,15 @@ func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, t
 		actionQueues:    aq,
 		responseStorage: rs,
 		timingConfig:    tc,
+		attestationCfg:  ac,
 	}
+}
+
+// LastAttestationErr returns the sticky attestation verification error, or nil if no failure has occurred.
+func (s *Service) LastAttestationErr() error {
+	s.RLock()
+	defer s.RUnlock()
+	return s.lastAttestationErr
 }
 
 // Run starts the periodic update of TEE info.
@@ -136,6 +150,15 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common
 	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("unmarshaling info response: %w", err)
+	}
+
+	if s.attestationCfg != nil {
+		if vErr := attestation.Verify(&result, challenge, s.attestationCfg); vErr != nil {
+			s.Lock()
+			s.lastAttestationErr = vErr
+			s.Unlock()
+			return common.Hash{}, fmt.Errorf("verifying attestation: %w", vErr)
+		}
 	}
 
 	s.Lock()

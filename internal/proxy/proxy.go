@@ -91,18 +91,18 @@ func Run(ctx context.Context, cfgPath string) {
 	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
 	resultService := result.NewService(resultStorage)
 
-	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming)
-
-	livenessService := liveness.New(db, redisClient, infoService)
-
-	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
-	go runServer("internal", internalServer.Serve)
-
 	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
 	if err != nil {
 		logger.Panicf("building attestation config: %v", err)
 	}
 	logAttestationPosture(attestationCfg)
+
+	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg)
+
+	livenessService := liveness.New(db, redisClient, infoService)
+
+	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
+	go runServer("internal", internalServer.Serve)
 
 	logger.Info("fetching initial TEE info")
 	initialInfo, sentChallenge, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)
@@ -111,12 +111,10 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 	logger.Info("initial TEE info fetched")
 
+	// Challenge round-trip check runs unconditionally; attestation.Verify (called inside
+	// FetchInfo) duplicates this when enabled but skips it when disabled.
 	if initialInfo.TeeInfo.Challenge != sentChallenge {
 		logger.Panicf("TEE info challenge mismatch: sent %s, received %s", sentChallenge, initialInfo.TeeInfo.Challenge)
-	}
-
-	if err := attestation.Verify(initialInfo, sentChallenge, attestationCfg); err != nil {
-		logger.Panicf("verifying TEE attestation: %v", err)
 	}
 
 	go func() {

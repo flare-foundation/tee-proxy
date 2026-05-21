@@ -90,5 +90,9 @@ func (l *liveness) Ready(ctx context.Context) error {
 		return fmt.Errorf("no new info in last %v", delay)
 	}
 
+	if aErr := l.info.LastAttestationErr(); aErr != nil {
+		return fmt.Errorf("attestation failing: %w", aErr)
+	}
+
 	return nil
 }
