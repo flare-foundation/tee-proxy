@@ -99,7 +99,7 @@ func Run(ctx context.Context, cfgPath string) {
 
 	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg)
 
-	livenessService := liveness.New(db, redisClient, infoService)
+	livenessService := liveness.New(db, redisClient, infoService, resultService)
 
 	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
 	go runServer("internal", internalServer.Serve)

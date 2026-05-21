@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
@@ -122,7 +123,13 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 		defer cancel()
 
 		if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
-			logger.Errorf("processing result %v: %v", response.Result.ID, err)
+			// Body has been acked to the TEE node; a failure here means the result is lost.
+			logger.Errorf("result lost id=%s tag=%s opType=%s opCommand=%s: %v",
+				response.Result.ID,
+				response.Result.SubmissionTag,
+				op.HashToOPType(response.Result.OPType),
+				op.HashToOPCommand(response.Result.OPCommand),
+				err)
 		}
 	}()
 

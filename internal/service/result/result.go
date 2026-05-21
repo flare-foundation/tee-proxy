@@ -45,6 +45,11 @@ type Service struct {
 
 	mu    sync.RWMutex
 	teeID common.Address
+
+	// storageMu guards lastStorageErr independently of mu so storage outcomes
+	// can be recorded without blocking the RLock held during ProcessAndStore.
+	storageMu      sync.RWMutex
+	lastStorageErr error
 }
 
 // NewService creates a new result service.
@@ -135,7 +140,23 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		}
 	}
 
-	return s.rs.StoreResponse(ctx, r)
+	err := s.rs.StoreResponse(ctx, r)
+	s.recordStorageResult(err)
+	return err
+}
+
+// LastStorageErr returns the most recent StoreResponse error, or nil if the last attempt succeeded.
+// Auto-recovers: cleared by the next successful store.
+func (s *Service) LastStorageErr() error {
+	s.storageMu.RLock()
+	defer s.storageMu.RUnlock()
+	return s.lastStorageErr
+}
+
+func (s *Service) recordStorageResult(err error) {
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	s.lastStorageErr = err
 }
 
 // Serve returns response for actionID with provided submissionTag if present.

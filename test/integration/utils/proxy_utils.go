@@ -113,7 +113,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 	}, &attestation.Config{Enabled: false})
 
-	livenessService := liveness.New(db, c, infoService)
+	livenessService := liveness.New(db, c, infoService, resultService)
 
 	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService)
 

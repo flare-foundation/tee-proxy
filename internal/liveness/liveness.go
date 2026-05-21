@@ -9,6 +9,7 @@ import (
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -29,16 +30,18 @@ type liveness struct {
 	db     *gorm.DB
 	client *redis.Client
 	info   *info.Service
+	result *result.Service
 
 	sync.RWMutex
 }
 
-func New(db *gorm.DB, client *redis.Client, info *info.Service) *liveness {
+func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.Service) *liveness {
 	return &liveness{
 		startUpFinished: false,
 		db:              db,
 		client:          client,
 		info:            info,
+		result:          results,
 	}
 }
 
@@ -92,6 +95,12 @@ func (l *liveness) Ready(ctx context.Context) error {
 
 	if aErr := l.info.LastAttestationErr(); aErr != nil {
 		return fmt.Errorf("attestation failing: %w", aErr)
+	}
+
+	if l.result != nil {
+		if sErr := l.result.LastStorageErr(); sErr != nil {
+			return fmt.Errorf("result storage failing: %w", sErr)
+		}
 	}
 
 	return nil

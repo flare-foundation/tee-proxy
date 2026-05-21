@@ -33,13 +33,13 @@ func setup(t *testing.T, dbName string) (*gorm.DB, *miniredis.Miniredis, *redis.
 func TestNew(t *testing.T) {
 	db, _, redisClient, infoSvc := setup(t, "new")
 
-	l := New(db, redisClient, infoSvc)
+	l := New(db, redisClient, infoSvc, nil)
 	require.NotNil(t, l)
 	require.False(t, l.startUpFinished)
 }
 
 func TestSignalStartupFinished(t *testing.T) {
-	l := New(nil, nil, nil)
+	l := New(nil, nil, nil, nil)
 	require.False(t, l.startUpFinished)
 
 	err := l.Startup(t.Context())
@@ -55,14 +55,14 @@ func TestSignalStartupFinished(t *testing.T) {
 
 func TestReady(t *testing.T) {
 	t.Run("not started up", func(t *testing.T) {
-		l := New(nil, nil, nil)
+		l := New(nil, nil, nil, nil)
 		err := l.Ready(t.Context())
 		require.ErrorIs(t, err, ErrStartUpNotFinished)
 	})
 
 	t.Run("redis ping fails", func(t *testing.T) {
 		db, mr, redisClient, infoSvc := setup(t, "ping")
-		l := New(db, redisClient, infoSvc)
+		l := New(db, redisClient, infoSvc, nil)
 		l.SignalStartupFinished()
 
 		mr.Close() // Close redis to make ping fail
@@ -73,7 +73,7 @@ func TestReady(t *testing.T) {
 
 	t.Run("c-chain indexer delay", func(t *testing.T) {
 		db, _, redisClient, infoSvc := setup(t, "delay")
-		l := New(db, redisClient, infoSvc)
+		l := New(db, redisClient, infoSvc, nil)
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Add(-15 * time.Minute).Unix())
@@ -89,7 +89,7 @@ func TestReady(t *testing.T) {
 	t.Run("info service not initialized", func(t *testing.T) {
 		db, _, redisClient, _ := setup(t, "ok")
 
-		l := New(db, redisClient, nil) // Pass nil for info service
+		l := New(db, redisClient, nil, nil) // Pass nil for info service
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Unix())
@@ -106,7 +106,7 @@ func TestReady(t *testing.T) {
 		block, _ := testutil.CreateBlock("0", 1)
 		require.NoError(t, db.Create(block).Error)
 
-		l := New(db, redisClient, infoSvc)
+		l := New(db, redisClient, infoSvc, nil)
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Unix())
@@ -123,7 +123,7 @@ func TestReady(t *testing.T) {
 	t.Run("all checks pass", func(t *testing.T) {
 		db, _, redisClient, infoSvc := setup(t, "totally ok")
 
-		l := New(db, redisClient, infoSvc)
+		l := New(db, redisClient, infoSvc, nil)
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Unix())
