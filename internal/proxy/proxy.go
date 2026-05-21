@@ -88,8 +88,8 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
-	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
 	resultService := result.NewService(resultStorage)
+	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL, resultService.KeyInfo)
 
 	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
 	if err != nil {
@@ -133,7 +133,7 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	walletsSyncTrigger := make(chan bool, 1)
-	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.KeyActions, resultService.Backups, resultService.KeyInfo)
+	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.KeyActions, resultService.Backups)
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, walletSyncPeriod)
 
 	policyService := policy.NewService(actionQueues, cfg.Addresses, cfg.ChainID)

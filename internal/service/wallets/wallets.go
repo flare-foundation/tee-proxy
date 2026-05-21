@@ -59,7 +59,7 @@ type Service struct {
 	sync.RWMutex
 }
 
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration) *Service {
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration, keyInfo <-chan *types.ActionResult) *Service {
 	return &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
@@ -69,12 +69,15 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 
 		aq:        aq,
 		rs:        rs,
+		keyInfo:   keyInfo,
 		backupTTL: backupTTL,
 	}
 }
 
-func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult, keyInfo <-chan *types.ActionResult) {
-	s.keyInfo = keyInfo
+// RunUpdateInfo runs the wallet service's event loop until ctx is cancelled.
+// Multiplexes periodic sync triggers, key-update and backup results, and the
+// epoch-rollover backup trigger onto a single goroutine.
+func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups <-chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -129,7 +132,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 				logger.Errorf("triggering backups: %v", err)
 				continue
 			}
-			logger.Debug("backups triggered")
+			logger.Debug("backups enqueued")
 		}
 	}
 }

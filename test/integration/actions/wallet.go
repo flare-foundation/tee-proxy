@@ -82,7 +82,7 @@ func GenerateWallet(
 	nkc := make(chan *types.ActionResult, 1)
 	btrig := make(chan bool, 1)
 
-	go pc.Ws.RunUpdateInfo(t.Context(), wst, btrig, nkc, nil, nil)
+	go pc.Ws.RunUpdateInfo(t.Context(), wst, btrig, nkc, nil)
 	nkc <- &res.Result
 
 	time.Sleep(500 * time.Millisecond)
@@ -138,7 +138,7 @@ func DeleteWallet(
 
 	wst := make(chan bool, 1)
 	keyActions := make(chan *types.ActionResult, 1)
-	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, keyActions, nil, nil)
+	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, keyActions, nil)
 	keyActions <- &res.Result
 
 	time.Sleep(1500 * time.Millisecond)
@@ -286,7 +286,7 @@ func RecoverWallet(
 
 	wst := make(chan bool, 1)
 	keyActions := make(chan *types.ActionResult, 1)
-	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, keyActions, nil, nil)
+	go pc.Ws.RunUpdateInfo(t.Context(), wst, nil, keyActions, nil)
 	keyActions <- &res.Result
 
 	time.Sleep(500 * time.Millisecond)
