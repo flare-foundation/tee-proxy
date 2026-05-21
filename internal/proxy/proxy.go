@@ -3,11 +3,13 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -20,6 +22,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/policy"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
+	"github.com/flare-foundation/tee-proxy/pkg/attestation"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
@@ -95,6 +98,12 @@ func Run(ctx context.Context, cfgPath string) {
 	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
 	go runServer("internal", internalServer.Serve)
 
+	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
+	if err != nil {
+		logger.Panicf("building attestation config: %v", err)
+	}
+	logAttestationPosture(attestationCfg)
+
 	logger.Info("fetching initial TEE info")
 	initialInfo, sentChallenge, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)
 	if err != nil {
@@ -104,6 +113,10 @@ func Run(ctx context.Context, cfgPath string) {
 
 	if initialInfo.TeeInfo.Challenge != sentChallenge {
 		logger.Panicf("TEE info challenge mismatch: sent %s, received %s", sentChallenge, initialInfo.TeeInfo.Challenge)
+	}
+
+	if err := attestation.Verify(initialInfo, sentChallenge, attestationCfg); err != nil {
+		logger.Panicf("verifying TEE attestation: %v", err)
 	}
 
 	go func() {
@@ -185,4 +198,53 @@ func parseTeeID(info *types.TeeInfoResponse) (common.Address, error) {
 	}
 
 	return crypto.PubkeyToAddress(*teePub), nil
+}
+
+func buildAttestationConfig(cfg *config.Attestation) (*attestation.Config, error) {
+	if !cfg.Enable {
+		return &attestation.Config{Enabled: false}, nil
+	}
+
+	root, err := attestation.GoogleCSRoot()
+	if err != nil {
+		return nil, fmt.Errorf("loading Google CS root: %w", err)
+	}
+
+	codeHashes, err := cfg.ParsedCodeHashes()
+	if err != nil {
+		return nil, fmt.Errorf("parsing expected_code_hashes: %w", err)
+	}
+
+	platforms := make([]common.Hash, 0, len(cfg.ExpectedPlatforms))
+	for _, p := range cfg.ExpectedPlatforms {
+		h, err := convert.StringToCommonHash(p)
+		if err != nil {
+			return nil, fmt.Errorf("encoding expected_platforms %q: %w", p, err)
+		}
+		platforms = append(platforms, h)
+	}
+
+	return &attestation.Config{
+		Enabled:             true,
+		RootCert:            root,
+		ExpectedCodeHash:    codeHashes,
+		ExpectedPlatform:    platforms,
+		ExpectedDebugStatus: cfg.ExpectedDebugStatuses,
+		MaxTokenAge:         cfg.MaxTokenAge,
+		RequireSecBoot:      cfg.RequireSecBoot,
+		AllowMagicPass:      cfg.AllowMagicPass,
+	}, nil
+}
+
+func logAttestationPosture(cfg *attestation.Config) {
+	if !cfg.Enabled {
+		logger.Warn("attestation verification disabled — bootstrap relies on network isolation only")
+		return
+	}
+	a := cfg.Active()
+	logger.Infof("attestation verification enabled: code_hash=%v platform=%v debug_status=%v max_token_age=%v sec_boot=%v magic_pass=%v",
+		a.CodeHash, a.Platform, a.DebugStatus, a.MaxTokenAge, a.SecBoot, a.MagicPass)
+	if cfg.AllowMagicPass {
+		logger.Warn("attestation: allow_magic_pass=true — accepts the tee-node magic_pass sentinel in place of a real JWT; do not enable in production")
+	}
 }

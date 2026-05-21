@@ -56,6 +56,8 @@ var (
 	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
 	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
 	errStorageTTLPositive                 = errors.New("storage ttl values have to be positive")
+	errAttestationCodeHashInvalid         = errors.New("attestation expected_code_hashes contains invalid hex")
+	errAttestationMaxTokenAgeNegative     = errors.New("attestation max_token_age must be non-negative")
 )
 
 // Firestore holds Firestore connection configuration.
@@ -83,6 +85,63 @@ type Proxy struct {
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
 	Direct                     Direct          `toml:"direct"`                        // Direct endpoint configuration.
 	Storage                    Storage         `toml:"storage"`                       // TTLs applied to Redis/Firestore-backed persistent storage.
+	Attestation                Attestation     `toml:"attestation"`                   // Bootstrap attestation verification configuration.
+}
+
+// Attestation controls bootstrap attestation verification.
+// Empty allowlists / zero values skip the corresponding check.
+type Attestation struct {
+	Enable bool `toml:"enable"`
+
+	ExpectedCodeHashes    []string `toml:"expected_code_hashes"`    // 32-byte hex, optional 0x or sha256: prefix
+	ExpectedPlatforms     []string `toml:"expected_platforms"`      // hwmodel strings, e.g. "AMD_SEV_SNP_VM"
+	ExpectedDebugStatuses []string `toml:"expected_debug_statuses"` // dbgstat values, e.g. "disabled-since-boot"
+
+	MaxTokenAge    time.Duration `toml:"max_token_age"`
+	RequireSecBoot bool          `toml:"require_sec_boot"`
+
+	// AllowMagicPass accepts the tee-node sentinel; dev/test only.
+	AllowMagicPass bool `toml:"allow_magic_pass"`
+}
+
+func (a Attestation) validate() error {
+	if a.MaxTokenAge < 0 {
+		return errAttestationMaxTokenAgeNegative
+	}
+	for _, h := range a.ExpectedCodeHashes {
+		if _, err := parseCodeHash(h); err != nil {
+			return fmt.Errorf("%w: %q: %v", errAttestationCodeHashInvalid, h, err)
+		}
+	}
+	return nil
+}
+
+// ParsedCodeHashes decodes ExpectedCodeHashes; safe after validate() passes.
+func (a Attestation) ParsedCodeHashes() ([]common.Hash, error) {
+	out := make([]common.Hash, 0, len(a.ExpectedCodeHashes))
+	for _, h := range a.ExpectedCodeHashes {
+		parsed, err := parseCodeHash(h)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %q: %w", h, err)
+		}
+		out = append(out, parsed)
+	}
+	return out, nil
+}
+
+func parseCodeHash(s string) (common.Hash, error) {
+	s = strings.TrimPrefix(s, "sha256:")
+	s = strings.TrimPrefix(s, "0x")
+	s = strings.TrimPrefix(s, "0X")
+
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if len(b) != common.HashLength {
+		return common.Hash{}, fmt.Errorf("expected %d bytes, got %d", common.HashLength, len(b))
+	}
+	return common.BytesToHash(b), nil
 }
 
 // Storage holds TTLs for persistent stores (Redis/Firestore).
@@ -209,6 +268,11 @@ func Read(path string) (Proxy, error) {
 		if c.Direct.APIKey == "" {
 			return c, errDirectAPIKeyNotSet
 		}
+	}
+
+	err = c.Attestation.validate()
+	if err != nil {
+		return c, err
 	}
 
 	return c, err

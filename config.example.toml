@@ -74,3 +74,21 @@ api_key_variable = "DIRECT_API_KEY"
 api_key_optional = false
 # Max body size on /direct. 0 defaults to 10 MiB.
 max_body_size = 0
+
+
+[attestation]
+# When disabled the proxy trusts whichever TEE answers the bootstrap challenge first.
+enable = false
+
+# Each allowlist is optional; leave empty to skip that check.
+# JWT signature, nonce, challenge round-trip, and pubkey consistency are always enforced when enabled.
+
+# expected_code_hashes = ["sha256:abcdef..."]            # 32-byte hex, optional 0x/sha256: prefix
+# expected_platforms = ["AMD_SEV_SNP_VM", "INTEL_TDX_VM"]
+# expected_debug_statuses = ["disabled-since-boot"]
+
+max_token_age = "5m"      # 0 skips freshness check
+require_sec_boot = false
+
+# Accept tee-node "magic_pass" sentinel; for non-Confidential-Space test runs only.
+allow_magic_pass = false
