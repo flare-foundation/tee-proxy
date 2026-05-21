@@ -14,7 +14,8 @@ type InfoTiming struct {
 }
 
 func (st InfoTiming) validate() error {
-	if st.CycleInternal <= 0 || st.CycleQueueResponseWait <= 0 {
+	// Initial == 0 is documented as "no timeout"; only negative values are rejected.
+	if st.Initial < 0 || st.CycleInternal <= 0 || st.CycleQueueResponseWait <= 0 {
 		return errInvalidInfoTiming
 	}
 	return nil

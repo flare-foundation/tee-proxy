@@ -100,6 +100,13 @@ func TestValidateStorageTiming(t *testing.T) {
 
 	timing.CycleQueueResponseWait = 0
 	require.Error(t, timing.validate())
+
+	timing.CycleQueueResponseWait = time.Second
+	timing.Initial = -1 * time.Second
+	require.Error(t, timing.validate())
+
+	timing.Initial = 0 // "no timeout" sentinel is accepted
+	require.NoError(t, timing.validate())
 }
 
 func TestConfig(t *testing.T) {
