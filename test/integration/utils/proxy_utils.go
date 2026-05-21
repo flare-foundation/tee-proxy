@@ -122,8 +122,9 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		require.Error(t, err)
 	})
 
-	initialInfo, err := infoService.FetchInfo(t.Context(), 5*time.Second)
+	initialInfo, sentChallenge, err := infoService.FetchInfo(t.Context(), 5*time.Second)
 	require.NoError(t, err)
+	require.Equal(t, sentChallenge, initialInfo.TeeInfo.Challenge, "TEE info challenge round-trip mismatch")
 
 	wg.Go(func() {
 		err := infoService.Run(ctx)

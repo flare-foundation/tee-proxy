@@ -96,11 +96,15 @@ func Run(ctx context.Context, cfgPath string) {
 	go runServer("internal", internalServer.Serve)
 
 	logger.Info("fetching initial TEE info")
-	initialInfo, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)
+	initialInfo, sentChallenge, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)
 	if err != nil {
 		logger.Panicf("fetching initial TEE info: %v", err)
 	}
 	logger.Info("initial TEE info fetched")
+
+	if initialInfo.TeeInfo.Challenge != sentChallenge {
+		logger.Panicf("TEE info challenge mismatch: sent %s, received %s", sentChallenge, initialInfo.TeeInfo.Challenge)
+	}
 
 	go func() {
 		if err := infoService.Run(ctx); err != nil {

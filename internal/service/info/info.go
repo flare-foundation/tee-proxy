@@ -64,7 +64,7 @@ func (s *Service) Run(ctx context.Context) error {
 			logger.Info("tee info storage exiting")
 			return ctx.Err()
 		}
-		err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
+		_, err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
 		if err != nil {
 			errCount++
 		} else {
@@ -77,14 +77,15 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 }
 
-// FetchInfo updates info and returns the update.
-func (s *Service) FetchInfo(ctx context.Context, timeout time.Duration) (*types.TeeInfoResponse, error) {
-	err := s.updateInfo(ctx, timeout)
+// FetchInfo updates info and returns the update along with the challenge that was sent.
+// Callers verify TeeInfo.Challenge against the returned challenge to confirm the response answers their request.
+func (s *Service) FetchInfo(ctx context.Context, timeout time.Duration) (*types.TeeInfoResponse, common.Hash, error) {
+	challenge, err := s.updateInfo(ctx, timeout)
 	if err != nil {
-		return nil, err
+		return nil, common.Hash{}, err
 	}
 
-	return s.Latest, nil
+	return s.Latest, challenge, nil
 }
 
 // newInfoAction returns an action with opType GET, opCommand TEE_INFO,
@@ -103,35 +104,38 @@ func newInfoAction(challenge common.Hash) (*types.Action, error) {
 }
 
 // updateInfo updates the latest info by sending a TEE_INFO action to the TEE and waiting for the response.
-func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
+// Returns the challenge that was sent so callers can verify the response binds to it.
+func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common.Hash, error) {
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
-		return fmt.Errorf("fetching latest block: %w", err)
+		return common.Hash{}, fmt.Errorf("fetching latest block: %w", err)
 	}
 
-	action, err := newInfoAction(common.HexToHash(block.Hash))
+	challenge := common.HexToHash(block.Hash)
+
+	action, err := newInfoAction(challenge)
 	if err != nil {
-		return fmt.Errorf("creating info action: %w", err)
+		return common.Hash{}, fmt.Errorf("creating info action: %w", err)
 	}
 
 	err = s.actionQueues.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
-		return fmt.Errorf("enqueueing info action: %w", err)
+		return common.Hash{}, fmt.Errorf("enqueueing info action: %w", err)
 	}
 
 	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	if err != nil {
-		return fmt.Errorf("waiting for info response: %w", err)
+		return common.Hash{}, fmt.Errorf("waiting for info response: %w", err)
 	}
 	if response.Result.Status != 1 {
-		return fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
+		return common.Hash{}, fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
 	}
 
 	var result types.TeeInfoResponse
 
 	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
-		return fmt.Errorf("unmarshaling info response: %w", err)
+		return common.Hash{}, fmt.Errorf("unmarshaling info response: %w", err)
 	}
 
 	s.Lock()
@@ -143,5 +147,5 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) error {
 	*s.Latest = result
 	s.LastUpdated = time.Now()
 
-	return nil
+	return challenge, nil
 }
