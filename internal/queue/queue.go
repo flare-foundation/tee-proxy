@@ -117,13 +117,16 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 	}
 
 	action, err := as.actions.Get(ctx, storingID.String())
-	if errors.Is(err, redis.Nil) {
+	if errors.Is(err, storage.ErrNotFound) {
 		return nil, fmt.Errorf("queued action not found: %s", storingID.String())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("fetching queued action %s: %w", storingID.String(), err)
 	}
 
 	as.actions.Remove(ctx, storingID.String()) //nolint:errcheck // error can only happen if context is canceled
 
-	return action, err
+	return action, nil
 }
 
 // QueueLength returns the number of elements in the main queue.
