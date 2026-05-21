@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
@@ -56,6 +57,10 @@ type Service struct {
 	keyInfo   <-chan *types.ActionResult
 	backupTTL time.Duration
 
+	// syncing serialises sync() across overlapping triggers so the event loop
+	// keeps draining other channels while a long sync is in progress.
+	syncing atomic.Bool
+
 	sync.RWMutex
 }
 
@@ -83,15 +88,22 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 		case <-ctx.Done():
 			return
 		case <-walletSyncTrigger:
-			logger.Debug("wallet sync start")
-
-			err := s.sync(ctx)
-			if err != nil {
-				logger.Errorf("wallet sync: %v", err)
+			// Run sync in its own goroutine so the loop keeps draining keyActions,
+			// backups, and backupTrigger while sync waits on the tee-node (up to
+			// minutes per batch). syncing guards against overlapping syncs.
+			if !s.syncing.CompareAndSwap(false, true) {
+				logger.Debug("wallet sync skipped: already in progress")
 				continue
 			}
-
-			logger.Debug("wallet sync done")
+			go func() {
+				defer s.syncing.Store(false)
+				logger.Debug("wallet sync start")
+				if err := s.sync(ctx); err != nil {
+					logger.Errorf("wallet sync: %v", err)
+					return
+				}
+				logger.Debug("wallet sync done")
+			}()
 		case keyAction := <-keyActions:
 			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
@@ -261,8 +273,11 @@ func (s *Service) sync(ctx context.Context) error {
 }
 
 // fetchKeyInfo sends a KEY_INFO action and returns the list of key infos from the tee-node.
+// Discards any result whose action ID doesn't match the one just sent — those are
+// stragglers from a previously timed-out request and would otherwise look authoritative
+// because the channel buffer carries no ID context.
 func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
-	// Drain stale results from a previous timed-out request.
+	// Drain stale results from a previous timed-out request still buffered.
 	select {
 	case <-s.keyInfo:
 	default:
@@ -277,20 +292,25 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	expectedID := action.Data.ID
 
 	timer := time.NewTimer(keyInfoResponseTimeout)
 	defer timer.Stop()
 
-	var ar *types.ActionResult
-	select {
-	case ar = <-s.keyInfo:
-	case <-timer.C:
-		return nil, errors.New("key info response timeout")
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	for {
+		select {
+		case ar := <-s.keyInfo:
+			if ar.ID != expectedID {
+				logger.Debugf("dropping stale key info result %v (expected %v)", ar.ID, expectedID)
+				continue
+			}
+			return parseKeyInfoResult(ar)
+		case <-timer.C:
+			return nil, errors.New("key info response timeout")
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
-
-	return parseKeyInfoResult(ar)
 }
 
 // keysNeedingProof returns the key ID pairs from remote that are not in the local cache

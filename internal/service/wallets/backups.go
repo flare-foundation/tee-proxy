@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
@@ -21,6 +22,10 @@ import (
 
 // initiateBackupsConcurrency caps concurrent TEE_BACKUP enqueues at epoch rollover.
 const initiateBackupsConcurrency = 10
+
+// backupStoreTimeout caps how long the two storage writes in createNewBackup may take.
+// Bounded so a degraded Redis can't stall the wallet event loop indefinitely.
+const backupStoreTimeout = 10 * time.Second
 
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
 func (s *Service) InitiateBackups(ctx context.Context) error {
@@ -117,7 +122,10 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 		return fmt.Errorf("hashing backup ID: %w", err)
 	}
 
-	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, s.backupTTL)
+	storeCtx, cancel := context.WithTimeout(ctx, backupStoreTimeout)
+	defer cancel()
+
+	err = s.backups.SetWithTTL(storeCtx, hex.EncodeToString(idHash[:]), b, s.backupTTL)
 	if err != nil {
 		return fmt.Errorf("storing backup: %w", err)
 	}
@@ -127,7 +135,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 		KeyID:    b.BackupID.KeyID,
 	}
 
-	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, s.backupTTL)
+	err = s.index.SetWithTTL(storeCtx, toKey(idPair), idHash, s.backupTTL)
 	if err != nil {
 		return fmt.Errorf("storing backup index: %w", err)
 	}
