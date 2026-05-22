@@ -159,7 +159,7 @@ func Run(ctx context.Context, cfgPath string) {
 	if cfg.Direct.Enable && cfg.Direct.APIKeyOptional {
 		logger.Warn("/direct is enabled without API key authentication (api_key_optional = true)")
 	}
-	externalServer := server.NewExternal(cfg.Ports.External, &instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
+	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
 	go runServer("external", externalServer.Serve)
 
 	livenessService.SignalStartupFinished()

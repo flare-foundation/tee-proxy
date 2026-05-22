@@ -38,10 +38,10 @@ type Service struct {
 }
 
 // NewService creates a new instruction Service with the given voting config, TEE identity, and dependencies.
-func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) *Service {
 	vs := voting.NewStorage(ctx, votingCfg, meta)
 
-	return Service{
+	return &Service{
 		teeID: teeID,
 		vs:    vs,
 
@@ -130,9 +130,8 @@ func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*pk
 	}
 
 	r.Voting.RLock()
-	defer r.Voting.RUnlock()
-
 	boxes, exists := r.Voting.M[instructionID]
+	r.Voting.RUnlock()
 	if !exists {
 		return nil, errNoInstruction
 	}
