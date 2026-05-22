@@ -53,7 +53,10 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 	}
 
 	// do not override final results (0 or 1) or if new status is smaller than other
-	res, _ := rs.s.Get(ctx, id.String()) // error means that the id is not stored, any other type of error will be caught by next call
+	res, err := rs.s.Get(ctx, id.String())
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return fmt.Errorf("reading existing response for %s: %w", id.String(), err)
+	}
 	if res != nil {
 		if res.Result.Status < 2 {
 			return fmt.Errorf("tried to override final status for %s", id.String())
@@ -63,7 +66,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		}
 	}
 
-	err := rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
+	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
 	if err != nil {
 		return fmt.Errorf("storing response %s: %w", id.String(), err)
 	}
@@ -88,15 +91,19 @@ func (rs *ResultStorage) FetchResponse(ctx context.Context, actionID common.Hash
 	return response, nil
 }
 
-// WaitOnResponse waits on the response for the actionID with submissionTag until timeout runs out.
-//
-// If timeout is not positive, it waits until the response arrives.
-// Should only be used if an action with the given ID and submission tag is expected to be processed.
+// WaitOnResponse blocks until the response for actionID/submissionTag is stored, ctx is cancelled,
+// or timeout elapses (whichever comes first). A non-positive timeout disables the timer; ctx is
+// still honoured. Use only when the action is expected to be processed.
 func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+	}
+
+	// Fast path: avoid the SUBSCRIBE round-trip when the result is already stored.
+	if r, err := rs.FetchResponse(ctx, actionID, submissionTag); err == nil {
+		return r, nil
 	}
 
 	id := queue.ActionSubmissionID{
@@ -106,25 +113,21 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 
 	sub := rs.n.Subscribe(ctx, id.String())
 	defer func() {
-		err := sub.Close()
-		if err != nil {
-			logger.Warnf("closing sub for %v: %v", actionID, err)
+		if cerr := sub.Close(); cerr != nil {
+			logger.Warnf("closing sub for %v: %v", actionID, cerr)
 		}
 	}()
 
-	// Check if it was already stored.
-	response, err := rs.FetchResponse(ctx, actionID, submissionTag)
-	if err == nil && response != nil {
-		return response, nil
+	// Race-safe re-check: StoreResponse may have landed between the fast-path fetch and Subscribe.
+	if r, err := rs.FetchResponse(ctx, actionID, submissionTag); err == nil {
+		return r, nil
 	}
 
-	// Wait for a message on the channel.
-	_, err = sub.ReceiveMessage(ctx)
+	_, err := sub.ReceiveMessage(ctx)
 	if err != nil {
 		// Hopeful attempt after error or context cancellation.
-		finalResponse, finalErr := rs.FetchResponse(ctx, actionID, submissionTag)
-		if finalErr == nil {
-			return finalResponse, nil
+		if r, ferr := rs.FetchResponse(ctx, actionID, submissionTag); ferr == nil {
+			return r, nil
 		}
 		return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
 	}
