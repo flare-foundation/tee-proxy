@@ -141,10 +141,8 @@ func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*pk
 	defer boxes.RUnlock()
 
 	status := make([]pkgvoting.Status, 0, len(boxes.M))
-	for hash := range boxes.M {
-		s := boxes.M[hash].Status(hash)
-
-		status = append(status, s)
+	for _, box := range boxes.M {
+		status = append(status, box.Status())
 	}
 
 	return &pkgvoting.Statuses{

@@ -14,8 +14,6 @@ type Round struct {
 	Voting votingSync // instructionID -> instructionHash -> VoteBox
 
 	limiter *limiter.Limiter
-
-	sync.Mutex
 }
 type voteBoxes struct {
 	M map[common.Hash]*voteBox

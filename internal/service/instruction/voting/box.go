@@ -22,11 +22,11 @@ import (
 )
 
 var (
-	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[403])
+	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[400])
 	errActionAlreadyDeleted   = errors.New("already deleted")
 	errActionNotFinalized     = errors.New("not finalized")
 	errInvalidVoter           = fmt.Errorf("%w: invalid voter", status.HTTP[403])
-	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[403])
+	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[410])
 	errSignatureAlreadyStored = fmt.Errorf("%w: signature already stored", status.HTTP[403])
 )
 
@@ -202,7 +202,7 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 }
 
 // Status returns the current status of the box.
-func (vb *voteBox) Status(hash common.Hash) voting.Status {
+func (vb *voteBox) Status() voting.Status {
 	vb.RLock()
 	defer vb.RUnlock()
 
@@ -236,10 +236,10 @@ func (vb *voteBox) delete() {
 	vb.deleted = true
 }
 
-// addVote adds vote to a VoteBox and returns a Receipt and a boolean indicator of finalization,
-// that is true only the first time the conditions for finalization are fulfilled.
+// addVote records a vote and returns a Receipt. The returned bool is true only on the
+// transition into the finalized state — subsequent votes on an already-finalized box return false.
 //
-// Mutex has to be managed by the calling function.
+// Caller must hold vb.Lock.
 func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (voting.Receipt, bool, error) {
 	if voterGroup == invalidVoter {
 		return voting.Receipt{}, false, errInvalidVoter

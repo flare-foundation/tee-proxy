@@ -112,13 +112,13 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	// Hold locks only inside this closure; the channel send below stays unlocked.
 	err = func() error {
-		round.Lock()
+		round.Voting.Lock()
 		boxes, existsBs := round.Voting.M[id]
 		if !existsBs {
 			boxes = newVoteBoxes()
-			defer round.Unlock() // we only save it at the end if no errors are returned
+			defer round.Voting.Unlock() // we only save it at the end if no errors are returned
 		} else {
-			round.Unlock()
+			round.Voting.Unlock()
 		}
 
 		boxes.Lock()
@@ -137,7 +137,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		defer box.Unlock()
 
 		if box.deleted {
-			return fmt.Errorf("%w: voting already ended %s", status.HTTP[410], id.String())
+			return fmt.Errorf("%w: %s", errVotingEnded, id)
 		}
 
 		// box.proposal.cosigners is read under box.Lock because scheduleEnd's
