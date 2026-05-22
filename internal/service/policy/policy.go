@@ -59,9 +59,9 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		// Neither policy is sent to the node — it already has them.
 		// activePolicy is set to lastID so that UpdatePolicyAction
 		// collects signatures from the correct voters for lastID+1.
-		startID := lastID - 1
-		if lastID == 0 {
-			startID = 0
+		var startID uint32
+		if lastID > 0 {
+			startID = lastID - 1
 		}
 
 		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
@@ -180,7 +180,11 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			s.activePolicy = us.Value.policy
 			logger.Debugf("updated signing policy to %d", us.Value.policy.RewardEpochID)
 
-			out <- *us.Value.policy
+			select {
+			case out <- *us.Value.policy:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }
@@ -213,20 +217,21 @@ func signingPolicyInitializedEventsListener(
 			}
 
 			logs, err := database.FetchLogsFull(ctx, db, params)
-			if err != nil {
+			switch {
+			case err != nil:
 				logger.Errorf("fetching logs: %v", err)
-				continue
-			}
-
-			if len(logs) > 0 {
+			case len(logs) > 0:
 				if len(logs) > 1 {
 					// this should never happen
 					logger.Warnf("received more than one log for signing policy initialized ID %d", policyID)
 				}
-
-				out <- logs[0]
-				policyID++
-				continue
+				select {
+				case out <- logs[0]:
+					policyID++
+					continue
+				case <-ctx.Done():
+					return
+				}
 			}
 
 			select {
