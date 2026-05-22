@@ -35,10 +35,8 @@ func (vg voterGroup) isCosigner() bool {
 	return vg&cosigner != 0
 }
 
-// Storage uses a cyclic storage that host voting processes in rounds - one round for each signingPolicy.
-// Round for signing policy ID is stored at ID%size. When a new round is created, the old one at its place is overwritten.
-//
-// Meta provides the meta data for voting processes.
+// Storage holds one voting Round per signing policy in a cyclic buffer; storing a new round at
+// ID%size overwrites the previous occupant.
 type Storage struct {
 	*storage.Cyclic[uint32, *Round]
 
@@ -54,6 +52,8 @@ type Storage struct {
 	ctx context.Context //nolint:containedctx // service-lifetime ctx, see comment
 }
 
+// NewStorage creates a voting Storage backed by a cyclic buffer sized by config.HistorySize.
+// ctx is the service-lifetime context that bounds per-box goroutines created during AddVote.
 func NewStorage(ctx context.Context, config *config.Voting, meta meta.Meta) *Storage {
 	out := make(chan *types.Action, config.FinalizedBufferSize)
 
@@ -68,9 +68,8 @@ func NewStorage(ctx context.Context, config *config.Voting, meta meta.Meta) *Sto
 	}
 }
 
-// StoreNewRound creates a round for signing policy and stores it.
-// This in process overwrites an old round in the place of the new one.
-// If a round is already created nothing happens.
+// StoreNewRound creates and stores a round for the policy, overwriting the previous occupant
+// at the same cyclic slot. A no-op if a round for this policy already exists.
 func (s *Storage) StoreNewRound(policy *policy.SigningPolicy) {
 	_, exists := s.Get(policy.RewardEpochID)
 	if exists {
@@ -82,9 +81,9 @@ func (s *Storage) StoreNewRound(policy *policy.SigningPolicy) {
 	s.Store(policy.RewardEpochID, r)
 }
 
-// AddVote adds vote to a correct vote box in a correct round and returns a receipt.
-// If a round does not exits, an error is returned.
-// If a VoteBox does not exist yet, a new VoteBox is created if the proposer is not limited.
+// AddVote records a vote in the appropriate box and returns a signed receipt.
+// Returns an error if the round is missing; opens a new VoteBox for an unseen instruction
+// hash when the proposer is within the limiter's per-voter cap.
 func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signature []byte) (*voting.Receipt, error) {
 	id := data.InstructionID
 

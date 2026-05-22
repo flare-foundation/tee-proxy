@@ -47,6 +47,7 @@ func (s *RedisStorage[T]) Ping(ctx context.Context) error {
 	return s.client.Ping(ctx).Err()
 }
 
+// ErrEmptyKey is returned by Set/SetWithTTL when called with an empty key, which Redis treats as a no-op.
 var ErrEmptyKey = errors.New("empty key")
 
 // Set stores the item with the key without expiration.
@@ -130,6 +131,7 @@ func (s *RedisStorage[T]) Enqueue(ctx context.Context, item T) error {
 	return s.client.LPush(ctx, s.prefix(""), data).Err()
 }
 
+// ErrEmptyQueue signals that Dequeue had no item to return; callers use it to distinguish empty from error.
 var ErrEmptyQueue = errors.New("empty queue")
 
 // Dequeue dequeues an item from the queue. If no item is available, ErrEmptyQueue error is returned.

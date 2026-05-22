@@ -12,6 +12,8 @@ import (
 )
 
 var (
+	// SigningPolicyInitializedEventSel is the topic[0] selector for the Relay's
+	// SigningPolicyInitialized event; resolved at init from the contract ABI.
 	SigningPolicyInitializedEventSel common.Hash
 	voterRegisteredEventSel          common.Hash
 

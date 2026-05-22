@@ -43,8 +43,11 @@ var (
 	errInvalidOpCommand    = errors.New("invalid action opCommand")
 )
 
+// IDPair identifies a key by its (walletID, keyID) pair.
 type IDPair = wallets.KeyIDPair
 
+// Service is the proxy-side mirror of tee-node wallet state: cached key proofs and a
+// pipeline of backups indexed for retrieval by clients.
 type Service struct {
 	KeysForWallet map[common.Hash][]uint64       // slice of keyIDs per walletID
 	Keys          map[IDPair]*pkgwallets.KeyData // key data per IDPair
@@ -64,6 +67,8 @@ type Service struct {
 	sync.RWMutex
 }
 
+// NewService wires the wallet service to its action queue, result storage, backup stores,
+// and the KEY_INFO channel that delivers sync responses outside the standard result path.
 func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration, keyInfo <-chan *types.ActionResult) *Service {
 	return &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
@@ -191,6 +196,8 @@ func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedK
 	return info.Proof, nil
 }
 
+// WalletInfo returns the KeyExistence of any one key under walletID, used by callers
+// that need wallet-level config (admins, cosigners) and don't care which key answers.
 func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -212,6 +219,7 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 	return &info, nil
 }
 
+// KeyData returns a copy of the cached key record for the given pair, or errKeyDataNotFound.
 func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyData, error) {
 	s.RLock()
 	defer s.RUnlock()

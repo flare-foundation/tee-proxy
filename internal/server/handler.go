@@ -38,10 +38,9 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySiz
 	}
 }
 
-// handleError replies to unsuccessful request.
-// If error is wrapped HTTP error, status is retrieved, and error is given in response.
-// Otherwise, status 500 and "internal server error" is given in the reply.
-// logAsInternal only affects how the request is labelled in error logs.
+// handleError writes the HTTP response for a failed request: a wrapped HTTP error replies
+// with its code and message; anything else replies 500 with a generic message and logs.
+// logAsInternal only labels the source in error logs (it is NOT an auth flag).
 func handleError(w http.ResponseWriter, err error, logAsInternal bool) {
 	source := "external"
 	if logAsInternal {

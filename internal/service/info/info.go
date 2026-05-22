@@ -46,6 +46,8 @@ type Service struct {
 	sync.RWMutex
 }
 
+// NewService creates an info Service that periodically refreshes TEE info from the tee-node
+// and, when ac.Enabled, verifies the response's attestation.
 func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config) *Service {
 	return &Service{
 		Latest:      new(types.TeeInfoResponse),

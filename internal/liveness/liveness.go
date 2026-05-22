@@ -20,6 +20,7 @@ const (
 )
 
 var (
+	// ErrStartUpNotFinished is returned by Startup and Ready before SignalStartupFinished is called.
 	ErrStartUpNotFinished       = errors.New("startup not finished yet")
 	errInfoServiceUninitialized = errors.New("info service not initialized")
 )
@@ -35,6 +36,7 @@ type liveness struct {
 	sync.RWMutex
 }
 
+// New creates a liveness checker over the indexer DB, Redis client, and info/result services.
 func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.Service) *liveness {
 	return &liveness{
 		startUpFinished: false,
@@ -45,13 +47,15 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.
 	}
 }
 
-// SignalStartupFinished sets startUpFinished to true indicating that the startup has finished.
+// SignalStartupFinished marks the proxy as past its bootstrap phase, flipping Startup probes to pass.
 func (l *liveness) SignalStartupFinished() {
 	l.Lock()
 	defer l.Unlock()
 	l.startUpFinished = true
 }
 
+// Startup signals that the proxy has finished bootstrapping (config loaded, services started).
+// A nil return is the Kubernetes-style startup probe pass.
 func (l *liveness) Startup(_ context.Context) error {
 	l.RLock()
 	defer l.RUnlock()
@@ -63,6 +67,9 @@ func (l *liveness) Startup(_ context.Context) error {
 	return nil
 }
 
+// Ready signals that the proxy is fit to serve traffic: startup is done, Redis answers,
+// the c-chain indexer is current, info updates are fresh, and attestation and result
+// storage are not in a known-failed state.
 func (l *liveness) Ready(ctx context.Context) error {
 	l.RLock()
 	defer l.RUnlock()

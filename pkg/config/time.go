@@ -7,10 +7,11 @@ import (
 
 var errInvalidInfoTiming = errors.New("invalid info timing config")
 
+// InfoTiming controls the bootstrap and steady-state cadence of TEE info refreshes.
 type InfoTiming struct {
-	Initial                time.Duration `toml:"initial_timeout"`
-	CycleInternal          time.Duration `toml:"cycle_internal"`
-	CycleQueueResponseWait time.Duration `toml:"cycle_queue_response_wait"`
+	Initial                time.Duration `toml:"initial_timeout"`           // Bound on the bootstrap fetch; 0 means no timeout.
+	CycleInternal          time.Duration `toml:"cycle_internal"`            // Period between periodic refreshes.
+	CycleQueueResponseWait time.Duration `toml:"cycle_queue_response_wait"` // Per-refresh wait for a response.
 }
 
 func (st InfoTiming) validate() error {

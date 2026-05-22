@@ -87,7 +87,8 @@ type voteBox struct {
 	sync.RWMutex
 }
 
-// startVoteBox
+// startVoteBox opens a new voting process: it admits the proposer against the round's limiter
+// and resolves the box's threshold and cosigner set from instruction metadata.
 func startVoteBox(data *instruction.Data, signer common.Address, round *Round, meta meta.Meta, expirationTime time.Duration) (*voteBox, error) {
 	eventTime := time.Unix(int64(data.Timestamp), 0)
 
