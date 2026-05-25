@@ -487,12 +487,10 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 
-	vCfg := &config.Voting{
-		ProposalExpiration:  0,
-		MaxPendingRequests:  0,
+	vCfg := (&config.Voting{
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}
+	}).SetDefault()
 
 	vs := voting.NewStorage(t.Context(), vCfg, &testMeta{})
 	vs.StoreNewRound(sp)

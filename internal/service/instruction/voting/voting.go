@@ -57,8 +57,6 @@ type Storage struct {
 func NewStorage(ctx context.Context, config *config.Voting, meta meta.Meta) *Storage {
 	out := make(chan *types.Action, config.FinalizedBufferSize)
 
-	config = config.SetDefault()
-
 	return &Storage{
 		Cyclic: storage.New[uint32, *Round](config.HistorySize),
 		config: *config,

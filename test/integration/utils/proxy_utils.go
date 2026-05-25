@@ -140,10 +140,10 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	metaObj := meta.New(walletStorage)
 
-	vc := &config.Voting{
+	vc := (&config.Voting{
 		ProposalExpiration: 600 * time.Millisecond,
 		MaxPendingRequests: 100,
-	}
+	}).SetDefault()
 
 	policyChan := make(chan policy.SigningPolicy, 1)
 	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj)

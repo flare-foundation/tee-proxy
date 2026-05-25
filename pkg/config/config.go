@@ -58,6 +58,7 @@ var (
 	errStorageTTLPositive                 = errors.New("storage ttl values have to be positive")
 	errAttestationCodeHashInvalid         = errors.New("attestation expected_code_hashes contains invalid hex")
 	errAttestationMaxTokenAgeNegative     = errors.New("attestation max_token_age must be non-negative")
+	errDirectMaxBodySizeNegative          = errors.New("direct max_body_size must be non-negative")
 )
 
 // Firestore holds Firestore connection configuration.
@@ -93,7 +94,7 @@ type Proxy struct {
 type Attestation struct {
 	Enable bool `toml:"enable"`
 
-	ExpectedCodeHashes    []string `toml:"expected_code_hashes"`    // 32-byte hex, optional 0x or sha256: prefix
+	ExpectedCodeHashes    []string `toml:"expected_code_hashes"`    // 32-byte hex; accepts an optional 0x or sha256: prefix, but not both
 	ExpectedPlatforms     []string `toml:"expected_platforms"`      // hwmodel strings, e.g. "AMD_SEV_SNP_VM"
 	ExpectedDebugStatuses []string `toml:"expected_debug_statuses"` // dbgstat values, e.g. "disabled-since-boot"
 
@@ -130,9 +131,12 @@ func (a Attestation) ParsedCodeHashes() ([]common.Hash, error) {
 }
 
 func parseCodeHash(s string) (common.Hash, error) {
-	s = strings.TrimPrefix(s, "sha256:")
-	s = strings.TrimPrefix(s, "0x")
-	s = strings.TrimPrefix(s, "0X")
+	switch {
+	case strings.HasPrefix(s, "sha256:"):
+		s = s[len("sha256:"):]
+	case strings.HasPrefix(s, "0x"), strings.HasPrefix(s, "0X"):
+		s = s[2:]
+	}
 
 	b, err := hex.DecodeString(s)
 	if err != nil {
@@ -180,7 +184,7 @@ type Direct struct {
 	APIKey         string `toml:"api_key"`          // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
 	APIKeyVariable string `toml:"api_key_variable"` // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
 	APIKeyOptional bool   `toml:"api_key_optional"` // APIKeyOptional disables the API key requirement for the /direct endpoint.
-	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, defaults to 10 MiB.
+	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, the server applies its 10 MiB default.
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
@@ -257,10 +261,13 @@ func Read(path string) (Proxy, error) {
 		return c, errInitialSigningPolicyOffsetNegative
 	}
 
-	c.Storage.SetDefault()
 	err = c.Storage.validate()
 	if err != nil {
 		return c, err
+	}
+
+	if c.Direct.MaxBodySize < 0 {
+		return c, errDirectMaxBodySizeNegative
 	}
 
 	if c.Direct.Enable && !c.Direct.APIKeyOptional {
@@ -275,7 +282,7 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
-	return c, err
+	return c, nil
 }
 
 // resolveDirectAPIKey returns the API key from the environment variable if set,
@@ -365,13 +372,13 @@ func (v *Voting) SetDefault() *Voting {
 	return v
 }
 
-// Validate checks that Voting holds viable values.
+// validate checks that Voting holds viable values.
 func (v *Voting) validate() error {
 	if v.ProposalExpiration <= 0 {
 		return errProposalExpirationPositive
 	}
 
-	if v.MaxPendingRequests <= 0 {
+	if v.MaxPendingRequests == 0 {
 		return errMaxPendingRequestsPositive
 	}
 
