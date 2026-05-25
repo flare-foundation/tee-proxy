@@ -22,6 +22,9 @@ import (
 //go:embed root_certs/google_confidential_space_root.crt
 var googleCSRootPEM []byte
 
+// allowedClockSkew bounds how far in the future an iat claim may be.
+const allowedClockSkew = 30 * time.Second
+
 // GoogleCSRoot returns the embedded Confidential Space root certificate.
 func GoogleCSRoot() (*x509.Certificate, error) {
 	block, _ := pem.Decode(googleCSRootPEM)
@@ -41,7 +44,7 @@ func GoogleCSRoot() (*x509.Certificate, error) {
 // Each optional check runs only when its setting is non-zero.
 type Config struct {
 	Enabled  bool
-	RootCert *x509.Certificate // required when Enabled
+	RootCert *x509.Certificate // required when Enabled, unless every accepted token is MagicPass
 
 	// Optional CRLs; nil skips the corresponding check.
 	LeafCRL         *x509.RevocationList
@@ -58,16 +61,16 @@ type Config struct {
 }
 
 var (
-	ErrDisabled          = errors.New("attestation disabled")
-	ErrMagicPassDisabled = errors.New("magic_pass attestation not allowed")
-	ErrChallengeMismatch = errors.New("attestation challenge does not match sent challenge")
-	ErrPubKeyMismatch    = errors.New("TeeInfo and MachineData public keys differ")
-	ErrNonceMismatch     = errors.New("attestation nonce does not bind to TeeInfo hash")
-	ErrTokenTooOld       = errors.New("attestation token issued too long ago")
-	ErrSecBootDisabled   = errors.New("attestation reports secure boot disabled")
-	ErrDebugNotAllowed   = errors.New("attestation debug status not in allowlist")
-	ErrCodeHashNotAllow  = errors.New("attestation code hash not in allowlist")
-	ErrPlatformNotAllow  = errors.New("attestation platform not in allowlist")
+	ErrDisabled           = errors.New("attestation disabled")
+	ErrMagicPassDisabled  = errors.New("magic_pass attestation not allowed")
+	ErrChallengeMismatch  = errors.New("attestation challenge does not match sent challenge")
+	ErrPubKeyMismatch     = errors.New("TeeInfo and MachineData public keys differ")
+	ErrNonceMismatch      = errors.New("attestation nonce does not bind to TeeInfo hash")
+	ErrTokenTooOld        = errors.New("attestation token issued too long ago")
+	ErrSecBootDisabled    = errors.New("attestation reports secure boot disabled")
+	ErrDebugNotAllowed    = errors.New("attestation debug status not in allowlist")
+	ErrCodeHashNotAllowed = errors.New("attestation code hash not in allowlist")
+	ErrPlatformNotAllowed = errors.New("attestation platform not in allowlist")
 )
 
 // ActiveChecks reports which optional checks Verify will perform. Used for the startup log line.
@@ -80,6 +83,7 @@ type ActiveChecks struct {
 	MagicPass   bool
 }
 
+// Active returns the set of optional checks Verify will run for this config.
 func (cfg *Config) Active() ActiveChecks {
 	return ActiveChecks{
 		CodeHash:    len(cfg.ExpectedCodeHash) > 0,
@@ -91,7 +95,9 @@ func (cfg *Config) Active() ActiveChecks {
 	}
 }
 
-// Verify validates the attestation in tir against cfg.
+// Verify validates the attestation in tir against cfg. It runs bedrock checks first
+// (challenge round-trip, pubkey consistency), short-circuits on MagicPass when allowed,
+// then validates the JWT chain, the nonce binding to TeeInfo, and finally the optional claims.
 func Verify(tir *types.TeeInfoResponse, sentChallenge common.Hash, cfg *Config) error {
 	if !cfg.Enabled {
 		return nil
@@ -141,8 +147,12 @@ func verifyClaims(claims *googlecloud.GoogleTeeClaims, cfg *Config) error {
 		if claims.IssuedAt == nil {
 			return fmt.Errorf("%w: iat claim missing", ErrTokenTooOld)
 		}
-		if age := time.Since(claims.IssuedAt.Time); age > cfg.MaxTokenAge {
+		age := time.Since(claims.IssuedAt.Time)
+		if age > cfg.MaxTokenAge {
 			return fmt.Errorf("%w: %v old", ErrTokenTooOld, age)
+		}
+		if age < -allowedClockSkew {
+			return fmt.Errorf("%w: iat %v in the future", ErrTokenTooOld, -age)
 		}
 	}
 
@@ -160,7 +170,7 @@ func verifyClaims(claims *googlecloud.GoogleTeeClaims, cfg *Config) error {
 			return fmt.Errorf("reading code hash from claims: %w", err)
 		}
 		if !slices.Contains(cfg.ExpectedCodeHash, ch) {
-			return fmt.Errorf("%w: got %s", ErrCodeHashNotAllow, ch)
+			return fmt.Errorf("%w: got %s", ErrCodeHashNotAllowed, ch)
 		}
 	}
 
@@ -170,7 +180,7 @@ func verifyClaims(claims *googlecloud.GoogleTeeClaims, cfg *Config) error {
 			return fmt.Errorf("reading platform from claims: %w", err)
 		}
 		if !slices.Contains(cfg.ExpectedPlatform, p) {
-			return fmt.Errorf("%w: got %s", ErrPlatformNotAllow, p)
+			return fmt.Errorf("%w: got %s", ErrPlatformNotAllowed, p)
 		}
 	}
 

@@ -159,7 +159,7 @@ func TestVerifyJWT(t *testing.T) {
 		require.NoError(t, Verify(tir, challenge, cfg))
 
 		cfg.ExpectedCodeHash = []common.Hash{common.HexToHash("0xdead")}
-		require.ErrorIs(t, Verify(tir, challenge, cfg), ErrCodeHashNotAllow)
+		require.ErrorIs(t, Verify(tir, challenge, cfg), ErrCodeHashNotAllowed)
 	})
 
 	t.Run("platform allowlist", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestVerifyJWT(t *testing.T) {
 		require.NoError(t, Verify(tir, challenge, cfg))
 
 		cfg.ExpectedPlatform = []common.Hash{common.HexToHash("0xbeef")}
-		require.ErrorIs(t, Verify(tir, challenge, cfg), ErrPlatformNotAllow)
+		require.ErrorIs(t, Verify(tir, challenge, cfg), ErrPlatformNotAllowed)
 	})
 
 	t.Run("debug status allowlist", func(t *testing.T) {
@@ -196,6 +196,45 @@ func TestVerifyJWT(t *testing.T) {
 		err := Verify(tir, challenge, cfg)
 		require.ErrorIs(t, err, ErrTokenTooOld)
 	})
+}
+
+func TestVerifyMaxTokenAgeMissingIat(t *testing.T) {
+	challenge := common.HexToHash("0xbeef")
+	tir := newTir(t, challenge)
+	teeInfoHash, err := tir.TeeInfo.Hash()
+	require.NoError(t, err)
+	nonce := hex.EncodeToString(teeInfoHash)
+
+	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
+		EATNonce: googlecloud.EATNonce{nonce},
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	})
+	tir.Attestation = signedJWT
+
+	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, MaxTokenAge: time.Hour})
+	require.ErrorIs(t, err, ErrTokenTooOld)
+}
+
+func TestVerifyMaxTokenAgeFutureIat(t *testing.T) {
+	challenge := common.HexToHash("0xf00d")
+	tir := newTir(t, challenge)
+	teeInfoHash, err := tir.TeeInfo.Hash()
+	require.NoError(t, err)
+	nonce := hex.EncodeToString(teeInfoHash)
+
+	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
+		EATNonce: googlecloud.EATNonce{nonce},
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(2 * time.Hour)),
+		},
+	})
+	tir.Attestation = signedJWT
+
+	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, MaxTokenAge: time.Hour})
+	require.ErrorIs(t, err, ErrTokenTooOld)
 }
 
 func TestVerifySecBootRejectsWhenDisabled(t *testing.T) {
