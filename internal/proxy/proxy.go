@@ -78,6 +78,11 @@ func Run(ctx context.Context, cfgPath string) {
 		if err != nil {
 			logger.Panicf("connecting to Firestore: %v", err)
 		}
+		defer func() {
+			if err := fbClient.Close(); err != nil {
+				logger.Warnf("closing Firestore client: %v", err)
+			}
+		}()
 		resultStore = storage.NewFirestoreStorage[*types.ActionResponse](fbClient, "results")
 		backupStore = storage.NewFirestoreStorage[*teewallets.TEEBackupResponse](fbClient, "backups")
 		backupIndex = storage.NewFirestoreStorage[common.Hash](fbClient, "backupIndex")

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"time"
 
@@ -69,12 +70,12 @@ func (f *FirestoreStorage[T]) Get(ctx context.Context, key string) (T, error) {
 		if grpcstatus.Code(err) == codes.NotFound {
 			return zero, ErrNotFound
 		}
-		return zero, err
+		return zero, fmt.Errorf("getting firestore doc %s/%s: %w", f.collection, key, err)
 	}
 
 	var doc firestoreDoc
 	if err = snap.DataTo(&doc); err != nil {
-		return zero, err
+		return zero, fmt.Errorf("decoding firestore doc %s/%s: %w", f.collection, key, err)
 	}
 
 	if !doc.ExpiresAt.IsZero() && time.Now().After(doc.ExpiresAt) {
@@ -84,7 +85,7 @@ func (f *FirestoreStorage[T]) Get(ctx context.Context, key string) (T, error) {
 
 	var value T
 	if err = json.Unmarshal(doc.Data, &value); err != nil {
-		return zero, err
+		return zero, fmt.Errorf("unmarshaling firestore doc %s/%s: %w", f.collection, key, err)
 	}
 
 	return value, nil
@@ -92,18 +93,24 @@ func (f *FirestoreStorage[T]) Get(ctx context.Context, key string) (T, error) {
 
 func (f *FirestoreStorage[T]) Remove(ctx context.Context, key string) error {
 	_, err := f.client.Collection(f.collection).Doc(key).Delete(ctx)
-	return err
+	if err != nil {
+		return fmt.Errorf("deleting firestore doc %s/%s: %w", f.collection, key, err)
+	}
+	return nil
 }
 
 func (f *FirestoreStorage[T]) write(ctx context.Context, key string, item T, expiresAt time.Time) error {
 	data, err := json.Marshal(item)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshaling value for firestore doc %s/%s: %w", f.collection, key, err)
 	}
 
 	_, err = f.client.Collection(f.collection).Doc(key).Set(ctx, firestoreDoc{
 		Data:      data,
 		ExpiresAt: expiresAt,
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("writing firestore doc %s/%s: %w", f.collection, key, err)
+	}
+	return nil
 }
