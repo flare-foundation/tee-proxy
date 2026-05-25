@@ -65,6 +65,11 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	redisClient := storage.NewClient(cfg.RedisPort)
+	defer func() {
+		if err := redisClient.Close(); err != nil {
+			logger.Warnf("closing Redis client: %v", err)
+		}
+	}()
 	actionQueues := queue.NewActionQueues(redisClient, cfg.Storage.ActionTTL)
 
 	var (
