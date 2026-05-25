@@ -21,7 +21,7 @@ type KeyExistence struct {
 	KeyID           uint64          `json:"keyId"`
 	KeyType         common.Hash     `json:"keyType"`
 	SigningAlgo     common.Hash     `json:"signingAlgo"`
-	PublicKey       hexutil.Bytes   `json:"publicKye"`
+	PublicKey       hexutil.Bytes   `json:"publicKey"`
 	Nonce           *big.Int        `json:"nonce"`
 	Restored        bool            `json:"restore"`
 	ConfigConstants ConfigConstants `json:"configConstants"`
