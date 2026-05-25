@@ -79,7 +79,7 @@ func (f *FirestoreStorage[T]) Get(ctx context.Context, key string) (T, error) {
 	}
 
 	if !doc.ExpiresAt.IsZero() && time.Now().After(doc.ExpiresAt) {
-		go f.client.Collection(f.collection).Doc(key).Delete(context.Background()) //nolint:errcheck // best-effort cleanup
+		_, _ = f.client.Collection(f.collection).Doc(key).Delete(ctx) // best-effort cleanup; safe to retry on next Get
 		return zero, ErrNotFound
 	}
 
