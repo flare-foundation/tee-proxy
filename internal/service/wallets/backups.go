@@ -56,11 +56,10 @@ func (s *Service) InitiateBackups(ctx context.Context) error {
 func (s *Service) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets.TEEBackupResponse, error) {
 	b, err := s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 	if err != nil {
-		rErr := fmt.Errorf("fetching backup data with hash %s: %w", idHash.Hex(), err)
 		if errors.Is(err, storage.ErrNotFound) {
-			rErr = status.Add(err, 404)
+			return nil, status.Add(err, 404)
 		}
-		return nil, rErr
+		return nil, fmt.Errorf("fetching backup data with hash %s: %w", idHash.Hex(), err)
 	}
 
 	return b, nil
@@ -70,15 +69,18 @@ func (s *Service) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets
 func (s *Service) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallets.TEEBackupResponse, error) {
 	idHash, err := s.index.Get(ctx, toKey(idPair))
 	if err != nil {
-		rErr := fmt.Errorf("fetching backup id hash for %v: %w", idPair, err)
 		if errors.Is(err, storage.ErrNotFound) {
-			rErr = status.Add(err, 404)
+			return nil, status.Add(err, 404)
 		}
-		return nil, rErr
+		return nil, fmt.Errorf("fetching backup id hash for %v: %w", idPair, err)
 	}
 
 	backup, err := s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			logger.Warnf("orphan index for %v points at missing body %s", idPair, idHash.Hex())
+			return nil, status.Add(err, 404)
+		}
 		return nil, fmt.Errorf("fetching latest backup data for %v with hash %s: %w", idPair, idHash.Hex(), err)
 	}
 
