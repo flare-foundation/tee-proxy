@@ -20,7 +20,6 @@ const (
 	keyActionsChanSize    = 1000
 	backupsChanSize       = 1000
 	backupTriggerChanSize = 1
-	keyInfoChanSize       = 1
 )
 
 var (
@@ -40,8 +39,6 @@ type Service struct {
 	Backups chan *types.ActionResult
 	// A channel for backup trigger actions (UPDATE_POLICY)
 	BackupTrigger chan bool
-	// A channel for key info responses (KEY_INFO). Delivered directly, bypassing storage.
-	KeyInfo chan *types.ActionResult
 
 	mu    sync.RWMutex
 	teeID common.Address
@@ -57,14 +54,12 @@ func NewService(rs *ResultStorage) *Service {
 	kat := make(chan *types.ActionResult, keyActionsChanSize)
 	bst := make(chan *types.ActionResult, backupsChanSize)
 	btt := make(chan bool, backupTriggerChanSize)
-	kit := make(chan *types.ActionResult, keyInfoChanSize)
 
 	return &Service{
 		rs:            rs,
 		KeyActions:    kat,
 		Backups:       bst,
 		BackupTrigger: btt,
-		KeyInfo:       kit,
 	}
 }
 
@@ -130,13 +125,6 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 			default:
 				logger.Error("backup trigger channel full")
 			}
-		case op.KeyInfo.Hash():
-			select {
-			case s.KeyInfo <- &r.Result:
-			default:
-				logger.Error("key info channel full")
-			}
-			return nil
 		}
 	}
 

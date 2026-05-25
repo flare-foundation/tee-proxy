@@ -57,7 +57,6 @@ type Service struct {
 
 	aq        *queue.ActionQueues
 	rs        *result.ResultStorage
-	keyInfo   <-chan *types.ActionResult
 	backupTTL time.Duration
 
 	// syncing serialises sync() across overlapping triggers so the event loop
@@ -67,9 +66,8 @@ type Service struct {
 	sync.RWMutex
 }
 
-// NewService wires the wallet service to its action queue, result storage, backup stores,
-// and the KEY_INFO channel that delivers sync responses outside the standard result path.
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration, keyInfo <-chan *types.ActionResult) *Service {
+// NewService wires the wallet service to its action queue, result storage, and backup stores.
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration) *Service {
 	return &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
@@ -79,7 +77,6 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 
 		aq:        aq,
 		rs:        rs,
-		keyInfo:   keyInfo,
 		backupTTL: backupTTL,
 	}
 }
@@ -281,44 +278,24 @@ func (s *Service) sync(ctx context.Context) error {
 }
 
 // fetchKeyInfo sends a KEY_INFO action and returns the list of key infos from the tee-node.
-// Discards any result whose action ID doesn't match the one just sent — those are
-// stragglers from a previously timed-out request and would otherwise look authoritative
-// because the channel buffer carries no ID context.
+// Routes through ResultStorage so the action ID disambiguates concurrent or stale responses.
 func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
-	// Drain stale results from a previous timed-out request still buffered.
-	select {
-	case <-s.keyInfo:
-	default:
-	}
-
 	action, err := keysInfoAction()
 	if err != nil {
-		return nil, fmt.Errorf("parsing key info action result: %w", err)
+		return nil, fmt.Errorf("creating key info action: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
 		return nil, err
 	}
-	expectedID := action.Data.ID
 
-	timer := time.NewTimer(keyInfoResponseTimeout)
-	defer timer.Stop()
-
-	for {
-		select {
-		case ar := <-s.keyInfo:
-			if ar.ID != expectedID {
-				logger.Debugf("dropping stale key info result %v (expected %v)", ar.ID, expectedID)
-				continue
-			}
-			return parseKeyInfoResult(ar)
-		case <-timer.C:
-			return nil, errors.New("key info response timeout")
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
+	if err != nil {
+		return nil, err
 	}
+
+	return parseKeyInfoResult(&response.Result)
 }
 
 // keysNeedingProof returns the key ID pairs from remote that are not in the local cache

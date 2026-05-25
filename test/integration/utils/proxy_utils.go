@@ -106,7 +106,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
 	backupIndex := testutil.NewMemStorage[common.Hash]()
 	resultService := result.NewService(rs)
-	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL, resultService.KeyInfo)
+	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
 
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
