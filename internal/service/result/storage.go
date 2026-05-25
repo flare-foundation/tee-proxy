@@ -52,7 +52,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		storingDur = rs.submitResultTTL
 	}
 
-	// do not override final results (0 or 1) or if new status is smaller than other
+	// Status 0/1 is final (never overridden); >=2 is transient (overridden by a strictly higher transient or by any final).
 	res, err := rs.s.Get(ctx, id.String())
 	if err != nil && !errors.Is(err, storage.ErrNotFound) {
 		return fmt.Errorf("reading existing response for %s: %w", id.String(), err)
@@ -78,8 +78,10 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 
 // FetchResponse returns action response for action id and submission tag.
 func (rs *ResultStorage) FetchResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
-	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
+	return rs.fetchByID(ctx, queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag})
+}
 
+func (rs *ResultStorage) fetchByID(ctx context.Context, id queue.ActionSubmissionID) (*types.ActionResponse, error) {
 	response, err := rs.s.Get(ctx, id.String())
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil, fmt.Errorf("%w: response not in storage: %v", status.HTTP[404], err)
@@ -101,36 +103,33 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 		defer cancel()
 	}
 
-	// Fast path: avoid the SUBSCRIBE round-trip when the result is already stored.
-	if r, err := rs.FetchResponse(ctx, actionID, submissionTag); err == nil {
-		return r, nil
-	}
+	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
 
-	id := queue.ActionSubmissionID{
-		ActionID:      actionID,
-		SubmissionTag: submissionTag,
+	// Fast path: avoid the SUBSCRIBE round-trip when the result is already stored.
+	if r, err := rs.fetchByID(ctx, id); err == nil {
+		return r, nil
 	}
 
 	sub := rs.n.Subscribe(ctx, id.String())
 	defer func() {
 		if cerr := sub.Close(); cerr != nil {
-			logger.Warnf("closing sub for %v: %v", actionID, cerr)
+			logger.Warnf("closing sub for %v: %v", id, cerr)
 		}
 	}()
 
 	// Race-safe re-check: StoreResponse may have landed between the fast-path fetch and Subscribe.
-	if r, err := rs.FetchResponse(ctx, actionID, submissionTag); err == nil {
+	if r, err := rs.fetchByID(ctx, id); err == nil {
 		return r, nil
 	}
 
 	_, err := sub.ReceiveMessage(ctx)
 	if err != nil {
 		// Hopeful attempt after error or context cancellation.
-		if r, ferr := rs.FetchResponse(ctx, actionID, submissionTag); ferr == nil {
+		if r, ferr := rs.fetchByID(ctx, id); ferr == nil {
 			return r, nil
 		}
-		return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
+		return nil, fmt.Errorf("waiting for the response for %v: %w", id, err)
 	}
 
-	return rs.FetchResponse(ctx, actionID, submissionTag)
+	return rs.fetchByID(ctx, id)
 }

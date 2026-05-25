@@ -88,6 +88,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Info("wallet event loop exiting")
 			return
 		case <-walletSyncTrigger:
 			// Run sync in its own goroutine so the loop keeps draining keyActions,
@@ -254,6 +255,9 @@ func (s *Service) sync(ctx context.Context) error {
 			return fmt.Errorf("fetching key proofs: %w", err)
 		}
 
+		// Lock is dropped between batches so the event loop keeps draining. Safe today
+		// because event-loop writers don't touch IDPairs in toFetch; a RESTORE landing
+		// here would lose to a stale batch write but self-heals on the next sync.
 		s.Lock()
 		for _, proof := range proofs {
 			info, err := parseKeyExistenceProof(proof)
@@ -549,7 +553,7 @@ func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistence
 }
 
 func parseKeyExistenceProof(proof *wallets.SignedKeyExistenceProof) (*pkgwallets.KeyExistence, error) {
-	var out = new(pkgwallets.KeyExistence)
+	out := new(pkgwallets.KeyExistence)
 
 	err := structs.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistence, out)
 	if err != nil {
