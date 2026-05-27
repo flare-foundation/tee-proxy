@@ -8,9 +8,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
-// PrepareDirectAction prepares an action with direct instruction.
-//
-// With type "direct" and submission tag "submit".
+// PrepareDirectAction wraps a payload as a Direct/Submit action ready for enqueue.
 func PrepareDirectAction(opType op.Type, opCommand op.Command, msg []byte) (*types.Action, error) {
 	di := &types.DirectInstruction{
 		OPType:    opType.Hash(),

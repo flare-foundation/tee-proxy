@@ -2,7 +2,6 @@ package instruction
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -36,20 +35,18 @@ type Service struct {
 
 	policies <-chan policy.SigningPolicy
 	aq       *queue.ActionQueues
-	privKey  *ecdsa.PrivateKey
 }
 
-// NewService creates a new instruction Service with the given voting config, TEE identity, signing key, and dependencies.
-func NewService(votingCfg *config.Voting, teeID common.Address, privKey *ecdsa.PrivateKey, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) Service {
-	vs := voting.NewStorage(votingCfg, meta)
+// NewService creates a new instruction Service with the given voting config, TEE identity, and dependencies.
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) *Service {
+	vs := voting.NewStorage(ctx, votingCfg, meta)
 
-	return Service{
+	return &Service{
 		teeID: teeID,
 		vs:    vs,
 
 		policies: policiesChan,
 		aq:       aq,
-		privKey:  privKey,
 	}
 }
 
@@ -85,8 +82,14 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 // Run starts the Forward and ListenToPolicies loops concurrently.
 func (s *Service) Run(ctx context.Context) {
-	go s.Forward(ctx)       //nolint:errcheck // todo
-	s.ListenToPolicies(ctx) //nolint:errcheck // todo
+	go func() {
+		if err := s.Forward(ctx); err != nil {
+			logger.Errorf("instruction forward exited: %v", err)
+		}
+	}()
+	if err := s.ListenToPolicies(ctx); err != nil {
+		logger.Errorf("listen to policies exited: %v", err)
+	}
 }
 
 // Forward listens to the out channel and enqueues received actions.
@@ -127,9 +130,8 @@ func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*pk
 	}
 
 	r.Voting.RLock()
-	defer r.Voting.RUnlock()
-
 	boxes, exists := r.Voting.M[instructionID]
+	r.Voting.RUnlock()
 	if !exists {
 		return nil, errNoInstruction
 	}
@@ -138,10 +140,8 @@ func (s *Service) Statuses(instructionID common.Hash, rewardEpochID uint32) (*pk
 	defer boxes.RUnlock()
 
 	status := make([]pkgvoting.Status, 0, len(boxes.M))
-	for hash := range boxes.M {
-		s := boxes.M[hash].Status(hash)
-
-		status = append(status, s)
+	for _, box := range boxes.M {
+		status = append(status, box.Status())
 	}
 
 	return &pkgvoting.Statuses{

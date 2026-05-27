@@ -487,28 +487,20 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 
-	vCfg := &config.Voting{
-		ProposalExpiration:  0,
-		MaxPendingRequests:  0,
+	vCfg := (&config.Voting{
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}
+	}).SetDefault()
 
-	vs := voting.NewStorage(vCfg, &testMeta{})
+	vs := voting.NewStorage(t.Context(), vCfg, &testMeta{})
 	vs.StoreNewRound(sp)
 
-	sk4, err := crypto.GenerateKey()
-	if err != nil {
-		panic("cannot generate key")
-	}
-
-	aq := queue.NewActionQueues(c)
+	aq := queue.NewActionQueues(c, time.Hour)
 	s := &Service{
 		teeID:    teeID,
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
 		aq:       aq,
-		privKey:  sk4,
 	}
 
 	return mr, c, s

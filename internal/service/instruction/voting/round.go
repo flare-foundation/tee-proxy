@@ -8,13 +8,12 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting/limiter"
 )
 
+// Round holds all voting activity that belongs to one signing policy (reward epoch).
 type Round struct {
 	policy *policy.SigningPolicy
 	Voting votingSync // instructionID -> instructionHash -> VoteBox
 
 	limiter *limiter.Limiter
-
-	sync.Mutex
 }
 type voteBoxes struct {
 	M map[common.Hash]*voteBox

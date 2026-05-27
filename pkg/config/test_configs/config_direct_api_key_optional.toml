@@ -10,7 +10,7 @@ initial_signing_policy_offset = 2
 
 [direct]
 enable = true
-no_api_key = true
+api_key_optional = true
 
 [db]
 host = "localhost"

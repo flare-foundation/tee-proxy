@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -21,7 +22,8 @@ const noBody int64 = 0
 
 // prepareHandler wraps a handler function with common setup.
 // maxBodySize is passed to http.MaxBytesReader; pass a negative value to skip body limiting.
-func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, isInternal bool) http.HandlerFunc {
+// logAsInternal only affects how the request is labelled in error logs (it is NOT an auth flag).
+func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySize int64, logAsInternal bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -31,19 +33,26 @@ func prepareHandler(f func(http.ResponseWriter, *http.Request) error, maxBodySiz
 
 		err := f(w, r)
 		if err != nil {
-			handleError(w, err, isInternal)
+			handleError(w, err, logAsInternal)
 		}
 	}
 }
 
-// handleError replies to unsuccessful request.
-// If error is wrapped HTTP error, status is retrieved, and error is given in response.
-// Otherwise, status 500 and "internal server error" is given in the reply.
-// isInternal parameter only affects the logging.
-func handleError(w http.ResponseWriter, err error, isInternal bool) {
+// handleError writes the HTTP response for a failed request: a wrapped HTTP error replies
+// with its code and message; anything else replies 500 with a generic message and logs.
+// logAsInternal only labels the source in error logs (it is NOT an auth flag).
+func handleError(w http.ResponseWriter, err error, logAsInternal bool) {
 	source := "external"
-	if isInternal {
+	if logAsInternal {
 		source = "internal"
+	}
+
+	// Body-size violations from http.MaxBytesReader surface as *http.MaxBytesError.
+	// Map directly to 413 — ErrInvalidBody would otherwise drop that signal.
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+		return
 	}
 
 	code := status.ErrToCode(err)

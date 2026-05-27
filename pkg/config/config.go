@@ -33,6 +33,11 @@ const (
 	defaultFinalizedBufferSize = 10
 
 	defaultDBSyncMaxSleepTime = 10 * time.Minute
+
+	defaultActionTTL       = 14 * 24 * time.Hour
+	defaultResultTTL       = 14 * 24 * time.Hour
+	defaultSubmitResultTTL = 30 * time.Minute
+	defaultBackupTTL       = 8 * 24 * time.Hour
 )
 
 var (
@@ -50,6 +55,10 @@ var (
 	errMaxProviderVoteOutOfRange          = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
 	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
 	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
+	errStorageTTLPositive                 = errors.New("storage ttl values have to be positive")
+	errAttestationCodeHashInvalid         = errors.New("attestation expected_code_hashes contains invalid hex")
+	errAttestationMaxTokenAgeNegative     = errors.New("attestation max_token_age must be non-negative")
+	errDirectMaxBodySizeNegative          = errors.New("direct max_body_size must be non-negative")
 )
 
 // Firestore holds Firestore connection configuration.
@@ -76,6 +85,97 @@ type Proxy struct {
 	DBSyncMaxSleepTime         time.Duration   `toml:"db_sync_max_sleep_time"`        // Max sleep between DB sync retries on startup. Defaults to 10m.
 	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
 	Direct                     Direct          `toml:"direct"`                        // Direct endpoint configuration.
+	Storage                    Storage         `toml:"storage"`                       // TTLs applied to Redis/Firestore-backed persistent storage.
+	Attestation                Attestation     `toml:"attestation"`                   // Bootstrap attestation verification configuration.
+}
+
+// Attestation controls bootstrap attestation verification.
+// Empty allowlists / zero values skip the corresponding check.
+type Attestation struct {
+	Enable bool `toml:"enable"`
+
+	ExpectedCodeHashes    []string `toml:"expected_code_hashes"`    // 32-byte hex; accepts an optional 0x or sha256: prefix, but not both
+	ExpectedPlatforms     []string `toml:"expected_platforms"`      // hwmodel strings, e.g. "AMD_SEV_SNP_VM"
+	ExpectedDebugStatuses []string `toml:"expected_debug_statuses"` // dbgstat values, e.g. "disabled-since-boot"
+
+	MaxTokenAge    time.Duration `toml:"max_token_age"`
+	RequireSecBoot bool          `toml:"require_sec_boot"`
+
+	// AllowMagicPass accepts the tee-node sentinel; dev/test only.
+	AllowMagicPass bool `toml:"allow_magic_pass"`
+}
+
+func (a Attestation) validate() error {
+	if a.MaxTokenAge < 0 {
+		return errAttestationMaxTokenAgeNegative
+	}
+	for _, h := range a.ExpectedCodeHashes {
+		if _, err := parseCodeHash(h); err != nil {
+			return fmt.Errorf("%w: %q: %v", errAttestationCodeHashInvalid, h, err)
+		}
+	}
+	return nil
+}
+
+// ParsedCodeHashes decodes ExpectedCodeHashes; safe after validate() passes.
+func (a Attestation) ParsedCodeHashes() ([]common.Hash, error) {
+	out := make([]common.Hash, 0, len(a.ExpectedCodeHashes))
+	for _, h := range a.ExpectedCodeHashes {
+		parsed, err := parseCodeHash(h)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %q: %w", h, err)
+		}
+		out = append(out, parsed)
+	}
+	return out, nil
+}
+
+func parseCodeHash(s string) (common.Hash, error) {
+	switch {
+	case strings.HasPrefix(s, "sha256:"):
+		s = s[len("sha256:"):]
+	case strings.HasPrefix(s, "0x"), strings.HasPrefix(s, "0X"):
+		s = s[2:]
+	}
+
+	b, err := hex.DecodeString(s)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if len(b) != common.HashLength {
+		return common.Hash{}, fmt.Errorf("expected %d bytes, got %d", common.HashLength, len(b))
+	}
+	return common.BytesToHash(b), nil
+}
+
+// Storage holds TTLs for persistent stores (Redis/Firestore).
+type Storage struct {
+	ActionTTL       time.Duration `toml:"action_ttl"`        // Retention for queued action bodies. Defaults to 14 days.
+	ResultTTL       time.Duration `toml:"result_ttl"`        // Retention for Threshold/End results. Defaults to 14 days.
+	SubmitResultTTL time.Duration `toml:"submit_result_ttl"` // Retention for Submit results. Defaults to 30 minutes.
+	BackupTTL       time.Duration `toml:"backup_ttl"`        // Retention for backup bodies and index. Defaults to 8 days.
+}
+
+func (s *Storage) SetDefault() {
+	if s.ActionTTL <= 0 {
+		s.ActionTTL = defaultActionTTL
+	}
+	if s.ResultTTL <= 0 {
+		s.ResultTTL = defaultResultTTL
+	}
+	if s.SubmitResultTTL <= 0 {
+		s.SubmitResultTTL = defaultSubmitResultTTL
+	}
+	if s.BackupTTL <= 0 {
+		s.BackupTTL = defaultBackupTTL
+	}
+}
+
+func (s *Storage) validate() error {
+	if s.ActionTTL <= 0 || s.ResultTTL <= 0 || s.SubmitResultTTL <= 0 || s.BackupTTL <= 0 {
+		return errStorageTTLPositive
+	}
+	return nil
 }
 
 // Direct holds configuration for the /direct endpoint.
@@ -83,8 +183,8 @@ type Direct struct {
 	Enable         bool   `toml:"enable"`           // Enable registers the /direct endpoint on the external server.
 	APIKey         string `toml:"api_key"`          // APIKey for the /direct endpoint. Can also be set via env variable (see APIKeyVariable).
 	APIKeyVariable string `toml:"api_key_variable"` // APIKeyVariable is the name of environment variable that stores the /direct endpoint API key. Defaults to DIRECT_API_KEY.
-	NoAPIKey       bool   `toml:"no_api_key"`       // NoAPIKey disables API key requirement for the /direct endpoint.
-	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, defaults to 10 MiB.
+	APIKeyOptional bool   `toml:"api_key_optional"` // APIKeyOptional disables the API key requirement for the /direct endpoint.
+	MaxBodySize    int64  `toml:"max_body_size"`    // MaxBodySize limits the body of the request on the /direct endpoint. If 0, the server applies its 10 MiB default.
 }
 
 // Read reads Proxy configurations from toml file at path and validates them.
@@ -106,6 +206,13 @@ func Read(path string) (Proxy, error) {
 		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
 		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
 		DBSyncMaxSleepTime:         defaultDBSyncMaxSleepTime,
+
+		Storage: Storage{
+			ActionTTL:       defaultActionTTL,
+			ResultTTL:       defaultResultTTL,
+			SubmitResultTTL: defaultSubmitResultTTL,
+			BackupTTL:       defaultBackupTTL,
+		},
 
 		Logging: logger.Config{
 			Level:       "DEBUG",
@@ -154,14 +261,28 @@ func Read(path string) (Proxy, error) {
 		return c, errInitialSigningPolicyOffsetNegative
 	}
 
-	if c.Direct.Enable && !c.Direct.NoAPIKey {
+	err = c.Storage.validate()
+	if err != nil {
+		return c, err
+	}
+
+	if c.Direct.MaxBodySize < 0 {
+		return c, errDirectMaxBodySizeNegative
+	}
+
+	if c.Direct.Enable && !c.Direct.APIKeyOptional {
 		c.Direct.APIKey = resolveDirectAPIKey(c.Direct.APIKeyVariable, c.Direct.APIKey)
 		if c.Direct.APIKey == "" {
 			return c, errDirectAPIKeyNotSet
 		}
 	}
 
-	return c, err
+	err = c.Attestation.validate()
+	if err != nil {
+		return c, err
+	}
+
+	return c, nil
 }
 
 // resolveDirectAPIKey returns the API key from the environment variable if set,
@@ -251,13 +372,13 @@ func (v *Voting) SetDefault() *Voting {
 	return v
 }
 
-// Validate checks that Voting holds viable values.
+// validate checks that Voting holds viable values.
 func (v *Voting) validate() error {
 	if v.ProposalExpiration <= 0 {
 		return errProposalExpirationPositive
 	}
 
-	if v.MaxPendingRequests <= 0 {
+	if v.MaxPendingRequests == 0 {
 		return errMaxPendingRequestsPositive
 	}
 

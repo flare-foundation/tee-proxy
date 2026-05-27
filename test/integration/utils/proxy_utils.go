@@ -31,6 +31,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
+	"github.com/flare-foundation/tee-proxy/pkg/attestation"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
@@ -56,7 +57,7 @@ var TestTimeConfig = struct {
 	Timeout  time.Duration
 	Interval time.Duration
 }{
-	Timeout:  2000 * time.Millisecond,
+	Timeout:  6000 * time.Millisecond,
 	Interval: 50 * time.Millisecond,
 }
 
@@ -86,7 +87,7 @@ func mockDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// RunProxy simulates behavior of internal/initialize.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
+// RunProxy simulates behavior of internal/proxy/proxy.go - Starts internal and external proxy servers, and fetches TEE ID from TEE
 func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.PrivateKey, wg *sync.WaitGroup) (*ProxyConfig, func()) {
 	t.Helper()
 
@@ -96,18 +97,23 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	db := mockDB(t)
 
 	c := storage.NewClient(mr.Addr())
-	aq := queue.NewActionQueues(c)
-	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c))
+	storageCfg := config.Storage{}
+	storageCfg.SetDefault()
+	aq := queue.NewActionQueues(c, storageCfg.ActionTTL)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
 
 	// Setup action and result services
 	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
 	backupIndex := testutil.NewMemStorage[common.Hash]()
-	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore)
 	resultService := result.NewService(rs)
+	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
 
-	infoService := new(info.Service)
+	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
+		CycleInternal:          StorageTimeConfig.CycleInternal,
+		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
+	}, &attestation.Config{Enabled: false})
 
-	livenessService := liveness.New(db, c, infoService)
+	livenessService := liveness.New(db, c, infoService, resultService)
 
 	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService)
 
@@ -117,13 +123,9 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 		require.Error(t, err)
 	})
 
-	*infoService = info.NewService(db, aq, rs, &config.InfoTiming{
-		CycleInternal:          StorageTimeConfig.CycleInternal,
-		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
-	})
-
-	initialInfo, err := infoService.FetchInfo(t.Context(), 5*time.Second)
+	initialInfo, sentChallenge, err := infoService.FetchInfo(t.Context(), 5*time.Second)
 	require.NoError(t, err)
+	require.Equal(t, sentChallenge, initialInfo.TeeInfo.Challenge, "TEE info challenge round-trip mismatch")
 
 	wg.Go(func() {
 		err := infoService.Run(ctx)
@@ -138,14 +140,14 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 
 	metaObj := meta.New(walletStorage)
 
-	vc := &config.Voting{
+	vc := (&config.Voting{
 		ProposalExpiration: 600 * time.Millisecond,
 		MaxPendingRequests: 100,
-	}
+	}).SetDefault()
 
 	policyChan := make(chan policy.SigningPolicy, 1)
-	instService := instruction.NewService(vc, teeID, proxyPk, policyChan, aq, metaObj)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), &instService, resultService, infoService, walletStorage, proxyPk, aq, server.DirectConfig{})
+	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, aq, server.DirectConfig{})
 
 	wg.Go(func() {
 		instService.Run(ctx)

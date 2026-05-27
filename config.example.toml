@@ -5,8 +5,9 @@ chain_id = 14
 private_key_variable = "PRIVATE_KEY"
 
 
-initial_signing_policy_offset = 2
+initial_signing_policy_offset = 3
 signing_policy_fetch_interval = "10m"
+db_sync_max_sleep_time = "10m"
 
 
 [db]
@@ -37,15 +38,24 @@ external = "6662"
 
 
 [info_timing]
-initial_timeout = "1m"           # 0 for no timeout
+initial_timeout = "5m"           # 0 for no timeout
 cycle_internal = "10s"
-cycle_queue_response_wait = "2s"
+cycle_queue_response_wait = "30s"
 
 
 [voting]
 proposal_expiration = "120s"
 max_pending_request = 100
-max_provider_vote = 0.025  # Max fraction of total weight a single provider can hold. Caps per-vote variable message size for restore ops. 0 = no cap.
+history_size = 3                 # Number of most recent signing policy rounds kept in memory
+finalized_buffer_size = 10       # Buffer size for the finalized instructions channel
+max_provider_vote = 0.025        # Max fraction of total weight a single provider can hold. Caps per-vote variable message size for restore ops. 0 = no cap.
+
+
+[storage]
+action_ttl = "336h"          # 14d — action bodies (Action-* keys)
+result_ttl = "336h"          # 14d — Threshold/End results
+submit_result_ttl = "30m"    # Submit results (short — bootstrap only)
+backup_ttl = "192h"          # 8d — backups and backup index
 
 
 
@@ -61,4 +71,24 @@ enable = false
 api_key = ""
 api_key_variable = "DIRECT_API_KEY"
 # Set to true to disable API key requirement for /direct endpoint
-no_api_key = false
+api_key_optional = false
+# Max body size on /direct. 0 defaults to 10 MiB.
+max_body_size = 0
+
+
+[attestation]
+# When disabled the proxy trusts whichever TEE answers the bootstrap challenge first.
+enable = false
+
+# Each allowlist is optional; leave empty to skip that check.
+# JWT signature, nonce, challenge round-trip, and pubkey consistency are always enforced when enabled.
+
+# expected_code_hashes = ["sha256:abcdef..."]            # 32-byte hex, optional 0x/sha256: prefix
+# expected_platforms = ["AMD_SEV_SNP_VM", "INTEL_TDX_VM"]
+# expected_debug_statuses = ["disabled-since-boot"]
+
+max_token_age = "5m"      # 0 skips freshness check
+require_sec_boot = false
+
+# Accept tee-node "magic_pass" sentinel; for non-Confidential-Space test runs only.
+allow_magic_pass = false

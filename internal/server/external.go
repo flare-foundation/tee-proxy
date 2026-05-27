@@ -65,10 +65,10 @@ type External struct {
 
 // DirectConfig holds configuration for the /direct endpoint.
 type DirectConfig struct {
-	Enable      bool
-	APIKey      string
-	NoAPIKey    bool
-	MaxBodySize int64
+	Enable         bool
+	APIKey         string
+	APIKeyOptional bool
+	MaxBodySize    int64
 }
 
 // NewExternal creates and configures a new External server listening on port.
@@ -190,7 +190,7 @@ func (e *External) verifyAPIKey(r *http.Request) error {
 // The request should provide direct instruction.
 // A direct action and put into queue and also returned to the caller.
 func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
-	if !e.direct.NoAPIKey {
+	if !e.direct.APIKeyOptional {
 		err := e.verifyAPIKey(r)
 		if err != nil {
 			return err
@@ -261,7 +261,7 @@ func (e *External) resultH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	response.ProxySignature, err = crypto.Sign(accounts.TextHash(crypto.Keccak256(response.Result.Data)), e.privKey)
+	response.ProxySignature, err = crypto.Sign(accounts.TextHash(response.Result.Hash()), e.privKey)
 	if err != nil {
 		return err
 	}

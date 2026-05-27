@@ -9,6 +9,7 @@ import (
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
@@ -19,6 +20,7 @@ const (
 )
 
 var (
+	// ErrStartUpNotFinished is returned by Startup and Ready before SignalStartupFinished is called.
 	ErrStartUpNotFinished       = errors.New("startup not finished yet")
 	errInfoServiceUninitialized = errors.New("info service not initialized")
 )
@@ -29,26 +31,31 @@ type liveness struct {
 	db     *gorm.DB
 	client *redis.Client
 	info   *info.Service
+	result *result.Service
 
 	sync.RWMutex
 }
 
-func New(db *gorm.DB, client *redis.Client, info *info.Service) *liveness {
+// New creates a liveness checker over the indexer DB, Redis client, and info/result services.
+func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.Service) *liveness {
 	return &liveness{
 		startUpFinished: false,
 		db:              db,
 		client:          client,
 		info:            info,
+		result:          results,
 	}
 }
 
-// SignalStartupFinished sets startUpFinished to true indicating that the startup has finished.
+// SignalStartupFinished marks the proxy as past its bootstrap phase, flipping Startup probes to pass.
 func (l *liveness) SignalStartupFinished() {
 	l.Lock()
 	defer l.Unlock()
 	l.startUpFinished = true
 }
 
+// Startup signals that the proxy has finished bootstrapping (config loaded, services started).
+// A nil return is the Kubernetes-style startup probe pass.
 func (l *liveness) Startup(_ context.Context) error {
 	l.RLock()
 	defer l.RUnlock()
@@ -60,9 +67,12 @@ func (l *liveness) Startup(_ context.Context) error {
 	return nil
 }
 
+// Ready signals that the proxy is fit to serve traffic: startup is done, Redis answers,
+// the c-chain indexer is current, info updates are fresh, and attestation and result
+// storage are not in a known-failed state.
 func (l *liveness) Ready(ctx context.Context) error {
-	l.Lock()
-	defer l.Unlock()
+	l.RLock()
+	defer l.RUnlock()
 
 	if !l.startUpFinished {
 		return ErrStartUpNotFinished
@@ -88,6 +98,16 @@ func (l *liveness) Ready(ctx context.Context) error {
 
 	if delay > infoDelayTolerance {
 		return fmt.Errorf("no new info in last %v", delay)
+	}
+
+	if aErr := l.info.LastAttestationErr(); aErr != nil {
+		return fmt.Errorf("attestation failing: %w", aErr)
+	}
+
+	if l.result != nil {
+		if sErr := l.result.LastStorageErr(); sErr != nil {
+			return fmt.Errorf("result storage failing: %w", sErr)
+		}
 	}
 
 	return nil

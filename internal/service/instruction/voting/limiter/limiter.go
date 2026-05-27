@@ -13,6 +13,7 @@ var (
 	ErrLimitReached     = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
 )
 
+// Limiter caps how many concurrent unfinalised proposals a single voter may have open.
 type Limiter struct {
 	counter map[common.Address]*State
 
@@ -21,12 +22,9 @@ type Limiter struct {
 	sync.RWMutex
 }
 
-// State tracks the counts for a voter.
+// State tracks per-voter proposal counters.
 type State struct {
-	// Address common.Address
-	pending uint
-	// Note: The following two fields can be used to calculate the ratio of completed to proposed requests.
-	// Note: This could be used to detect if a validator is malicious or just working incorrectly.
+	pending        uint
 	TotalProposed  int
 	TotalCompleted int
 }

@@ -45,7 +45,7 @@ Requires: Redis server, MySQL/SQLite database with C-chain indexer data.
 
 ### Key Infrastructure
 
-- **Queue system** (`internal/queue/`): Three queue types (Direct, Main, Backup) backed by Redis with 30-day TTL for action submissions.
+- **Queue system** (`internal/queue/`): Three queue types (Direct, Main, Backup) backed by Redis. Action bodies are kept under the configured `storage.action_ttl` (default 14 days).
 - **Generic storage** (`pkg/storage/`): Redis-backed `Storage[T]` with get/set/queue/pub-sub operations, namespaced keys.
 - **Status mapping** (`pkg/status/`): Maps domain errors to HTTP status codes.
 - **Liveness** (`internal/liveness/`): Health checks monitoring C-chain indexer and info service delays.

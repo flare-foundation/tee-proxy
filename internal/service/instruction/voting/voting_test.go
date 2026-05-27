@@ -33,7 +33,7 @@ func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 }
 
 func TestStorage(t *testing.T) {
-	s := NewStorage(&config.Voting{
+	s := NewStorage(t.Context(), &config.Voting{
 		ProposalExpiration:  2 * time.Second,
 		MaxPendingRequests:  10,
 		HistorySize:         3,
@@ -101,7 +101,7 @@ func TestStorage(t *testing.T) {
 }
 
 func TestFDCMessageValidity(t *testing.T) {
-	s := NewStorage(&config.Voting{
+	s := NewStorage(t.Context(), &config.Voting{
 		ProposalExpiration:  2 * time.Second,
 		MaxPendingRequests:  10,
 		HistorySize:         3,
@@ -152,7 +152,7 @@ func TestFDCMessageValidity(t *testing.T) {
 }
 
 func TestFDCMessage(t *testing.T) {
-	s := NewStorage(&config.Voting{
+	s := NewStorage(t.Context(), &config.Voting{
 		ProposalExpiration:  2 * time.Second,
 		MaxPendingRequests:  10,
 		HistorySize:         3,
@@ -209,7 +209,7 @@ func TestFDCMessage(t *testing.T) {
 }
 
 func TestStorageConcurrent(t *testing.T) {
-	s := NewStorage(&config.Voting{
+	s := NewStorage(t.Context(), &config.Voting{
 		ProposalExpiration:  2 * time.Second,
 		MaxPendingRequests:  10,
 		HistorySize:         3,
@@ -276,7 +276,7 @@ func TestStorageConcurrent(t *testing.T) {
 }
 
 func TestAddingVoteAfterExpiry(t *testing.T) {
-	s := NewStorage(&config.Voting{
+	s := NewStorage(t.Context(), &config.Voting{
 		ProposalExpiration:  100 * time.Millisecond,
 		MaxPendingRequests:  10,
 		HistorySize:         3,
@@ -323,6 +323,62 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 
 	_, err = s.AddVote(i, a2, s2)
 	require.Error(t, err)
+}
+
+// TestConcurrentVoteAtExpiry verifies AddVote and scheduleEnd respect a consistent
+// lock order (boxes → box) under concurrent expiry.
+func TestConcurrentVoteAtExpiry(t *testing.T) {
+	const expiry = 50 * time.Millisecond
+
+	s := NewStorage(t.Context(), &config.Voting{
+		ProposalExpiration:  expiry,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 3,
+	}, &testMeta{})
+	s.StoreNewRound(testutil.TestSigningPolicy)
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("concurrent-expiry")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochID:          1,
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
+			OriginalMessage:        []byte("TODO"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	h, err := i.HashForSigning()
+	require.NoError(t, err)
+
+	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
+	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	a2 := crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey)
+	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
+	require.NoError(t, err)
+
+	_, err = s.AddVote(i, a1, s1)
+	require.NoError(t, err)
+
+	// Race a second vote with scheduleEnd firing.
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(expiry)
+		_, _ = s.AddVote(i, a2, s2)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: AddVote did not complete within 2s of expiry")
+	}
 }
 
 func TestComputeThresholdSigningPolicy(t *testing.T) {

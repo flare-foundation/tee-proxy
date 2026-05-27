@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
@@ -15,13 +17,16 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"golang.org/x/sync/errgroup"
 
-	"time"
-
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
 )
 
-const expirationTime = 8 * 24 * time.Hour
+// initiateBackupsConcurrency caps concurrent TEE_BACKUP enqueues at epoch rollover.
+const initiateBackupsConcurrency = 10
+
+// backupStoreTimeout caps each storage call in createNewBackup. Bounded so a degraded
+// Redis can't stall the wallet event loop indefinitely.
+const backupStoreTimeout = 10 * time.Second
 
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
 func (s *Service) InitiateBackups(ctx context.Context) error {
@@ -33,6 +38,7 @@ func (s *Service) InitiateBackups(ctx context.Context) error {
 	s.RUnlock()
 
 	var eg errgroup.Group
+	eg.SetLimit(initiateBackupsConcurrency)
 	for _, id := range ids {
 		eg.Go(func() error {
 			err := s.initiateBackup(ctx, id)
@@ -50,11 +56,10 @@ func (s *Service) InitiateBackups(ctx context.Context) error {
 func (s *Service) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets.TEEBackupResponse, error) {
 	b, err := s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 	if err != nil {
-		rErr := fmt.Errorf("fetching backup data with hash %s: %w", idHash.Hex(), err)
 		if errors.Is(err, storage.ErrNotFound) {
-			rErr = status.Add(err, 404)
+			return nil, status.Add(err, 404)
 		}
-		return nil, rErr
+		return nil, fmt.Errorf("fetching backup data with hash %s: %w", idHash.Hex(), err)
 	}
 
 	return b, nil
@@ -64,15 +69,18 @@ func (s *Service) FetchBackup(ctx context.Context, idHash common.Hash) (*wallets
 func (s *Service) FetchLatestBackup(ctx context.Context, idPair IDPair) (*wallets.TEEBackupResponse, error) {
 	idHash, err := s.index.Get(ctx, toKey(idPair))
 	if err != nil {
-		rErr := fmt.Errorf("fetching backup id hash for %v: %w", idPair, err)
 		if errors.Is(err, storage.ErrNotFound) {
-			rErr = status.Add(err, 404)
+			return nil, status.Add(err, 404)
 		}
-		return nil, rErr
+		return nil, fmt.Errorf("fetching backup id hash for %v: %w", idPair, err)
 	}
 
 	backup, err := s.backups.Get(ctx, hex.EncodeToString(idHash[:]))
 	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			logger.Warnf("orphan index for %v points at missing body %s", idPair, idHash.Hex())
+			return nil, status.Add(err, 404)
+		}
 		return nil, fmt.Errorf("fetching latest backup data for %v with hash %s: %w", idPair, idHash.Hex(), err)
 	}
 
@@ -116,8 +124,11 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	if err != nil {
 		return fmt.Errorf("hashing backup ID: %w", err)
 	}
+	idHashKey := hex.EncodeToString(idHash[:])
 
-	err = s.backups.SetWithTTL(ctx, hex.EncodeToString(idHash[:]), b, expirationTime)
+	bodyCtx, bodyCancel := context.WithTimeout(ctx, backupStoreTimeout)
+	defer bodyCancel()
+	err = s.backups.SetWithTTL(bodyCtx, idHashKey, b, s.backupTTL)
 	if err != nil {
 		return fmt.Errorf("storing backup: %w", err)
 	}
@@ -127,8 +138,12 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 		KeyID:    b.BackupID.KeyID,
 	}
 
-	err = s.index.SetWithTTL(ctx, toKey(idPair), idHash, expirationTime)
+	indexCtx, indexCancel := context.WithTimeout(ctx, backupStoreTimeout)
+	defer indexCancel()
+	err = s.index.SetWithTTL(indexCtx, toKey(idPair), idHash, s.backupTTL)
 	if err != nil {
+		// Body landed but index didn't: backup is orphaned until backupTTL.
+		logger.Errorf("backup orphaned for %v: body at %s but index write failed: %v", idPair, idHashKey, err)
 		return fmt.Errorf("storing backup index: %w", err)
 	}
 

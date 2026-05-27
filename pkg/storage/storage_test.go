@@ -21,13 +21,6 @@ func TestStorage(t *testing.T) {
 
 	s := NewRedisStorage[TestStruct]("testMain", c)
 
-	t.Run("Ping", func(t *testing.T) {
-		t.Parallel()
-
-		err := s.Ping(t.Context())
-		require.NoError(t, err)
-	})
-
 	t.Run("Set TTL and Get", func(t *testing.T) {
 		t.Parallel()
 

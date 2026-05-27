@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/flare-foundation/go-flare-common/pkg/retry"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
@@ -58,18 +59,22 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		// Neither policy is sent to the node — it already has them.
 		// activePolicy is set to lastID so that UpdatePolicyAction
 		// collects signatures from the correct voters for lastID+1.
-		startID := lastID - 1
-		if lastID == 0 {
-			startID = 0
+		var startID uint32
+		if lastID > 0 {
+			startID = lastID - 1
 		}
 
-		prevPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
-		if err != nil {
-			return fmt.Errorf("setting initial policy: %w", err)
-		}
 		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
 		if err != nil {
 			return fmt.Errorf("loading last policy %d: %w", lastID, err)
+		}
+
+		prevPolicy := lastPolicy
+		if startID != lastID {
+			prevPolicy, err = policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
+			if err != nil {
+				return fmt.Errorf("loading previous policy %d: %w", startID, err)
+			}
 		}
 
 		s.activePolicy = lastPolicy
@@ -125,34 +130,60 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 	return pChan, nil
 }
 
+var (
+	// updatePolicyRetry is low because collectSignatures already retries internally
+	// for up to 3 hours; a returned error means a long-tail issue unlikely to clear quickly.
+	updatePolicyRetry = retry.Params{MaxAttempts: 2, Delay: 30 * time.Second}
+	enqueueRetry      = retry.Params{MaxAttempts: 5, Delay: time.Second}
+)
+
+type updatePolicyResult struct {
+	action *types.Action
+	policy *cpolicy.SigningPolicy
+}
+
 // update receives SigningPolicyInitialized events from logsC and:
 //   - processes them into SigningPolicy structs
-//   - adds signing policy to out channel
-//   - fetches public keys of signers in the signing active
-//   - creates and enqueues "UPDATE_POLICY" actions.
+//   - creates and enqueues "UPDATE_POLICY" actions for the node
+//   - advances activePolicy and broadcasts on out, but only after enqueue succeeds
+//
+// Failures are retried with bounded backoff; if retries are exhausted the log is
+// dropped with an error indicating loss, and activePolicy is left unchanged so
+// proxy and node stay in sync.
 func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db *gorm.DB, logsC <-chan database.Log) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case log := <-logsC:
-
+			nextID := s.activePolicy.RewardEpochID + 1
 			logger.Debugf("updating signing policy from %d", s.activePolicy.RewardEpochID)
-			action, p, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
-			if err != nil {
-				logger.Errorf("creating UPDATE_POLICY action for reward epoch %d for chainID %v: %v", s.activePolicy.RewardEpochID+1, s.chainID, err)
+
+			us := retry.Execute(ctx, func() (updatePolicyResult, error) {
+				action, p, e := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
+				return updatePolicyResult{action: action, policy: p}, e
+			}, updatePolicyRetry)
+			if !us.Success {
+				logger.Errorf("UPDATE_POLICY for reward epoch %d lost: %v", nextID, us.Err)
 				continue
 			}
 
-			s.activePolicy = p
-			logger.Debugf("updated signing policy to %d", s.activePolicy.RewardEpochID)
-
-			out <- *p
-
-			err = s.aq.Enqueue(ctx, action, processorutils.Direct)
-			if err != nil {
-				logger.Errorf("enqueueing UPDATE_POLICY action for reward epoch %d for chainID %v: %v", s.activePolicy.RewardEpochID+1, s.chainID, err)
+			es := retry.Execute(ctx, func() (struct{}, error) {
+				return struct{}{}, s.aq.Enqueue(ctx, us.Value.action, processorutils.Direct)
+			}, enqueueRetry)
+			if !es.Success {
+				logger.Errorf("UPDATE_POLICY enqueue for reward epoch %d lost: %v", nextID, es.Err)
 				continue
+			}
+
+			// Both side effects landed; advance proxy state.
+			s.activePolicy = us.Value.policy
+			logger.Debugf("updated signing policy to %d", us.Value.policy.RewardEpochID)
+
+			select {
+			case out <- *us.Value.policy:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}
@@ -186,23 +217,28 @@ func signingPolicyInitializedEventsListener(
 			}
 
 			logs, err := database.FetchLogsFull(ctx, db, params)
-			if err != nil {
+			switch {
+			case err != nil:
 				logger.Errorf("fetching logs: %v", err)
-				continue
-			}
-
-			if len(logs) > 0 {
+			case len(logs) > 0:
 				if len(logs) > 1 {
 					// this should never happen
 					logger.Warnf("received more than one log for signing policy initialized ID %d", policyID)
 				}
-
-				out <- logs[0]
-				policyID++
-				continue
+				select {
+				case out <- logs[0]:
+					policyID++
+					continue
+				case <-ctx.Done():
+					return
+				}
 			}
 
-			time.Sleep(fetchInterval)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(fetchInterval):
+			}
 		}
 	}()
 

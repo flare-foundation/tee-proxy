@@ -15,28 +15,29 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
-const (
-	defaultStoringDuration = 14 * 24 * time.Hour
-	submitStoringDuration  = 30 * time.Minute
-)
-
 // ResultStorage provides methods for storing and retrieving action responses.
+//
+// mu serialises StoreResponse so the override-guard read-then-write stays atomic; reads do not take it.
 type ResultStorage struct {
-	mu sync.Mutex
-	s  storage.Storage[*types.ActionResponse]
-	n  storage.Notifier
+	mu              sync.Mutex
+	s               storage.Storage[*types.ActionResponse]
+	n               storage.Notifier
+	resultTTL       time.Duration
+	submitResultTTL time.Duration
 }
 
-// NewStorage creates a new ResultStorage backed by the provided Storage.
-// The Notifier is used for pub/sub notifications when results are stored.
-func NewStorage(s storage.Storage[*types.ActionResponse], n storage.Notifier) *ResultStorage {
+// NewStorage builds a ResultStorage. resultTTL applies to Threshold/End results,
+// submitResultTTL to Submit results.
+func NewStorage(s storage.Storage[*types.ActionResponse], n storage.Notifier, resultTTL, submitResultTTL time.Duration) *ResultStorage {
 	return &ResultStorage{
-		s: s,
-		n: n,
+		s:               s,
+		n:               n,
+		resultTTL:       resultTTL,
+		submitResultTTL: submitResultTTL,
 	}
 }
 
-// StoreResponse stores response with identifier actionID:submissionTag for 2 weeks for end and threshold actions, or half an hour for submit actions.
+// StoreResponse stores response under actionID:submissionTag with the appropriate TTL.
 func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.ActionResponse) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -46,13 +47,16 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		SubmissionTag: response.Result.SubmissionTag,
 	}
 
-	storingDur := defaultStoringDuration
+	storingDur := rs.resultTTL
 	if response.Result.SubmissionTag == types.Submit {
-		storingDur = submitStoringDuration
+		storingDur = rs.submitResultTTL
 	}
 
-	// do not override final results (0 or 1) or if new status is smaller than other
-	res, _ := rs.s.Get(ctx, id.String()) // error means that the id is not stored, any other type of error will be caught by next call
+	// Status 0/1 is final (never overridden); >=2 is transient (overridden by a strictly higher transient or by any final).
+	res, err := rs.s.Get(ctx, id.String())
+	if err != nil && !errors.Is(err, storage.ErrNotFound) {
+		return fmt.Errorf("reading existing response for %s: %w", id.String(), err)
+	}
 	if res != nil {
 		if res.Result.Status < 2 {
 			return fmt.Errorf("tried to override final status for %s", id.String())
@@ -62,7 +66,7 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 		}
 	}
 
-	err := rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
+	err = rs.s.SetWithTTL(ctx, id.String(), response, storingDur)
 	if err != nil {
 		return fmt.Errorf("storing response %s: %w", id.String(), err)
 	}
@@ -72,13 +76,15 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 	return nil
 }
 
-// GetResponse returns action response for action id and submission tag.
-func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
-	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
+// FetchResponse returns action response for action id and submission tag.
+func (rs *ResultStorage) FetchResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
+	return rs.fetchByID(ctx, queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag})
+}
 
+func (rs *ResultStorage) fetchByID(ctx context.Context, id queue.ActionSubmissionID) (*types.ActionResponse, error) {
 	response, err := rs.s.Get(ctx, id.String())
 	if errors.Is(err, storage.ErrNotFound) {
-		return nil, fmt.Errorf("%w: response not in storage: %w", status.HTTP[404], err)
+		return nil, fmt.Errorf("%w: response not in storage: %v", status.HTTP[404], err)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading response for %s: %w", id.String(), err)
@@ -87,10 +93,9 @@ func (rs *ResultStorage) GetResponse(ctx context.Context, actionID common.Hash, 
 	return response, nil
 }
 
-// WaitOnResponse waits on the response for the actionID with submissionTag until timeout runs out.
-//
-// If timeout is not positive, it waits until the response arrives.
-// Should only be used if an action with the given ID and submission tag is expected to be processed.
+// WaitOnResponse blocks until the response for actionID/submissionTag is stored, ctx is cancelled,
+// or timeout elapses (whichever comes first). A non-positive timeout disables the timer; ctx is
+// still honoured. Use only when the action is expected to be processed.
 func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag, timeout time.Duration) (*types.ActionResponse, error) {
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -98,35 +103,33 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 		defer cancel()
 	}
 
-	id := queue.ActionSubmissionID{
-		ActionID:      actionID,
-		SubmissionTag: submissionTag,
+	id := queue.ActionSubmissionID{ActionID: actionID, SubmissionTag: submissionTag}
+
+	// Fast path: avoid the SUBSCRIBE round-trip when the result is already stored.
+	if r, err := rs.fetchByID(ctx, id); err == nil {
+		return r, nil
 	}
 
 	sub := rs.n.Subscribe(ctx, id.String())
 	defer func() {
-		err := sub.Close()
-		if err != nil {
-			logger.Warnf("closing sub for %v: %v", actionID, err)
+		if cerr := sub.Close(); cerr != nil {
+			logger.Warnf("closing sub for %v: %v", id, cerr)
 		}
 	}()
 
-	// Check if it was already stored.
-	response, err := rs.GetResponse(ctx, actionID, submissionTag)
-	if err == nil && response != nil {
-		return response, nil
+	// Race-safe re-check: StoreResponse may have landed between the fast-path fetch and Subscribe.
+	if r, err := rs.fetchByID(ctx, id); err == nil {
+		return r, nil
 	}
 
-	// Wait for a message on the channel.
-	_, err = sub.ReceiveMessage(ctx)
+	_, err := sub.ReceiveMessage(ctx)
 	if err != nil {
 		// Hopeful attempt after error or context cancellation.
-		finalResponse, finalErr := rs.GetResponse(ctx, actionID, submissionTag)
-		if finalErr == nil {
-			return finalResponse, nil
+		if r, ferr := rs.fetchByID(ctx, id); ferr == nil {
+			return r, nil
 		}
-		return nil, fmt.Errorf("waiting for the response for %v, %v: %w", actionID, submissionTag, err)
+		return nil, fmt.Errorf("waiting for the response for %v: %w", id, err)
 	}
 
-	return rs.GetResponse(ctx, actionID, submissionTag)
+	return rs.fetchByID(ctx, id)
 }

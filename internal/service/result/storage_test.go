@@ -21,7 +21,7 @@ func TestStoreResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 	n := storage.NewNotifier(c)
-	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n)
+	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, 30*time.Minute)
 
 	t.Run("store and retrieve", func(t *testing.T) {
 		actionID, err := random.Hash()
@@ -32,7 +32,7 @@ func TestStoreResponse(t *testing.T) {
 		err = s.StoreResponse(t.Context(), res)
 		require.NoError(t, err)
 
-		got, err := s.GetResponse(t.Context(), actionID, types.Submit)
+		got, err := s.FetchResponse(t.Context(), actionID, types.Submit)
 		require.NoError(t, err)
 		require.Equal(t, res, got)
 	})
@@ -50,7 +50,7 @@ func TestStoreResponse(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorContains(t, err, "override final status")
 
-		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		got, err := s.FetchResponse(t.Context(), actionID, types.End)
 		require.NoError(t, err)
 		require.Equal(t, uint8(0), got.Result.Status)
 	})
@@ -68,7 +68,7 @@ func TestStoreResponse(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorContains(t, err, "override final status")
 
-		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		got, err := s.FetchResponse(t.Context(), actionID, types.End)
 		require.NoError(t, err)
 		require.Equal(t, uint8(1), got.Result.Status)
 	})
@@ -100,7 +100,7 @@ func TestStoreResponse(t *testing.T) {
 		require.Error(t, err)
 		require.ErrorContains(t, err, "override higher transient status")
 
-		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		got, err := s.FetchResponse(t.Context(), actionID, types.End)
 		require.NoError(t, err)
 		require.Equal(t, uint8(5), got.Result.Status)
 	})
@@ -117,7 +117,7 @@ func TestStoreResponse(t *testing.T) {
 		err = s.StoreResponse(t.Context(), override)
 		require.NoError(t, err)
 
-		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		got, err := s.FetchResponse(t.Context(), actionID, types.End)
 		require.NoError(t, err)
 		require.Equal(t, uint8(4), got.Result.Status)
 	})
@@ -134,7 +134,7 @@ func TestStoreResponse(t *testing.T) {
 		err = s.StoreResponse(t.Context(), override)
 		require.NoError(t, err)
 
-		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		got, err := s.FetchResponse(t.Context(), actionID, types.End)
 		require.NoError(t, err)
 		require.Equal(t, uint8(0), got.Result.Status)
 	})
@@ -147,7 +147,7 @@ func TestStoreResponse(t *testing.T) {
 		err = s.StoreResponse(t.Context(), res)
 		require.NoError(t, err)
 
-		got, err := s.GetResponse(t.Context(), actionID, types.Submit)
+		got, err := s.FetchResponse(t.Context(), actionID, types.Submit)
 		require.NoError(t, err)
 		require.Equal(t, res, got)
 	})
@@ -160,7 +160,7 @@ func TestStoreResponse(t *testing.T) {
 		err = s.StoreResponse(t.Context(), res)
 		require.NoError(t, err)
 
-		got, err := s.GetResponse(t.Context(), actionID, types.End)
+		got, err := s.FetchResponse(t.Context(), actionID, types.End)
 		require.NoError(t, err)
 		require.Equal(t, res, got)
 	})
@@ -170,7 +170,7 @@ func TestWaitOnResponse(t *testing.T) {
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
 	n := storage.NewNotifier(c)
-	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n)
+	s := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, 30*time.Minute)
 
 	t.Run("already stored", func(t *testing.T) {
 		actionID, err := random.Hash()

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
@@ -42,8 +43,11 @@ var (
 	errInvalidOpCommand    = errors.New("invalid action opCommand")
 )
 
+// IDPair identifies a key by its (walletID, keyID) pair.
 type IDPair = wallets.KeyIDPair
 
+// Service is the proxy-side mirror of tee-node wallet state: cached key proofs and a
+// pipeline of backups indexed for retrieval by clients.
 type Service struct {
 	KeysForWallet map[common.Hash][]uint64       // slice of keyIDs per walletID
 	Keys          map[IDPair]*pkgwallets.KeyData // key data per IDPair
@@ -51,14 +55,19 @@ type Service struct {
 	index   storage.Storage[common.Hash]                // latest backup ID hash per IDPair
 	backups storage.Storage[*wallets.TEEBackupResponse] // backups per backupIDHash
 
-	aq      *queue.ActionQueues
-	rs      *result.ResultStorage
-	keyInfo <-chan *types.ActionResult
+	aq        *queue.ActionQueues
+	rs        *result.ResultStorage
+	backupTTL time.Duration
+
+	// syncing serialises sync() across overlapping triggers so the event loop
+	// keeps draining other channels while a long sync is in progress.
+	syncing atomic.Bool
 
 	sync.RWMutex
 }
 
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse]) *Service {
+// NewService wires the wallet service to its action queue, result storage, and backup stores.
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration) *Service {
 	return &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
@@ -66,27 +75,38 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 		index:   index,
 		backups: backups,
 
-		aq: aq,
-		rs: rs,
+		aq:        aq,
+		rs:        rs,
+		backupTTL: backupTTL,
 	}
 }
 
-func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups chan *types.ActionResult, keyInfo <-chan *types.ActionResult) {
-	s.keyInfo = keyInfo
+// RunUpdateInfo runs the wallet service's event loop until ctx is cancelled.
+// Multiplexes periodic sync triggers, key-update and backup results, and the
+// epoch-rollover backup trigger onto a single goroutine.
+func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTrigger <-chan bool, keyActions <-chan *types.ActionResult, backups <-chan *types.ActionResult) {
 	for {
 		select {
 		case <-ctx.Done():
+			logger.Info("wallet event loop exiting")
 			return
 		case <-walletSyncTrigger:
-			logger.Debug("wallet sync start")
-
-			err := s.sync(ctx)
-			if err != nil {
-				logger.Errorf("wallet sync: %v", err)
+			// Run sync in its own goroutine so the loop keeps draining keyActions,
+			// backups, and backupTrigger while sync waits on the tee-node (up to
+			// minutes per batch). syncing guards against overlapping syncs.
+			if !s.syncing.CompareAndSwap(false, true) {
+				logger.Debug("wallet sync skipped: already in progress")
 				continue
 			}
-
-			logger.Debug("wallet sync done")
+			go func() {
+				defer s.syncing.Store(false)
+				logger.Debug("wallet sync start")
+				if err := s.sync(ctx); err != nil {
+					logger.Errorf("wallet sync: %v", err)
+					return
+				}
+				logger.Debug("wallet sync done")
+			}()
 		case keyAction := <-keyActions:
 			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
@@ -127,7 +147,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 				logger.Errorf("triggering backups: %v", err)
 				continue
 			}
-			logger.Debug("backups triggered")
+			logger.Debug("backups enqueued")
 		}
 	}
 }
@@ -174,6 +194,8 @@ func (s *Service) KeyProof(walletID common.Hash, keyID uint64) (*wallets.SignedK
 	return info.Proof, nil
 }
 
+// WalletInfo returns the KeyExistence of any one key under walletID, used by callers
+// that need wallet-level config (admins, cosigners) and don't care which key answers.
 func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -195,6 +217,7 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 	return &info, nil
 }
 
+// KeyData returns a copy of the cached key record for the given pair, or errKeyDataNotFound.
 func (s *Service) KeyData(walletID common.Hash, keyID uint64) (*pkgwallets.KeyData, error) {
 	s.RLock()
 	defer s.RUnlock()
@@ -232,6 +255,9 @@ func (s *Service) sync(ctx context.Context) error {
 			return fmt.Errorf("fetching key proofs: %w", err)
 		}
 
+		// Lock is dropped between batches so the event loop keeps draining. Safe today
+		// because event-loop writers don't touch IDPairs in toFetch; a RESTORE landing
+		// here would lose to a stale batch write but self-heals on the next sync.
 		s.Lock()
 		for _, proof := range proofs {
 			info, err := parseKeyExistenceProof(proof)
@@ -256,16 +282,11 @@ func (s *Service) sync(ctx context.Context) error {
 }
 
 // fetchKeyInfo sends a KEY_INFO action and returns the list of key infos from the tee-node.
+// Routes through ResultStorage so the action ID disambiguates concurrent or stale responses.
 func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
-	// Drain stale results from a previous timed-out request.
-	select {
-	case <-s.keyInfo:
-	default:
-	}
-
 	action, err := keysInfoAction()
 	if err != nil {
-		return nil, fmt.Errorf("parsing key info action result: %w", err)
+		return nil, fmt.Errorf("creating key info action: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
@@ -273,19 +294,12 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 		return nil, err
 	}
 
-	timer := time.NewTimer(keyInfoResponseTimeout)
-	defer timer.Stop()
-
-	var ar *types.ActionResult
-	select {
-	case ar = <-s.keyInfo:
-	case <-timer.C:
-		return nil, errors.New("key info response timeout")
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
+	if err != nil {
+		return nil, err
 	}
 
-	return parseKeyInfoResult(ar)
+	return parseKeyInfoResult(&response.Result)
 }
 
 // keysNeedingProof returns the key ID pairs from remote that are not in the local cache
@@ -539,7 +553,7 @@ func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistence
 }
 
 func parseKeyExistenceProof(proof *wallets.SignedKeyExistenceProof) (*pkgwallets.KeyExistence, error) {
-	var out = new(pkgwallets.KeyExistence)
+	out := new(pkgwallets.KeyExistence)
 
 	err := structs.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistence, out)
 	if err != nil {

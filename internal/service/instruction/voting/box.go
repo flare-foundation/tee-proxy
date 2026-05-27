@@ -1,6 +1,7 @@
 package voting
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,13 +22,18 @@ import (
 )
 
 var (
-	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[403])
+	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[400])
 	errActionAlreadyDeleted   = errors.New("already deleted")
 	errActionNotFinalized     = errors.New("not finalized")
 	errInvalidVoter           = fmt.Errorf("%w: invalid voter", status.HTTP[403])
-	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[403])
+	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[410])
 	errSignatureAlreadyStored = fmt.Errorf("%w: signature already stored", status.HTTP[403])
 )
+
+// eventFutureSlack is the allowed slippage between the local clock and the
+// event timestamp: how far into the future (relative to local time) an
+// instruction's event can claim to be while still accepted.
+const eventFutureSlack = 15 * time.Second
 
 type proposal struct {
 	instruction *instruction.DataFixed
@@ -36,8 +42,6 @@ type proposal struct {
 
 	cosigners         map[common.Address]bool
 	cosignerThreshold uint16
-
-	sync.Mutex
 }
 
 // newProposal assembles a new proposal.
@@ -83,11 +87,12 @@ type voteBox struct {
 	sync.RWMutex
 }
 
-// startVoteBox
+// startVoteBox opens a new voting process: it admits the proposer against the round's limiter
+// and resolves the box's threshold and cosigner set from instruction metadata.
 func startVoteBox(data *instruction.Data, signer common.Address, round *Round, meta meta.Meta, expirationTime time.Duration) (*voteBox, error) {
 	eventTime := time.Unix(int64(data.Timestamp), 0)
 
-	allowedTime := eventTime.Add(-15 * time.Second) // confirm this number
+	allowedTime := eventTime.Add(-eventFutureSlack)
 
 	if time.Now().Before(allowedTime) {
 		return nil, errVotingBeforeEvent
@@ -197,7 +202,7 @@ func (vb *voteBox) Action(tag types.SubmissionTag) (*types.Action, error) {
 }
 
 // Status returns the current status of the box.
-func (vb *voteBox) Status(hash common.Hash) voting.Status {
+func (vb *voteBox) Status() voting.Status {
 	vb.RLock()
 	defer vb.RUnlock()
 
@@ -231,10 +236,10 @@ func (vb *voteBox) delete() {
 	vb.deleted = true
 }
 
-// addVote adds vote to a VoteBox and returns a Receipt and a boolean indicator of finalization,
-// that is true only the first time the conditions for finalization are fulfilled.
+// addVote records a vote and returns a Receipt. The returned bool is true only on the
+// transition into the finalized state — subsequent votes on an already-finalized box return false.
 //
-// Mutex has to be managed by the calling function.
+// Caller must hold vb.Lock.
 func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byte, additionalVariableMessage []byte, voterGroup voterGroup) (voting.Receipt, bool, error) {
 	if voterGroup == invalidVoter {
 		return voting.Receipt{}, false, errInvalidVoter
@@ -286,42 +291,62 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
-func (vb *voteBox) scheduleEnd(out chan *types.Action, boxes *voteBoxes) {
-	time.Sleep(time.Until(vb.EndTime))
-
-	vb.Lock()
-	defer vb.Unlock()
-
-	defer vb.delete()
-
-	opCommand := vb.proposal.instruction.OPCommand
-	opType := vb.proposal.instruction.OPType
-
-	if !vb.Finalized {
-		logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
-		return
-	}
-
-	boxes.RLock()
-	defer boxes.RUnlock()
-
-	// send threshold action for KeyDataProviderRestore at the end of voting
-	if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
-		a, err := vb.Action(types.Threshold)
-		if err != nil {
-			logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
-		} else {
-			out <- a
+func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxes *voteBoxes) {
+	// Cancellable wait so shutdown doesn't leak per-box goroutines.
+	if d := time.Until(vb.EndTime); d > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(d):
 		}
-	} else if vb.iHash != boxes.FinalizedHash {
-		logger.Debugf("closing finalized box %v, %v that was finalized after %v", vb.iID, vb.iHash, boxes.FinalizedHash)
-		return
 	}
 
-	a, err := vb.Action(types.End)
-	if err != nil {
-		logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
-	} else {
+	// Build actions under the locks, send after — a full `out` must not block the locks.
+	actions := func() []*types.Action {
+		// Acquire boxes.RLock before vb.Lock so the order matches AddVote
+		// (boxes → box) and avoids a lock-order inversion deadlock.
+		boxes.RLock()
+		defer boxes.RUnlock()
+
+		vb.Lock()
+		defer vb.Unlock()
+
+		defer vb.delete()
+
+		opCommand := vb.proposal.instruction.OPCommand
+		opType := vb.proposal.instruction.OPType
+
+		if !vb.Finalized {
+			logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
+			return nil
+		}
+
+		var as []*types.Action
+
+		// send threshold action for KeyDataProviderRestore at the end of voting
+		if opType == op.Wallet.Hash() && opCommand == op.KeyDataProviderRestore.Hash() {
+			a, err := vb.Action(types.Threshold)
+			if err != nil {
+				logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
+			} else {
+				as = append(as, a)
+			}
+		} else if vb.iHash != boxes.FinalizedHash {
+			logger.Debugf("closing finalized box %v, %v that was finalized after %v", vb.iID, vb.iHash, boxes.FinalizedHash)
+			return as
+		}
+
+		a, err := vb.Action(types.End)
+		if err != nil {
+			logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+		} else {
+			as = append(as, a)
+		}
+
+		return as
+	}()
+
+	for _, a := range actions {
 		out <- a
 	}
 }

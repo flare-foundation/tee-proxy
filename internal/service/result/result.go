@@ -20,12 +20,13 @@ const (
 	keyActionsChanSize    = 1000
 	backupsChanSize       = 1000
 	backupTriggerChanSize = 1
-	keyInfoChanSize       = 1
 )
 
 var (
 	errAddressAlreadySet = errors.New("address already set")
 	errInvalidTeeID      = fmt.Errorf("%w: invalid teeID", status.HTTP[403])
+	// errBootstrapNotTeeInfo rejects non-TEE_INFO responses arriving before SetIdentity.
+	errBootstrapNotTeeInfo = fmt.Errorf("%w: expected TEE_INFO response before identity is set", status.HTTP[403])
 )
 
 // Service handles processing and storage of TEE action results.
@@ -38,11 +39,14 @@ type Service struct {
 	Backups chan *types.ActionResult
 	// A channel for backup trigger actions (UPDATE_POLICY)
 	BackupTrigger chan bool
-	// A channel for key info responses (KEY_INFO). Delivered directly, bypassing storage.
-	KeyInfo chan *types.ActionResult
 
 	mu    sync.RWMutex
 	teeID common.Address
+
+	// storageMu guards lastStorageErr independently of mu so storage outcomes
+	// can be recorded without blocking the RLock held during ProcessAndStore.
+	storageMu      sync.RWMutex
+	lastStorageErr error
 }
 
 // NewService creates a new result service.
@@ -50,14 +54,12 @@ func NewService(rs *ResultStorage) *Service {
 	kat := make(chan *types.ActionResult, keyActionsChanSize)
 	bst := make(chan *types.ActionResult, backupsChanSize)
 	btt := make(chan bool, backupTriggerChanSize)
-	kit := make(chan *types.ActionResult, keyInfoChanSize)
 
 	return &Service{
 		rs:            rs,
 		KeyActions:    kat,
 		Backups:       bst,
 		BackupTrigger: btt,
-		KeyInfo:       kit,
 	}
 }
 
@@ -90,6 +92,9 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		if signer.Cmp(s.teeID) != 0 {
 			return errInvalidTeeID
 		}
+	} else if r.Result.OPCommand != op.TEEInfo.Hash() {
+		// Pre-SetIdentity: signatures cannot be verified, so only TEE_INFO is accepted.
+		return errBootstrapNotTeeInfo
 	}
 
 	if r.Result.Status == 0 {
@@ -120,22 +125,31 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 			default:
 				logger.Error("backup trigger channel full")
 			}
-		case op.KeyInfo.Hash():
-			select {
-			case s.KeyInfo <- &r.Result:
-			default:
-				logger.Error("key info channel full")
-			}
-			return nil
 		}
 	}
 
-	return s.rs.StoreResponse(ctx, r)
+	err := s.rs.StoreResponse(ctx, r)
+	s.recordStorageResult(err)
+	return err
+}
+
+// LastStorageErr returns the most recent StoreResponse error, or nil if the last attempt succeeded.
+// Auto-recovers: cleared by the next successful store.
+func (s *Service) LastStorageErr() error {
+	s.storageMu.RLock()
+	defer s.storageMu.RUnlock()
+	return s.lastStorageErr
+}
+
+func (s *Service) recordStorageResult(err error) {
+	s.storageMu.Lock()
+	defer s.storageMu.Unlock()
+	s.lastStorageErr = err
 }
 
 // Serve returns response for actionID with provided submissionTag if present.
 func (s *Service) Serve(ctx context.Context, actionID common.Hash, submissionTag types.SubmissionTag) (*types.ActionResponse, error) {
-	return s.rs.GetResponse(ctx, actionID, submissionTag)
+	return s.rs.FetchResponse(ctx, actionID, submissionTag)
 }
 
 func recoverSigner(ar *types.ActionResponse) (common.Address, error) {
