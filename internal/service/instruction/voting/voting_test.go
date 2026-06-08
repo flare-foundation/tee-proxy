@@ -109,6 +109,8 @@ func TestFDCMessageValidity(t *testing.T) {
 	}, &testMeta{})
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
+	chainID := uint64(14)
+
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
@@ -125,7 +127,7 @@ func TestFDCMessageValidity(t *testing.T) {
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, err := fdc.HashMessage(chainID, fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -160,6 +162,8 @@ func TestFDCMessage(t *testing.T) {
 	}, &testMeta{})
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
+	chainID := uint64(14)
+
 	_, ok := s.Get(1)
 	require.True(t, ok)
 
@@ -176,7 +180,7 @@ func TestFDCMessage(t *testing.T) {
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, err := fdc.HashMessage(chainID, fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)

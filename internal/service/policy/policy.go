@@ -36,11 +36,11 @@ type Service struct {
 }
 
 // NewService creates a new policy Service with the given action queues, contract addresses, and chain ID.
-func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID *big.Int) *Service {
+func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID uint64) *Service {
 	return &Service{
 		aq:          aq,
 		scAddresses: addresses,
-		chainID:     chainID,
+		chainID:     new(big.Int).SetUint64(chainID),
 	}
 }
 

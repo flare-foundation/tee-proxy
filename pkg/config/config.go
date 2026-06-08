@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"strings"
 	"time"
@@ -27,6 +26,8 @@ const (
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
 	defaultInitialSigningPolicyOffset = 3
 
+	defaultMachinePathListFetchInterval = 10 * time.Minute
+
 	defaultProposalExpiration  = 120 * time.Second
 	defaultMaxPendingRequests  = uint(100)
 	defaultVotingHistorySize   = 3
@@ -41,24 +42,25 @@ const (
 )
 
 var (
-	errSigningPolicyFetchIntervalPositive = errors.New("signingPolicyFetchInterval has to be positive")
-	errInitialSigningPolicyOffsetNegative = errors.New("initialSigningPolicyOffset cannot be negative")
-	errFlareSystemsManagerAddressNotSet   = errors.New("flareSystemsManager address not set")
-	errRelayAddressNotSet                 = errors.New("relay address not set")
-	errVoterRegistryAddressNotSet         = errors.New("voterRegistry address not set")
-	errInternalPortNotSet                 = errors.New("internal port not set")
-	errExternalPortNotSet                 = errors.New("external port not set")
-	errProposalExpirationPositive         = errors.New("proposalExpiration has to be positive")
-	errMaxPendingRequestsPositive         = errors.New("maxPendingRequests has to be positive")
-	errHistorySizeTooSmall                = errors.New("historySize has to be at least 2")
-	errFinalizedBufferSizePositive        = errors.New("finalizedBufferSize has to be positive")
-	errMaxProviderVoteOutOfRange          = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
-	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
-	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
-	errStorageTTLPositive                 = errors.New("storage ttl values have to be positive")
-	errAttestationCodeHashInvalid         = errors.New("attestation expected_code_hashes contains invalid hex")
-	errAttestationMaxTokenAgeNegative     = errors.New("attestation max_token_age must be non-negative")
-	errDirectMaxBodySizeNegative          = errors.New("direct max_body_size must be non-negative")
+	errSigningPolicyFetchIntervalPositive   = errors.New("signingPolicyFetchInterval has to be positive")
+	errMachinePathListFetchIntervalPositive = errors.New("machinePathListFetchInterval has to be positive")
+	errInitialSigningPolicyOffsetNegative   = errors.New("initialSigningPolicyOffset cannot be negative")
+	errFlareSystemsManagerAddressNotSet     = errors.New("flareSystemsManager address not set")
+	errRelayAddressNotSet                   = errors.New("relay address not set")
+	errVoterRegistryAddressNotSet           = errors.New("voterRegistry address not set")
+	errInternalPortNotSet                   = errors.New("internal port not set")
+	errExternalPortNotSet                   = errors.New("external port not set")
+	errProposalExpirationPositive           = errors.New("proposalExpiration has to be positive")
+	errMaxPendingRequestsPositive           = errors.New("maxPendingRequests has to be positive")
+	errHistorySizeTooSmall                  = errors.New("historySize has to be at least 2")
+	errFinalizedBufferSizePositive          = errors.New("finalizedBufferSize has to be positive")
+	errMaxProviderVoteOutOfRange            = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
+	errInvalidPrivateKeyString              = errors.New("invalid string for private key")
+	errDirectAPIKeyNotSet                   = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
+	errStorageTTLPositive                   = errors.New("storage ttl values have to be positive")
+	errAttestationCodeHashInvalid           = errors.New("attestation expected_code_hashes contains invalid hex")
+	errAttestationMaxTokenAgeNegative       = errors.New("attestation max_token_age must be non-negative")
+	errDirectMaxBodySizeNegative            = errors.New("direct max_body_size must be non-negative")
 )
 
 // Firestore holds Firestore connection configuration.
@@ -71,22 +73,23 @@ type Firestore struct {
 
 // Proxy holds the full configuration for the TEE proxy service.
 type Proxy struct {
-	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
-	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
-	Firestore                  Firestore       `toml:"firestore"`                     // Firestore connection configuration.
-	ChainID                    *big.Int        `toml:"chain_id"`                      // Chain ID used for voter registration message hash verification.
-	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
-	Ports                      Ports           `toml:"ports"`                         // Servers ports.
-	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
-	Voting                     Voting          `toml:"voting"`                        // Instruction voting configurations.
-	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
-	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
-	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
-	DBSyncMaxSleepTime         time.Duration   `toml:"db_sync_max_sleep_time"`        // Max sleep between DB sync retries on startup. Defaults to 10m.
-	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
-	Direct                     Direct          `toml:"direct"`                        // Direct endpoint configuration.
-	Storage                    Storage         `toml:"storage"`                       // TTLs applied to Redis/Firestore-backed persistent storage.
-	Attestation                Attestation     `toml:"attestation"`                   // Bootstrap attestation verification configuration.
+	DB                           database.Config `toml:"db"`                               // C-chain indexer database config.
+	RedisPort                    string          `toml:"redis_port"`                       // Redis database port.
+	Firestore                    Firestore       `toml:"firestore"`                        // Firestore connection configuration.
+	ChainID                      uint64          `toml:"chain_id"`                         // EVM chain ID bound into TEE/FDC2 signed payloads. Must be a positive integer.
+	Addresses                    Addresses       `toml:"addresses"`                        // Smart contract addresses.
+	Ports                        Ports           `toml:"ports"`                            // Servers ports.
+	InfoTiming                   InfoTiming      `toml:"info_timing"`                      // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
+	Voting                       Voting          `toml:"voting"`                           // Instruction voting configurations.
+	PrivateKeyVariable           string          `toml:"private_key_variable"`             // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
+	InitialSigningPolicyOffset   int             `toml:"initial_signing_policy_offset"`    // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
+	SigningPolicyFetchInterval   time.Duration   `toml:"signing_policy_fetch_interval"`    // Duration between periodic checks for a new signing policy.
+	MachinePathListFetchInterval time.Duration   `toml:"machine_path_list_fetch_interval"` // Duration between periodic checks for a newly signed machine path list. Defaults to 10m.
+	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between DB sync retries on startup. Defaults to 10m.
+	Logging                      logger.Config   `toml:"logging"`                          // Logging configurations. Default is "DEBUG" level in consol.
+	Direct                       Direct          `toml:"direct"`                           // Direct endpoint configuration.
+	Storage                      Storage         `toml:"storage"`                          // TTLs applied to Redis/Firestore-backed persistent storage.
+	Attestation                  Attestation     `toml:"attestation"`                      // Bootstrap attestation verification configuration.
 }
 
 // Attestation controls bootstrap attestation verification.
@@ -94,6 +97,7 @@ type Proxy struct {
 type Attestation struct {
 	Enable bool `toml:"enable"`
 
+	Audience              string   `toml:"audience"`                // expected aud claim; empty skips the audience check
 	ExpectedCodeHashes    []string `toml:"expected_code_hashes"`    // 32-byte hex; accepts an optional 0x or sha256: prefix, but not both
 	ExpectedPlatforms     []string `toml:"expected_platforms"`      // hwmodel strings, e.g. "AMD_SEV_SNP_VM"
 	ExpectedDebugStatuses []string `toml:"expected_debug_statuses"` // dbgstat values, e.g. "disabled-since-boot"
@@ -203,9 +207,10 @@ func Read(path string) (Proxy, error) {
 			FinalizedBufferSize: defaultFinalizedBufferSize,
 		},
 
-		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
-		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
-		DBSyncMaxSleepTime:         defaultDBSyncMaxSleepTime,
+		InitialSigningPolicyOffset:   defaultInitialSigningPolicyOffset,
+		SigningPolicyFetchInterval:   defaultSigningPolicyFetchInterval,
+		MachinePathListFetchInterval: defaultMachinePathListFetchInterval,
+		DBSyncMaxSleepTime:           defaultDBSyncMaxSleepTime,
 
 		Storage: Storage{
 			ActionTTL:       defaultActionTTL,
@@ -229,8 +234,8 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
-	if c.ChainID == nil {
-		return c, errors.New("chain ID not set")
+	if c.ChainID == 0 {
+		return c, errors.New("chain ID must be a positive integer")
 	}
 
 	err = c.Voting.validate()
@@ -259,6 +264,10 @@ func Read(path string) (Proxy, error) {
 
 	if c.InitialSigningPolicyOffset < 0 {
 		return c, errInitialSigningPolicyOffsetNegative
+	}
+
+	if c.MachinePathListFetchInterval <= 0 {
+		return c, errMachinePathListFetchIntervalPositive
 	}
 
 	err = c.Storage.validate()
@@ -304,9 +313,10 @@ type Addresses struct {
 	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
 	Relay               common.Address `toml:"relay"`
 	VoterRegistry       common.Address `toml:"voter_registry"`
+	MachinePathManager  common.Address `toml:"machine_path_manager"` // optional: when unset, the machine path list service is disabled.
 }
 
-// validate checks that all addresses have nonzero value.
+// validate checks that all required addresses have nonzero value.
 func (a Addresses) validate() error {
 	zero := common.Address{}
 

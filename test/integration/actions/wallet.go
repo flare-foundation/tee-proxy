@@ -281,7 +281,7 @@ func RecoverWallet(
 
 	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, instructionID, types.Threshold, op.Wallet, op.KeyDataProviderRestore, pc.TeeID, 1)
 
-	walletExistenceProof, err := wallets.ExtractKeyExistence(res.Result.Data, pc.TeeID)
+	walletExistenceProof, err := wallets.ExtractKeyExistence(res.Result.Data, pc.TeeID, utils.TestChainID)
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)

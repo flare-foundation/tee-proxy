@@ -16,7 +16,7 @@ import (
 )
 
 func TestFDCMeta(t *testing.T) {
-	m := New(nil)
+	m := New(nil, 14)
 
 	atb := []byte("TeeAvailabilityCheck")
 	at := common.Hash{}
@@ -71,14 +71,16 @@ func TestFDCMeta(t *testing.T) {
 	require.Len(t, cs, 2)
 	require.Equal(t, uint64(2), cst)
 
-	// consistency
-	hash, _, _, _, err := fdc.HashMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
+	// consistency: data providers / cosigners sign the Relay Mode-2 prefixed
+	// hash, not messageHash directly (see fdc.RelayPrefixedHash).
+	hash, _, err := fdc.HashMessage(uint64(14), ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
 	require.NoError(t, err)
+	dpSigningHash := fdc.RelayPrefixedHash(hash)
 
 	sk, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	sig, err := crypto.Sign(accounts.TextHash(hash[:]), sk)
+	sig, err := crypto.Sign(accounts.TextHash(dpSigningHash[:]), sk)
 	require.NoError(t, err)
 
 	i := &instruction.Data{
@@ -96,7 +98,7 @@ func TestFDCMeta(t *testing.T) {
 }
 
 func TestMetaGeneral(t *testing.T) {
-	m := New(nil)
+	m := New(nil, 14)
 
 	data := &instruction.DataFixed{
 		InstructionID:          [32]byte{},

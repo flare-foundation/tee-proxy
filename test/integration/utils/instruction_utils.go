@@ -18,10 +18,15 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/random"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/stretchr/testify/require"
 )
+
+// TestChainID is the chain ID embedded in every integration instruction and configured on the
+// TEE via SetChainIDOnTEE. The instruction's signed hash and the TEE's expectedChainID must agree.
+const TestChainID uint64 = 14
 
 func BuildInstructionData(
 	t *testing.T,
