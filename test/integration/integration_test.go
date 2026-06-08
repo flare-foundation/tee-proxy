@@ -69,6 +69,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "TEE server did not start listening within timeout")
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
 	integrationUtils.SetProxyURLOnTEE(t, teePort, proxyUrl)
+	integrationUtils.SetChainIDOnTEE(t, teePort, integrationUtils.TestChainID)
 
 	var wgProxy sync.WaitGroup
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)

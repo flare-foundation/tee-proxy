@@ -56,7 +56,10 @@ func InitializePolicyAction(
 		return nil, nil, 0, fmt.Errorf("parsing signing policy event: %w", err)
 	}
 
-	p := policy.NewSigningPolicy(event, nil)
+	p, err := policy.NewSigningPolicy(event, nil)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("creating signing policy instance: %w", err)
+	}
 
 	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
 	if err != nil {
@@ -129,7 +132,12 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 		return nil, fmt.Errorf("parsing signing policy %d event: %w", signingPolicyID, err)
 	}
 
-	return policy.NewSigningPolicy(event, nil), nil
+	p, err := policy.NewSigningPolicy(event, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating signing policy %d instance: %w", signingPolicyID, err)
+	}
+
+	return p, nil
 }
 
 // prepareSignatures transforms a slice of Signatures to a slice SignatureMessage.
@@ -150,7 +158,10 @@ func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addre
 		return nil, nil, fmt.Errorf("parsing signing policy event: %w", err)
 	}
 
-	p := policy.NewSigningPolicy(event, nil)
+	p, err := policy.NewSigningPolicy(event, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating signing policy instance: %w", err)
+	}
 
 	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainID)
 	if err != nil {

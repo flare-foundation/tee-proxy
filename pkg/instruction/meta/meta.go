@@ -36,12 +36,15 @@ type Meta interface {
 }
 
 type meta struct {
-	ws *wallets.Service
+	ws      *wallets.Service
+	chainID uint64
 }
 
 // New creates a Meta implementation backed by the given wallets Service.
-func New(ws *wallets.Service) Meta {
-	return &meta{ws}
+// chainID is bound into FDC2 message hashes during consistency checks; it
+// must match the chainID configured on the TEE node.
+func New(ws *wallets.Service, chainID uint64) Meta {
+	return &meta{ws: ws, chainID: chainID}
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
@@ -145,30 +148,36 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Service) (map[common.
 	return cosigners, cosignerThreshold, nil
 }
 
-func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
+func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch data.OPCommand {
 	case op.Prove.Hash():
-		return fdcCheckConsistency(data, signer)
+		return fdcCheckConsistency(m.chainID, data, signer)
 	}
 
 	return nil
 }
 
 // fdcCheckConsistency checks that signer of the FDC message is the same as the signer of the whole instruction.
-func fdcCheckConsistency(data *instruction.Data, signer common.Address) error {
+//
+// Data providers and cosigners sign the Relay Mode-2 prefixed hash (matches the
+// on-chain Verification.toCosignersMessageHash + Relay.relay() recovery path);
+// see fdc.RelayPrefixedHash. Verifying against the bare messageHash would fail
+// every provider signature with "signature check fail".
+func fdcCheckConsistency(chainID uint64, data *instruction.Data, signer common.Address) error {
 	fdcReq, err := fdc.DecodeRequest(data.OriginalMessage)
 	if err != nil {
 		return fmt.Errorf("decoding FDC request: %w", err)
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, _, err := fdc.HashMessage(fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
+	h, _, err := fdc.HashMessage(chainID, fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return fmt.Errorf("hashing FDC message: %w", err)
 	}
+	dpSigningHash := fdc.RelayPrefixedHash(h)
 
 	sig := data.AdditionalVariableMessage
-	err = utils.VerifySignature(h[:], sig, signer)
+	err = utils.VerifySignature(dpSigningHash[:], sig, signer)
 	if err != nil {
 		return fmt.Errorf("verifying FDC signature: %w", err)
 	}

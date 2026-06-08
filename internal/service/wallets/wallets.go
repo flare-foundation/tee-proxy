@@ -421,7 +421,7 @@ func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 	}
 
 	switch action.OPCommand {
-	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash():
+	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDirectRestore.Hash():
 		id, err := s.updateOrAddKey(action)
 		if err != nil {
 			return IDPair{}, true, fmt.Errorf("updating or adding key: %w", err)
@@ -529,7 +529,9 @@ func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 	return idPair, nil
 }
 
-// parseNewKeyActionResult parses action result data for "KEY_GENERATE" or "KEY_DATA_PROVIDER_RESTORE" action.
+// parseNewKeyActionResult parses action result data for "KEY_GENERATE",
+// "KEY_DATA_PROVIDER_RESTORE", or "KEY_DIRECT_RESTORE" — all three produce a
+// SignedKeyExistenceProof so the proxy can hydrate its key cache the same way.
 func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistenceProof, error) {
 	if r.Status != 1 {
 		return nil, errInvalidActionResult
@@ -539,7 +541,9 @@ func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistence
 		return nil, errInvalidOpType
 	}
 
-	if r.OPCommand != op.KeyDataProviderRestore.Hash() && r.OPCommand != op.KeyGenerate.Hash() {
+	if r.OPCommand != op.KeyDataProviderRestore.Hash() &&
+		r.OPCommand != op.KeyGenerate.Hash() &&
+		r.OPCommand != op.KeyDirectRestore.Hash() {
 		return nil, errInvalidOpCommand
 	}
 

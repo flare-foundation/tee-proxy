@@ -19,6 +19,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/server"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/service/machinepath"
 	"github.com/flare-foundation/tee-proxy/internal/service/policy"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
@@ -157,7 +158,14 @@ func Run(ctx context.Context, cfgPath string) {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
-	meta := meta.New(walletService)
+	if cfg.Addresses.MachinePathManager != (common.Address{}) {
+		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, initialInfo.MachineData.ExtensionID, cfg.ChainID)
+		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
+	} else {
+		logger.Info("machine_path_manager address not set; machine path list service disabled")
+	}
+
+	meta := meta.New(walletService, cfg.ChainID)
 	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
@@ -235,6 +243,7 @@ func buildAttestationConfig(cfg *config.Attestation) (*attestation.Config, error
 	return &attestation.Config{
 		Enabled:             true,
 		RootCert:            root,
+		Audience:            cfg.Audience,
 		ExpectedCodeHash:    codeHashes,
 		ExpectedPlatform:    platforms,
 		ExpectedDebugStatus: cfg.ExpectedDebugStatuses,
@@ -250,8 +259,8 @@ func logAttestationPosture(cfg *attestation.Config) {
 		return
 	}
 	a := cfg.Active()
-	logger.Infof("attestation verification enabled: code_hash=%v platform=%v debug_status=%v max_token_age=%v sec_boot=%v magic_pass=%v",
-		a.CodeHash, a.Platform, a.DebugStatus, a.MaxTokenAge, a.SecBoot, a.MagicPass)
+	logger.Infof("attestation verification enabled: audience=%v code_hash=%v platform=%v debug_status=%v max_token_age=%v sec_boot=%v magic_pass=%v",
+		a.Audience, a.CodeHash, a.Platform, a.DebugStatus, a.MaxTokenAge, a.SecBoot, a.MagicPass)
 	if cfg.AllowMagicPass {
 		logger.Warn("attestation: allow_magic_pass=true — accepts the tee-node magic_pass sentinel in place of a real JWT; do not enable in production")
 	}

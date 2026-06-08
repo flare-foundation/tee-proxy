@@ -116,7 +116,7 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 			return fmt.Errorf("policy listener stopped: %w", ctx.Err())
 		case policy := <-s.policies:
 			logger.Debugf("creating round for %d", policy.RewardEpochID)
-			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())
+			logger.Debugf("overwriting round for %d", int(policy.RewardEpochID)-s.vs.Size())
 			s.vs.StoreNewRound(&policy)
 		}
 	}

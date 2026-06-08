@@ -50,6 +50,11 @@ type Config struct {
 	LeafCRL         *x509.RevocationList
 	IntermediateCRL *x509.RevocationList
 
+	// Audience is the expected aud claim; empty skips the audience check.
+	// AllowedImageIDs is the workload image-ID allowlist; empty skips the image_id check.
+	Audience        string
+	AllowedImageIDs []common.Hash
+
 	ExpectedCodeHash    []common.Hash // empty → skip
 	ExpectedPlatform    []common.Hash // empty → skip
 	ExpectedDebugStatus []string      // empty → skip
@@ -75,6 +80,7 @@ var (
 
 // ActiveChecks reports which optional checks Verify will perform. Used for the startup log line.
 type ActiveChecks struct {
+	Audience    bool
 	CodeHash    bool
 	Platform    bool
 	DebugStatus bool
@@ -86,6 +92,7 @@ type ActiveChecks struct {
 // Active returns the set of optional checks Verify will run for this config.
 func (cfg *Config) Active() ActiveChecks {
 	return ActiveChecks{
+		Audience:    cfg.Audience != "",
 		CodeHash:    len(cfg.ExpectedCodeHash) > 0,
 		Platform:    len(cfg.ExpectedPlatform) > 0,
 		DebugStatus: len(cfg.ExpectedDebugStatus) > 0,
@@ -114,17 +121,25 @@ func Verify(tir *types.TeeInfoResponse, sentChallenge common.Hash, cfg *Config) 
 		return nil
 	}
 
-	claims := &googlecloud.GoogleTeeClaims{}
-	_, _, err := googlecloud.ParseAndValidatePKITokenClaims(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, claims)
-	if err != nil {
-		return fmt.Errorf("validating attestation JWT: %w", err)
-	}
-
 	teeInfoHash, err := tir.TeeInfo.Hash()
 	if err != nil {
 		return fmt.Errorf("hashing TeeInfo for nonce check: %w", err)
 	}
+
 	expectedNonce := hex.EncodeToString(teeInfoHash)
+
+	p := googlecloud.Policy{
+		Audience:        cfg.Audience,
+		AllowedImageIDs: imageIDSet(cfg.AllowedImageIDs),
+		Issuer:          googlecloud.ConfidentialSpaceIssuer,
+	}
+
+	claims := &googlecloud.GoogleTeeClaims{}
+	_, _, err = googlecloud.ParseAndValidatePKITokenClaims(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, p, claims)
+	if err != nil {
+		return fmt.Errorf("validating attestation JWT: %w", err)
+	}
+
 	if !slices.Contains([]string(claims.EATNonce), expectedNonce) {
 		return ErrNonceMismatch
 	}
@@ -185,4 +200,14 @@ func verifyClaims(claims *googlecloud.GoogleTeeClaims, cfg *Config) error {
 	}
 
 	return nil
+}
+
+// imageIDSet builds the map form of an image-ID allowlist expected by
+// googlecloud.Policy.AllowedImageIDs.
+func imageIDSet(ids []common.Hash) map[common.Hash]struct{} {
+	out := make(map[common.Hash]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out
 }

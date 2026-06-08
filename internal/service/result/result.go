@@ -33,7 +33,8 @@ var (
 type Service struct {
 	rs *ResultStorage
 
-	// A channel for key update actions (KEY_GENERATE, KEY_DATA_PROVIDER_RESTORE, KEY_DELETE)
+	// A channel for key update actions (KEY_GENERATE, KEY_DATA_PROVIDER_RESTORE,
+	// KEY_DIRECT_RESTORE, KEY_DELETE)
 	KeyActions chan *types.ActionResult
 	// A channel for backup actions (TEE_BACKUP)
 	Backups chan *types.ActionResult
@@ -107,7 +108,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 
 	if r.Result.Status == 1 && r.Result.SubmissionTag != types.End {
 		switch r.Result.OPCommand {
-		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDelete.Hash():
+		case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDirectRestore.Hash(), op.KeyDelete.Hash():
 			select {
 			case s.KeyActions <- &r.Result:
 			default:

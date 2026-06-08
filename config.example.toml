@@ -1,12 +1,12 @@
 redis_port = ":6379"
 
-chain_id = 14
-
+chain_id = 14                       # must be a positive integer
 private_key_variable = "PRIVATE_KEY"
 
 
 initial_signing_policy_offset = 3
 signing_policy_fetch_interval = "10m"
+machine_path_list_fetch_interval = "10m"
 db_sync_max_sleep_time = "10m"
 
 
@@ -30,6 +30,7 @@ console = true
 flare_systems_manager = "0xa4bcDF64Cdd5451b6ac3743B414124A6299B65FF"
 relay = "0x5A0773Ff307Bf7C71a832dBB5312237fD3437f9F"
 voter_registry = "0xB00cC45B4a7d3e1FEE684cFc4417998A1c183e6d"
+machine_path_manager = "0x0000000000000000000000000000000000000000"
 
 
 [ports]
@@ -83,6 +84,7 @@ enable = false
 # Each allowlist is optional; leave empty to skip that check.
 # JWT signature, nonce, challenge round-trip, and pubkey consistency are always enforced when enabled.
 
+# audience = "https://your-relying-party"                # expected aud claim; empty skips the audience check
 # expected_code_hashes = ["sha256:abcdef..."]            # 32-byte hex, optional 0x/sha256: prefix
 # expected_platforms = ["AMD_SEV_SNP_VM", "INTEL_TDX_VM"]
 # expected_debug_statuses = ["disabled-since-boot"]

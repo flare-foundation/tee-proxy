@@ -138,7 +138,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	err = resultService.SetIdentity(teeID)
 	require.NoError(t, err)
 
-	metaObj := meta.New(walletStorage)
+	metaObj := meta.New(walletStorage, TestChainID)
 
 	vc := (&config.Voting{
 		ProposalExpiration: 600 * time.Millisecond,
