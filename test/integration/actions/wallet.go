@@ -215,7 +215,7 @@ func RecoverWallet(
 	privKeys := make([]*ecdsa.PrivateKey, 0, len(providersPrivKeys)+len(adminsPrivKeys))
 	// Recover providers shares
 	for i, privKey := range providersPrivKeys {
-		keySplit, err := backup.DecryptSplit(walletBackup.ProviderEncryptedParts.Splits[i], privKey)
+		keySplit, err := backup.DecryptSplit(walletBackup.ProviderEncryptedParts.Splits[i], privKey, utils.TestChainID)
 		require.NoError(t, err)
 
 		address := crypto.PubkeyToAddress(privKey.PublicKey)
@@ -225,7 +225,7 @@ func RecoverWallet(
 			plaintext, err = json.Marshal(keySplit)
 			require.NoError(t, err)
 		} else {
-			keySplitAdmin, err := backup.DecryptSplit(walletBackup.AdminEncryptedParts.Splits[j], privKey)
+			keySplitAdmin, err := backup.DecryptSplit(walletBackup.AdminEncryptedParts.Splits[j], privKey, utils.TestChainID)
 			require.NoError(t, err)
 			var twoKeySplits [2]backup.KeySplit
 			twoKeySplits[0] = *keySplit
@@ -249,7 +249,7 @@ func RecoverWallet(
 			continue
 		}
 
-		keySplit, err := backup.DecryptSplit(walletBackup.AdminEncryptedParts.Splits[i], privKey)
+		keySplit, err := backup.DecryptSplit(walletBackup.AdminEncryptedParts.Splits[i], privKey, utils.TestChainID)
 		require.NoError(t, err)
 
 		plaintext, err := json.Marshal(keySplit)

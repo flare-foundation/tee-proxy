@@ -29,7 +29,8 @@ var (
 
 // Service processes incoming instructions and manages threshold-based voting consensus.
 type Service struct {
-	teeID common.Address
+	teeID   common.Address
+	chainID uint64
 
 	vs *voting.Storage
 
@@ -38,12 +39,14 @@ type Service struct {
 }
 
 // NewService creates a new instruction Service with the given voting config, TEE identity, and dependencies.
-func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) *Service {
+// chainID is bound into the instruction signing hash and must match the TEE node's chain ID.
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta, chainID uint64) *Service {
 	vs := voting.NewStorage(ctx, votingCfg, meta)
 
 	return &Service{
-		teeID: teeID,
-		vs:    vs,
+		teeID:   teeID,
+		chainID: chainID,
+		vs:      vs,
 
 		policies: policiesChan,
 		aq:       aq,
@@ -67,7 +70,7 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 		return nil, errInvalidOP
 	}
 
-	hash, err := i.Data.HashForSigning()
+	hash, err := i.Data.HashForSigning(s.chainID)
 	if err != nil {
 		return nil, fmt.Errorf("hashing instruction: %w", err)
 	}

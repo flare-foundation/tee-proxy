@@ -25,6 +25,11 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 )
 
+// testChainID is the chain ID configured on the instruction Service in these tests and
+// used to derive instruction signing hashes. ServeInstruction recovers the signer via
+// HashForSigning(s.chainID), so signatures produced in a test must use the same value.
+const testChainID uint64 = 14
+
 func TestVoting(t *testing.T) {
 	teeID := common.HexToAddress("dead")
 
@@ -55,7 +60,7 @@ func TestVoting(t *testing.T) {
 	}
 
 	iData.AdditionalVariableMessage = hexutil.Bytes("ADD_VAR_1")
-	h, err := iData.HashForSigning()
+	h, err := iData.HashForSigning(testChainID)
 	require.NoError(t, err)
 
 	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
@@ -67,7 +72,7 @@ func TestVoting(t *testing.T) {
 	}
 
 	iData.AdditionalVariableMessage = hexutil.Bytes("ADD_VAR_2")
-	h, err = iData.HashForSigning()
+	h, err = iData.HashForSigning(testChainID)
 	require.NoError(t, err)
 
 	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
@@ -134,7 +139,7 @@ func TestStatus(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := iData.HashForSigning()
+	h, err := iData.HashForSigning(testChainID)
 	require.NoError(t, err)
 
 	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
@@ -195,7 +200,7 @@ func TestStatus(t *testing.T) {
 	iData2 := *iData
 	iData2.OriginalMessage = []byte("TODO2")
 
-	h2, err := iData2.HashForSigning()
+	h2, err := iData2.HashForSigning(testChainID)
 	require.NoError(t, err)
 
 	s3, err := instruction.SignInstructionHash(h2, testutil.PrivKey3)
@@ -315,7 +320,7 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 			AdditionalVariableMessage: hexutil.Bytes{},
 		}
 
-		hash, err := iData.HashForSigning()
+		hash, err := iData.HashForSigning(testChainID)
 		require.NoError(t, err, "Failed to generate hash for signing for %s", name)
 
 		signature, err := instruction.SignInstructionHash(hash, testutil.PrivKey1)
@@ -386,7 +391,7 @@ func createBaseInstructionData(testName string, teeID common.Address) *instructi
 func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.PrivateKey) *instruction.Instruction {
 	t.Helper()
 
-	hash, err := iData.HashForSigning()
+	hash, err := iData.HashForSigning(testChainID)
 	require.NoError(t, err)
 
 	signature, err := instruction.SignInstructionHash(hash, privateKey)
@@ -501,6 +506,7 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
 		aq:       aq,
+		chainID:  testChainID,
 	}
 
 	return mr, c, s

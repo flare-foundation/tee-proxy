@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
@@ -60,6 +62,7 @@ type External struct {
 	wallet             *wallets.Service
 
 	privKey *ecdsa.PrivateKey
+	chainID uint64
 	direct  DirectConfig
 }
 
@@ -79,6 +82,7 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
+	chainID uint64,
 	actionQueues *queue.ActionQueues,
 	direct DirectConfig,
 ) *External {
@@ -101,6 +105,7 @@ func NewExternal(
 		teeInfo:            teeInfo,
 		wallet:             wallet,
 		privKey:            privateKey,
+		chainID:            chainID,
 		direct:             direct,
 	}
 
@@ -163,7 +168,7 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	signedReceipt, err := receipt.Sign(e.privKey)
+	signedReceipt, err := receipt.Sign(e.privKey, e.chainID)
 	if err != nil {
 		return err
 	}
@@ -261,7 +266,11 @@ func (e *External) resultH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	response.ProxySignature, err = crypto.Sign(accounts.TextHash(response.Result.Hash()), e.privKey)
+	resultSignHash, err := csigning.NewPayload(csigning.ProxyActionResult, e.chainID, common.BytesToHash(response.Result.Hash())).Hash()
+	if err != nil {
+		return err
+	}
+	response.ProxySignature, err = crypto.Sign(accounts.TextHash(resultSignHash[:]), e.privKey)
 	if err != nil {
 		return err
 	}
@@ -321,7 +330,15 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	sig, err := crypto.Sign(accounts.TextHash(h), e.privKey)
+	// Bind with the chainID carried inside the attestation itself so the
+	// recovering client (which only has the transmitted TeeInfo) reconstructs
+	// the same preimage without relying on a separately-configured chainID.
+	infoSignHash, err := csigning.NewPayload(csigning.ProxyTeeInfo, result.TeeInfo.ChainID, common.BytesToHash(h)).Hash()
+	if err != nil {
+		return err
+	}
+
+	sig, err := crypto.Sign(accounts.TextHash(infoSignHash[:]), e.privKey)
 	if err != nil {
 		return err
 	}
