@@ -16,6 +16,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	cmpaths "github.com/flare-foundation/go-flare-common/pkg/tee/structs/machinepath"
 	"github.com/flare-foundation/tee-node/pkg/types"
@@ -64,7 +65,7 @@ func SetMachinePathListAction(
 	if err != nil {
 		return nil, fmt.Errorf("computing machine path list data hash: %w", err)
 	}
-	hash, err := teeutils.DomainHash(types.MachinePathListDomainTag, chainID, dataHash)
+	hash, err := csigning.NewPayload(csigning.TEEMachinePathList, chainID, dataHash).Hash()
 	if err != nil {
 		return nil, fmt.Errorf("computing machine path list message hash: %w", err)
 	}

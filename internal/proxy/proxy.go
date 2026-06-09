@@ -99,7 +99,7 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
-	resultService := result.NewService(resultStorage)
+	resultService := result.NewService(resultStorage, cfg.ChainID)
 	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
 
 	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
@@ -166,7 +166,7 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	meta := meta.New(walletService, cfg.ChainID)
-	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta)
+	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta, cfg.ChainID)
 	go instructionService.Run(ctx)
 
 	directCfg := server.DirectConfig{
@@ -177,7 +177,7 @@ func Run(ctx context.Context, cfgPath string) {
 	if cfg.Direct.Enable && cfg.Direct.APIKeyOptional {
 		logger.Warn("/direct is enabled without API key authentication (api_key_optional = true)")
 	}
-	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
+	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, cfg.ChainID, actionQueues, directCfg)
 	go runServer("external", externalServer.Serve)
 
 	livenessService.SignalStartupFinished()

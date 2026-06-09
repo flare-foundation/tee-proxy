@@ -26,12 +26,14 @@ func TestReceipt(t *testing.T) {
 	sk, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	sr, err := r.Sign(sk)
+	const chainID = 31337
+
+	sr, err := r.Sign(sk, chainID)
 	require.NoError(t, err)
 
 	require.Equal(t, r, sr.Receipt)
 
-	pub, err := sr.RecoverPubKey()
+	pub, err := sr.RecoverPubKey(chainID)
 	require.NoError(t, err)
 
 	require.Equal(t, sk.PublicKey, *pub)

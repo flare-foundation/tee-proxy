@@ -105,7 +105,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	// Setup action and result services
 	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
 	backupIndex := testutil.NewMemStorage[common.Hash]()
-	resultService := result.NewService(rs)
+	resultService := result.NewService(rs, TestChainID)
 	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
 
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
@@ -146,8 +146,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}).SetDefault()
 
 	policyChan := make(chan policy.SigningPolicy, 1)
-	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, aq, server.DirectConfig{})
+	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj, TestChainID)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, TestChainID, aq, server.DirectConfig{})
 
 	wg.Go(func() {
 		instService.Run(ctx)

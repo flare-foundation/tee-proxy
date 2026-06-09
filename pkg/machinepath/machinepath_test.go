@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	cmpaths "github.com/flare-foundation/go-flare-common/pkg/tee/structs/machinepath"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
@@ -49,8 +50,9 @@ func sampleHash(t *testing.T) (hash, extensionID common.Hash, nonce uint64) {
 
 	dataHash, err := types.MachinePathListDataHash(extensionID, nonce, paths)
 	require.NoError(t, err)
-	hash, err = teeutils.DomainHash(types.MachinePathListDomainTag, chainID, dataHash)
+	signHash, err := csigning.NewPayload(csigning.TEEMachinePathList, chainID, dataHash).Hash()
 	require.NoError(t, err)
+	hash = common.BytesToHash(signHash[:])
 
 	return hash, extensionID, nonce
 }

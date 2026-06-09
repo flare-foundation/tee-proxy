@@ -18,6 +18,8 @@ import (
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 )
 
+const voteTestChainID uint64 = 14
+
 type testMeta struct{}
 
 func (*testMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
@@ -58,7 +60,7 @@ func TestStorage(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -239,7 +241,7 @@ func TestStorageConcurrent(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -305,7 +307,7 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -356,7 +358,7 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
