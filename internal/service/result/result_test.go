@@ -1,6 +1,7 @@
 package result
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -62,4 +63,23 @@ func TestRecoverSignerChainIDBinding(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, teeAddr, other,
 		"a result signed under one chain ID must not recover to the signer under another")
+}
+
+// TestProcessAndStoreDropsZeroIDResult verifies that a delivery-failure
+// notification from the node (zero action ID) is dropped without error and
+// without reaching storage, so it cannot collide on the zero key or surface as
+// a spurious failed-result error during a proxy restart. The nil ResultStorage
+// would nil-panic if the guard let execution fall through to a store.
+func TestProcessAndStoreDropsZeroIDResult(t *testing.T) {
+	s := NewService(nil, uint64(14))
+
+	r := &types.ActionResponse{
+		Result: types.ActionResult{
+			ID:     common.Hash{},
+			Status: 0,
+			Log:    "error posting result: unexpected status code: 503",
+		},
+	}
+
+	require.NoError(t, s.ProcessAndStore(context.Background(), r))
 }

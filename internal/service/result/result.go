@@ -84,6 +84,14 @@ func (s *Service) SetIdentity(teeID common.Address) error {
 
 // ProcessAndStore stores response into database and triggers appropriate hooks.
 func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) error {
+	// A result with a zero action ID is not tied to any queued action: it is a
+	// delivery-failure notification from the node
+	if r.Result.ID == (common.Hash{}) {
+		logger.Warnf("discarding result with empty action ID, tag %s, status %d, log: %s",
+			r.Result.SubmissionTag, r.Result.Status, r.Result.Log)
+		return nil
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
