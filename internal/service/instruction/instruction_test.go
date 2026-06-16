@@ -403,6 +403,41 @@ func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.Pr
 	}
 }
 
+// TestServeInstructionChainIDBinding verifies that ServeInstruction binds the configured
+// chain ID into the signing hash: the same policy voter signing the same instruction is
+// accepted under the service's chain ID but rejected under a different one, because the
+// signature then recovers to a different address.
+func TestServeInstructionChainIDBinding(t *testing.T) {
+	teeID := common.HexToAddress("dead")
+	iData := createBaseInstructionData("TestServeInstructionChainIDBinding", teeID)
+
+	// Control: a policy voter signing under the configured chain ID is accepted.
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	h, err := iData.HashForSigning(testChainID)
+	require.NoError(t, err)
+	sig, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	_, err = s.ServeInstruction(context.Background(), &instruction.Instruction{Data: *iData, Signature: sig})
+	require.NoError(t, err, "vote signed under the configured chain ID must be accepted")
+
+	// Negative: the same voter and instruction signed under a different chain ID is rejected.
+	mr2, c2, s2 := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	defer mr2.Close()
+	defer c2.Close() //nolint:errcheck
+
+	hWrong, err := iData.HashForSigning(testChainID + 1)
+	require.NoError(t, err)
+	sigWrong, err := instruction.SignInstructionHash(hWrong, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	_, err = s2.ServeInstruction(context.Background(), &instruction.Instruction{Data: *iData, Signature: sigWrong})
+	require.Error(t, err, "vote signed under a different chain ID must be rejected")
+}
+
 func TestVotingStorageErrors(t *testing.T) {
 	teeID := common.HexToAddress("dead")
 	baseInstruction := createBaseInstructionData("test_errors", teeID)
