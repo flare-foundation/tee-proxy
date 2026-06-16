@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
@@ -102,7 +101,7 @@ func Run(ctx context.Context, cfgPath string) {
 	resultService := result.NewService(resultStorage, cfg.ChainID)
 	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
 
-	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
+	attestationCfg, err := buildAttestationConfig(&cfg.Attestation, cfg.ChainID)
 	if err != nil {
 		logger.Panicf("building attestation config: %v", err)
 	}
@@ -134,7 +133,7 @@ func Run(ctx context.Context, cfgPath string) {
 		}
 	}()
 
-	teeID, err := parseTeeID(initialInfo)
+	teeID, err := info.ParseTeeID(initialInfo)
 	if err != nil {
 		logger.Panicf("parsing TEE id: %v", err)
 	}
@@ -206,17 +205,7 @@ func runServer(name string, serve func() error) {
 	}
 }
 
-// parseTeeID extracts the TEE ID from the TEE info as the address corresponding to the public key.
-func parseTeeID(info *types.TeeInfoResponse) (common.Address, error) {
-	teePub, err := types.ParsePubKey(info.TeeInfo.PublicKey)
-	if err != nil {
-		return common.Address{}, err
-	}
-
-	return crypto.PubkeyToAddress(*teePub), nil
-}
-
-func buildAttestationConfig(cfg *config.Attestation) (*attestation.Config, error) {
+func buildAttestationConfig(cfg *config.Attestation, chainID uint64) (*attestation.Config, error) {
 	if !cfg.Enable {
 		return &attestation.Config{Enabled: false}, nil
 	}
@@ -250,6 +239,7 @@ func buildAttestationConfig(cfg *config.Attestation) (*attestation.Config, error
 		MaxTokenAge:         cfg.MaxTokenAge,
 		RequireSecBoot:      cfg.RequireSecBoot,
 		AllowMagicPass:      cfg.AllowMagicPass,
+		ChainID:             chainID,
 	}, nil
 }
 
