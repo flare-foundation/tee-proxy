@@ -6,8 +6,8 @@ require (
 	cloud.google.com/go/firestore v1.21.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.17.2
-	github.com/flare-foundation/go-flare-common v1.2.2-0.20260609083321-f543cf2ef2c3
-	github.com/flare-foundation/tee-node v0.0.21-0.20260609092747-452baee87250
+	github.com/flare-foundation/go-flare-common v1.2.2-0.20260619092858-10bd8c2bb674
+	github.com/flare-foundation/tee-node v0.0.21-0.20260619120252-31fc839ae6d2
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.20.0
