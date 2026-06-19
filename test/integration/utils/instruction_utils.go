@@ -176,8 +176,22 @@ func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, priv *e
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("http://localhost:%d/instruction", port)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
+
+	// A policy pushed to the proxy is applied asynchronously: ListenToPolicies creates the
+	// voting round in a separate goroutine, so an instruction submitted right after a policy
+	// change can outrun the round and get a 404 (the only 404 from POST /instruction is
+	// "no round"). Retry on 404 within the test timeout; any other status is returned as-is.
+	var resp *http.Response
+	deadline := time.Now().Add(TestTimeConfig.Timeout)
+	for {
+		resp, err = http.Post(url, "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		if resp.StatusCode != http.StatusNotFound || time.Now().After(deadline) {
+			break
+		}
+		resp.Body.Close() //nolint:errcheck
+		time.Sleep(TestTimeConfig.Interval)
+	}
 
 	defer resp.Body.Close() //nolint:errcheck
 

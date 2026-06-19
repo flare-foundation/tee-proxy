@@ -55,6 +55,9 @@ type Config struct {
 	Audience        string
 	AllowedImageIDs []common.Hash
 
+	// ChainID is the chain ID the TEE must report; a mismatch rejects the response.
+	ChainID uint64
+
 	ExpectedCodeHash    []common.Hash // empty → skip
 	ExpectedPlatform    []common.Hash // empty → skip
 	ExpectedDebugStatus []string      // empty → skip
@@ -70,7 +73,6 @@ var (
 	ErrMagicPassDisabled  = errors.New("magic_pass attestation not allowed")
 	ErrChallengeMismatch  = errors.New("attestation challenge does not match sent challenge")
 	ErrPubKeyMismatch     = errors.New("TeeInfo and MachineData public keys differ")
-	ErrNonceMismatch      = errors.New("attestation nonce does not bind to TeeInfo hash")
 	ErrTokenTooOld        = errors.New("attestation token issued too long ago")
 	ErrSecBootDisabled    = errors.New("attestation reports secure boot disabled")
 	ErrDebugNotAllowed    = errors.New("attestation debug status not in allowlist")
@@ -114,6 +116,10 @@ func Verify(tir *types.TeeInfoResponse, sentChallenge common.Hash, cfg *Config) 
 		return err
 	}
 
+	if err := verifyChainID(tir, cfg.ChainID); err != nil {
+		return err
+	}
+
 	if tir.Attestation == teeattestation.MagicPass {
 		if !cfg.AllowMagicPass {
 			return ErrMagicPassDisabled
@@ -132,16 +138,12 @@ func Verify(tir *types.TeeInfoResponse, sentChallenge common.Hash, cfg *Config) 
 		Audience:        cfg.Audience,
 		AllowedImageIDs: imageIDSet(cfg.AllowedImageIDs),
 		Issuer:          googlecloud.ConfidentialSpaceIssuer,
+		EATNonce:        expectedNonce,
 	}
 
-	claims := &googlecloud.GoogleTeeClaims{}
-	_, _, err = googlecloud.ParseAndValidatePKITokenClaims(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, p, claims)
+	_, claims, err := googlecloud.ParseAndValidatePKIToken(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, p)
 	if err != nil {
 		return fmt.Errorf("validating attestation JWT: %w", err)
-	}
-
-	if !slices.Contains([]string(claims.EATNonce), expectedNonce) {
-		return ErrNonceMismatch
 	}
 
 	return verifyClaims(claims, cfg)
@@ -197,6 +199,15 @@ func verifyClaims(claims *googlecloud.GoogleTeeClaims, cfg *Config) error {
 		if !slices.Contains(cfg.ExpectedPlatform, p) {
 			return fmt.Errorf("%w: got %s", ErrPlatformNotAllowed, p)
 		}
+	}
+
+	return nil
+}
+
+// verifyChainID rejects a response whose self-reported chain ID does not match the configured one.
+func verifyChainID(tir *types.TeeInfoResponse, chainID uint64) error {
+	if tir.TeeInfo.ChainID != chainID {
+		return fmt.Errorf("chainID mismatch: proxy %d, tee %d", chainID, tir.TeeInfo.ChainID)
 	}
 
 	return nil

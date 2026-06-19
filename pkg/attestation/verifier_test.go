@@ -164,7 +164,11 @@ func TestVerifyJWT(t *testing.T) {
 		bad := newTir(t, challenge)
 		bad.TeeInfo.TeeTimestamp = tir.TeeInfo.TeeTimestamp + 1 // changes hash → nonce no longer matches
 		bad.Attestation = tir.Attestation
-		require.ErrorIs(t, Verify(bad, challenge, base()), ErrNonceMismatch)
+		// The EAT nonce is enforced inside the library policy, so a mismatch
+		// surfaces as the policy's eat_nonce error.
+		err := Verify(bad, challenge, base())
+		require.Error(t, err)
+		require.ErrorContains(t, err, "nonce")
 	})
 
 	t.Run("code hash allowlist", func(t *testing.T) {
@@ -221,6 +225,7 @@ func TestVerifyMaxTokenAgeMissingIat(t *testing.T) {
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
 		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
@@ -240,6 +245,7 @@ func TestVerifyMaxTokenAgeFutureIat(t *testing.T) {
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
 		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(2 * time.Hour)),
@@ -262,6 +268,7 @@ func TestVerifySecBootRejectsWhenDisabled(t *testing.T) {
 		SecBoot:  false,
 		HWModel:  testHWModel,
 		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),

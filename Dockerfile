@@ -6,7 +6,7 @@ WORKDIR /app/tee-proxy
 COPY . .
 RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o main ./cmd/proxy
+RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/proxy
 
 # Final stage
 FROM alpine:latest

@@ -12,14 +12,17 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	"github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/utils"
 
 	"gorm.io/gorm"
 )
@@ -155,6 +158,21 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common
 	}
 
 	if s.attestationCfg != nil {
+		teeID, err := ParseTeeID(&result)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("parsing tee ID: %w", err)
+		}
+
+		signingHash, err := signing.NewPayload(signing.TEEActionResult, result.TeeInfo.ChainID, [32]byte(response.Result.Hash())).Hash()
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("computing signing hash: %w", err)
+		}
+
+		err = utils.VerifySignature(signingHash[:], response.Signature, teeID)
+		if err != nil {
+			return common.Hash{}, fmt.Errorf("verifying response signature: %w", err)
+		}
+
 		if vErr := attestation.Verify(&result, challenge, s.attestationCfg); vErr != nil {
 			s.Lock()
 			s.lastAttestationErr = vErr
@@ -173,4 +191,14 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common
 	s.LastUpdated = time.Now()
 
 	return challenge, nil
+}
+
+// ParseTeeID returns the TEE identity: the address derived from the TEE public key in the response.
+func ParseTeeID(tir *types.TeeInfoResponse) (common.Address, error) {
+	teePub, err := types.ParsePubKey(tir.TeeInfo.PublicKey)
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	return crypto.PubkeyToAddress(*teePub), nil
 }

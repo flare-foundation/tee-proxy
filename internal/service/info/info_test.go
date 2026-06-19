@@ -1,6 +1,7 @@
 package info
 
 import (
+	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -14,14 +15,53 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/stretchr/testify/require"
 )
+
+// signedTeeInfoResponse builds an ActionResponse carrying resp, signed by key over the
+// chain-bound TEE_ACTION_RESULT preimage and with key's public key embedded in resp.
+// updateInfo verifies this signature against that embedded key before attestation, so a
+// test response must carry a matching one.
+func signedTeeInfoResponse(t *testing.T, key *ecdsa.PrivateKey, actionID common.Hash, tag types.SubmissionTag, resp *types.TeeInfoResponse) *types.ActionResponse {
+	t.Helper()
+
+	pub := types.PubKeyToStruct(&key.PublicKey)
+	resp.TeeInfo.PublicKey = pub
+	resp.MachineData.PublicKey = pub
+
+	m, err := json.Marshal(resp)
+	require.NoError(t, err)
+
+	ar := &types.ActionResponse{
+		Result: types.ActionResult{
+			ID:            actionID,
+			SubmissionTag: tag,
+			Status:        1,
+			OPType:        op.Get.Hash(),
+			OPCommand:     op.TEEInfo.Hash(),
+			Version:       "1.0.0",
+			Data:          m,
+		},
+	}
+
+	signHash, err := signing.NewPayload(signing.TEEActionResult, resp.TeeInfo.ChainID, [32]byte(ar.Result.Hash())).Hash()
+	require.NoError(t, err)
+
+	sig, err := crypto.Sign(accounts.TextHash(signHash[:]), key)
+	require.NoError(t, err)
+	ar.Signature = sig
+
+	return ar
+}
 
 func TestInsertBlock(t *testing.T) {
 	db, _ := testutil.InMemoryDB(t, "choose")
@@ -71,6 +111,9 @@ func TestInsertBlock(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, data.Challenge, latestBlockHash)
 
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
 	resp := &types.TeeInfoResponse{
 		TeeInfo: types.TeeInfo{
 			Challenge: latestBlockHash,
@@ -78,22 +121,8 @@ func TestInsertBlock(t *testing.T) {
 		},
 		Attestation: "",
 	}
-	m, err := json.Marshal(resp)
-	require.NoError(t, err)
+	ar := signedTeeInfoResponse(t, key, a.Data.ID, a.Data.SubmissionTag, resp)
 
-	ar := &types.ActionResponse{
-		Result: types.ActionResult{
-			ID:            a.Data.ID,
-			SubmissionTag: a.Data.SubmissionTag,
-			Status:        1,
-			OPType:        op.Get.Hash(),
-			OPCommand:     op.TEEInfo.Hash(),
-			Version:       "1.0.0",
-			Data:          m,
-		},
-	}
-
-	require.NoError(t, err)
 	err = rs.StoreResponse(t.Context(), ar)
 	require.NoError(t, err)
 
@@ -144,26 +173,16 @@ func TestAttestationStickyError(t *testing.T) {
 		return err == nil
 	}, 2*time.Second, 10*time.Millisecond)
 
-	pk := types.PublicKey{X: common.HexToHash("0xaa"), Y: common.HexToHash("0xbb")}
-	resp := &types.TeeInfoResponse{
-		TeeInfo:     types.TeeInfo{Challenge: latestBlockHash, PublicKey: pk},
-		MachineData: types.MachineData{PublicKey: pk},
-		Attestation: "magic_pass",
-	}
-	m, err := json.Marshal(resp)
+	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	require.NoError(t, rs.StoreResponse(t.Context(), &types.ActionResponse{
-		Result: types.ActionResult{
-			ID:            a.Data.ID,
-			SubmissionTag: a.Data.SubmissionTag,
-			Status:        1,
-			OPType:        op.Get.Hash(),
-			OPCommand:     op.TEEInfo.Hash(),
-			Version:       "1.0.0",
-			Data:          m,
-		},
-	}))
+	resp := &types.TeeInfoResponse{
+		TeeInfo:     types.TeeInfo{Challenge: latestBlockHash},
+		Attestation: "magic_pass",
+	}
+	ar := signedTeeInfoResponse(t, key, a.Data.ID, a.Data.SubmissionTag, resp)
+
+	require.NoError(t, rs.StoreResponse(t.Context(), ar))
 
 	require.Eventually(t, func() bool {
 		return s.LastAttestationErr() != nil
