@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
@@ -17,14 +18,14 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
-	"github.com/flare-foundation/tee-node/pkg/utils"
 )
 
 var (
-	errWrongTeeID     = fmt.Errorf("%w: wrong teeID", status.HTTP[400])
-	errInvalidOP      = fmt.Errorf("%w: invalid pair opType, opCommand", status.HTTP[400])
-	errRoundNotStored = fmt.Errorf("%w: round not stored", status.HTTP[404])
-	errNoInstruction  = fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
+	errWrongTeeID       = fmt.Errorf("%w: wrong teeID", status.HTTP[400])
+	errInvalidOP        = fmt.Errorf("%w: invalid pair opType, opCommand", status.HTTP[400])
+	errInvalidSignature = fmt.Errorf("%w: invalid signature", status.HTTP[400])
+	errRoundNotStored   = fmt.Errorf("%w: round not stored", status.HTTP[404])
+	errNoInstruction    = fmt.Errorf("%w: no instruction with the provided id", status.HTTP[404])
 )
 
 // Service processes incoming instructions and manages threshold-based voting consensus.
@@ -70,15 +71,11 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 		return nil, errInvalidOP
 	}
 
-	hash, err := i.Data.HashForSigning(s.chainID)
+	pub, err := i.RecoverSignersPubKey(s.chainID)
 	if err != nil {
-		return nil, fmt.Errorf("hashing instruction: %w", err)
+		return nil, errInvalidSignature
 	}
-
-	signer, err := utils.SignatureToSignersAddress(hash[:], i.Signature)
-	if err != nil {
-		return nil, fmt.Errorf("retrieving signer: %w", err)
-	}
+	signer := crypto.PubkeyToAddress(*pub)
 
 	return s.vs.AddVote(&i.Data, signer, i.Signature)
 }
