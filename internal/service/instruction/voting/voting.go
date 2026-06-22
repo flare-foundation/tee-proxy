@@ -189,7 +189,11 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	}
 
 	if actionToSend != nil {
-		s.Out <- actionToSend
+		select {
+		case s.Out <- actionToSend:
+		case <-s.ctx.Done():
+			return nil, fmt.Errorf("forwarding finalized action: %w", s.ctx.Err())
+		}
 	}
 
 	return &receipt, nil
