@@ -11,11 +11,20 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
+	"github.com/flare-foundation/tee-proxy/pkg/status"
 
 	"github.com/flare-foundation/tee-node/pkg/fdc"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
 	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
+)
+
+const (
+	maxBIPS = 10000
+
+	// fdcMinimumThresholdBIPS is the lowest non-zero FDC2 PROVE data-provider
+	// threshold (in BIPS) the TEE accepts.
+	fdcMinimumThresholdBIPS = 4000
 )
 
 // Meta provides meta data for the instructions.
@@ -83,6 +92,10 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 var (
 	errInvalidCosigners         = errors.New("invalid cosigners")
 	errInvalidCosignerThreshold = errors.New("invalid cosigner threshold")
+
+	errFDCThresholdTooLow    = fmt.Errorf("%w: FDC2 data provider threshold below minimum", status.HTTP[400])
+	errFDCThresholdBelowHalf = fmt.Errorf("%w: FDC2 data provider threshold below half requires cosigner threshold above half", status.HTTP[400])
+	errFDCThresholdTooHigh   = fmt.Errorf("%w: FDC2 data provider threshold too high", status.HTTP[400])
 )
 
 func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Address]bool, threshold, expectedThreshold uint64) error {
@@ -192,13 +205,35 @@ func (*meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
 			return -1, err
 		}
 
-		tBIPS := int(fdcReq.Header.ThresholdBIPS)
+		tBIPS := fdcReq.Header.ThresholdBIPS
 		if tBIPS == 0 {
 			return -1, nil
 		}
 
-		return int(fdcReq.Header.ThresholdBIPS), nil
+		if err := checkFDCThreshold(tBIPS, data.CosignersThreshold, len(data.Cosigners)); err != nil {
+			return -1, err
+		}
+
+		return int(tBIPS), nil
 	}
 
 	return -1, nil
+}
+
+// checkFDCThreshold validates a non-zero FDC2 PROVE data-provider threshold against the
+// rules the TEE enforces: it must be at least
+// fdcMinimumThresholdBIPS, strictly below maxBIPS, and — when below half — paired with a
+// cosigner threshold above half of the cosigners. Mirroring the rules keeps the proxy
+// from opening, finalizing, or signing a receipt for a vote the TEE would reject.
+func checkFDCThreshold(thresholdBIPS uint16, cosignersThreshold uint64, cosignerCount int) error {
+	switch {
+	case thresholdBIPS < fdcMinimumThresholdBIPS:
+		return errFDCThresholdTooLow
+	case thresholdBIPS < maxBIPS/2 && cosignersThreshold*2 <= uint64(cosignerCount):
+		return errFDCThresholdBelowHalf
+	case thresholdBIPS >= maxBIPS:
+		return errFDCThresholdTooHigh
+	}
+
+	return nil
 }
