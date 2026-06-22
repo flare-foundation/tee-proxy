@@ -1,6 +1,7 @@
 package voting
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/tee-node/pkg/fdc"
+	"github.com/flare-foundation/tee-node/pkg/types"
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 )
 
@@ -329,6 +331,70 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 
 	_, err = s.AddVote(i, a2, s2)
 	require.Error(t, err)
+}
+
+// TestAddVoteFinalizedSendCancelledOnShutdown verifies that a finalizing vote does not block
+// forever on the finalized-action channel when the consumer is not draining it: once the
+// service context is cancelled, AddVote abandons the send and returns an error instead of parking.
+func TestAddVoteFinalizedSendCancelledOnShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s := NewStorage(ctx, &config.Voting{
+		ProposalExpiration:  10 * time.Second,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 1,
+	}, &testMeta{})
+	s.StoreNewRound(testutil.TestSigningPolicy)
+
+	// Fill the finalized-action buffer so the finalizing send below cannot proceed.
+	s.Out <- &types.Action{}
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("shutdown-send")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochID:          1,
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
+			OriginalMessage:        []byte("TODO"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	h, err := i.HashForSigning(voteTestChainID)
+	require.NoError(t, err)
+
+	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
+	sig1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	a2 := crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey)
+	sig2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
+	require.NoError(t, err)
+
+	// First vote is below threshold: it records but emits no action.
+	_, err = s.AddVote(i, a1, sig1)
+	require.NoError(t, err)
+
+	cancel()
+
+	// The second vote finalizes and tries to emit the threshold action, but the buffer is full
+	// and the context is cancelled, so AddVote must return promptly rather than block.
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.AddVote(i, a2, sig2)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddVote blocked on a full finalized-action channel after shutdown")
+	}
 }
 
 // TestConcurrentVoteAtExpiry verifies AddVote and scheduleEnd respect a consistent

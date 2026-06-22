@@ -347,7 +347,11 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 	}()
 
 	for _, a := range actions {
-		out <- a
+		select {
+		case out <- a:
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 

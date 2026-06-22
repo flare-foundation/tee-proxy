@@ -168,11 +168,7 @@ func Run(ctx context.Context, cfgPath string) {
 	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta, cfg.ChainID)
 	go instructionService.Run(ctx)
 
-	directCfg := server.DirectConfig{
-		Enable:         cfg.Direct.Enable,
-		APIKey:         cfg.Direct.APIKey,
-		APIKeyOptional: cfg.Direct.APIKeyOptional,
-	}
+	directCfg := directConfig(cfg.Direct)
 	if cfg.Direct.Enable && cfg.Direct.APIKeyOptional {
 		logger.Warn("/direct is enabled without API key authentication (api_key_optional = true)")
 	}
@@ -202,6 +198,17 @@ func runServer(name string, serve func() error) {
 	err := serve()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Panicf("%s server stopped: %v", name, err)
+	}
+}
+
+// directConfig maps the /direct endpoint configuration onto the server's DirectConfig,
+// including the body-size limit applied to POST /direct requests.
+func directConfig(c config.Direct) server.DirectConfig {
+	return server.DirectConfig{
+		Enable:         c.Enable,
+		APIKey:         c.APIKey,
+		APIKeyOptional: c.APIKeyOptional,
+		MaxBodySize:    c.MaxBodySize,
 	}
 }
 

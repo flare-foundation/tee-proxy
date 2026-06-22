@@ -3,6 +3,7 @@ package instruction
 import (
 	"context"
 	"crypto/ecdsa"
+	"math/big"
 	"testing"
 	"time"
 
@@ -519,6 +520,56 @@ func TestVotingStorageErrors(t *testing.T) {
 		require.Contains(t, err.Error(), "'forbidden'", "Expected specific status code")
 		t.Logf("✓ AlreadyVotedSigner_403: Got expected error: %v", err)
 	})
+}
+
+// highSVariant returns the malleated, non-canonical (high-S) form of a 65-byte
+// secp256k1 signature: (r, n-s, v^1). It recovers to the same public key as sig
+// but is rejected by canonical-signature validation.
+func highSVariant(t *testing.T, sig []byte) []byte {
+	t.Helper()
+	require.Len(t, sig, 65)
+
+	out := make([]byte, 65)
+	copy(out, sig)
+
+	s := new(big.Int).SetBytes(sig[32:64])
+	n := crypto.S256().Params().N
+	new(big.Int).Sub(n, s).FillBytes(out[32:64])
+	out[64] ^= 1
+
+	return out
+}
+
+// TestServeInstructionRejectsNonCanonicalSignature verifies that a high-S signature is
+// rejected during signer recovery — before a vote box is opened — while the canonical
+// signature from the same voter is accepted.
+func TestServeInstructionRejectsNonCanonicalSignature(t *testing.T) {
+	teeID := common.HexToAddress("dead")
+	mr, c, s := setupInstructionService(t, teeID, testutil.TestSigningPolicy)
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	iData := createBaseInstructionData("TestNonCanonicalSignature", teeID)
+
+	h, err := iData.HashForSigning(testChainID)
+	require.NoError(t, err)
+	canonical, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	_, err = s.ServeInstruction(context.Background(), &instruction.Instruction{
+		Data:      *iData,
+		Signature: highSVariant(t, canonical),
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "invalid signature")
+	require.ErrorContains(t, err, "'bad request'")
+
+	rec, err := s.ServeInstruction(context.Background(), &instruction.Instruction{
+		Data:      *iData,
+		Signature: canonical,
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), rec.Sequence)
 }
 
 func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service) {
