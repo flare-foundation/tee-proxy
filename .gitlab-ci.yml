@@ -68,6 +68,8 @@ build-image:
       args="--context ${CI_PROJECT_DIR}
         --dockerfile ${CI_PROJECT_DIR}/${DOCKERFILE}
         --registry-mirror mirror.gcr.io
+        --compressed-caching=false
+        --snapshot-mode=redo
         --no-push"
     - /kaniko/executor $args
 
@@ -135,6 +137,7 @@ release-images:
         --dockerfile ${CI_PROJECT_DIR}/${DOCKERFILE}
         --cache=true
         --registry-mirror mirror.gcr.io
+        --compressed-caching=false
         --destination europe-west1-docker.pkg.dev/flare-network-staging/containers/${IMAGE}:$image_tag"
     - >-
       if [[ $CI_COMMIT_REF_PROTECTED == "true" ]]; then
