@@ -316,6 +316,10 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 		opCommand := vb.proposal.instruction.OPCommand
 		opType := vb.proposal.instruction.OPType
 
+		// An unfinalised box that reaches its end time has expired. The proposer's limiter
+		// pending count is intentionally NOT decremented here: the limiter caps unfinalised
+		// votings per provider as anti-spam, so an expired one must keep counting against that
+		// cap until the epoch rolls (see limiter.Limiter). Decrement runs only on finalize.
 		if !vb.Finalized {
 			logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
 			return nil
