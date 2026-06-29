@@ -15,7 +15,16 @@ var (
 	ErrLimitReached     = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
 )
 
-// Limiter caps how many concurrent unfinalised proposals a single voter may have open.
+// Limiter is the anti-spam control on the voting path: it caps how many unfinalised
+// proposals a single data provider may have open at once.
+//
+// Only registered data providers may start a voting process, and each may hold at most
+// maxPendingRequests proposals that have not finalised. A provider's pending count rises
+// when it starts a voting (Increment) and falls only when one finalises (Decrement); a
+// voting that expires without finalising stays counted, because an unfinalised voting is
+// the spam the cap exists to bound — releasing it on expiry would let a provider cycle
+// proposals (open, let expire, open again) to evade the limit. Counts are per reward
+// epoch: a fresh Limiter is built for each Round.
 type Limiter struct {
 	counter map[common.Address]*State
 
@@ -119,6 +128,8 @@ func (l *Limiter) TopPending(n int) []VoterPending {
 
 // Decrement decrements counter for address in round.
 //
+// It is called only when a proposal finalises; proposals that expire unfinalised are
+// deliberately left counted (see Limiter), so this must not be called on the expiry path.
 // If the address is not registered or has zero pending requests, the call is ineffectual.
 func (l *Limiter) Decrement(address common.Address) {
 	l.Lock()
