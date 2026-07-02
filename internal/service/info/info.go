@@ -71,6 +71,17 @@ func (s *Service) LastAttestationErr() error {
 	return s.lastAttestationErr
 }
 
+// LastAppliedPolicyID returns the reward epoch ID of the signing policy the tee-node
+// most recently reported as active.
+func (s *Service) LastAppliedPolicyID() uint32 {
+	s.RLock()
+	defer s.RUnlock()
+	if s.Latest == nil {
+		return 0
+	}
+	return s.Latest.TeeInfo.LastSigningPolicyID
+}
+
 // Run starts the periodic update of TEE info.
 func (s *Service) Run(ctx context.Context) error {
 	errCount := 0

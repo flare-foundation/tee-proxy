@@ -140,6 +140,32 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 	return p, nil
 }
 
+// FetchSigningPolicyLog fetches the SigningPolicyInitialized event log for the given
+// policy ID from the database. found is false (with a nil error) when no such event
+// exists yet — i.e. the reward epoch has not been initialized on chain.
+func FetchSigningPolicyLog(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (database.Log, bool, error) {
+	topics := [4]common.Hash{}
+	topics[0] = SigningPolicyInitializedEventSel
+	topics[1] = convert.Uint32ToHash(signingPolicyID)
+
+	params := database.LogsFullParams{
+		Address: relayAddress,
+		Topics:  topics,
+		Number:  1,
+	}
+
+	logs, err := database.FetchLogsFull(ctx, db, params)
+	if err != nil {
+		return database.Log{}, false, fmt.Errorf("fetching signing policy %d log: %w", signingPolicyID, err)
+	}
+
+	if len(logs) == 0 {
+		return database.Log{}, false, nil
+	}
+
+	return logs[0], true, nil
+}
+
 // prepareSignatures transforms a slice of Signatures to a slice SignatureMessage.
 func prepareSignatures(sigs []*registry.Signature) [][]byte {
 	msgs := make([][]byte, len(sigs))
@@ -181,8 +207,12 @@ func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
 }
 
 // policyRolloverSignatureDeadline caps how long collectSignatures waits for
-// on-chain signNewSigningPolicy endorsements during a policy rollover.
-const policyRolloverSignatureDeadline = 3 * time.Hour
+// on-chain signNewSigningPolicy endorsements during a single attempt of a policy
+// rollover. The update loop retries across attempts, so signatures that appear
+// late are still collected on a later attempt; this only bounds one attempt so the
+// loop can re-log progress and re-reconcile with the node. It is a var so tests can
+// shrink it.
+var policyRolloverSignatureDeadline = 30 * time.Minute
 
 func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64, chainID *big.Int) ([]byte, error) {
 	deadline := time.Now().Add(policyRolloverSignatureDeadline)
