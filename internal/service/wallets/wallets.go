@@ -251,6 +251,10 @@ func (s *Service) sync(ctx context.Context) error {
 		return fmt.Errorf("fetching key info: %w", err)
 	}
 
+	// Snapshot local keys now so removeStaleKeys won't evict keys the event loop adds
+	// during the sync window; those are newer than this remote view.
+	localAtStart := s.localKeySet()
+
 	toFetch := s.keysNeedingProof(remoteKeys)
 
 	for batch := range slices.Chunk(toFetch, keyProofBatchSize) {
@@ -280,9 +284,22 @@ func (s *Service) sync(ctx context.Context) error {
 		s.Unlock()
 	}
 
-	s.removeStaleKeys(remoteKeys)
+	s.removeStaleKeys(remoteKeys, localAtStart)
 
 	return nil
+}
+
+// localKeySet returns the set of currently-cached key IDs.
+func (s *Service) localKeySet() map[IDPair]bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	set := make(map[IDPair]bool, len(s.Keys))
+	for id := range s.Keys {
+		set[id] = true
+	}
+
+	return set
 }
 
 // fetchKeyInfo sends a KEY_INFO action and returns the list of key infos from the tee-node.
@@ -330,8 +347,9 @@ func (s *Service) keysNeedingProof(remote []types.KeyInfo) []IDPair {
 	return toFetch
 }
 
-// removeStaleKeys removes locally cached keys that are no longer present on the tee-node.
-func (s *Service) removeStaleKeys(remote []types.KeyInfo) {
+// removeStaleKeys removes locally cached keys that are absent from remote, except those
+// not in localAtStart: keys added during the sync window are preserved, not evicted.
+func (s *Service) removeStaleKeys(remote []types.KeyInfo, localAtStart map[IDPair]bool) {
 	remoteSet := make(map[IDPair]bool, len(remote))
 	for _, info := range remote {
 		remoteSet[IDPair{WalletID: info.WalletID, KeyID: info.KeyID}] = true
@@ -341,15 +359,17 @@ func (s *Service) removeStaleKeys(remote []types.KeyInfo) {
 	defer s.Unlock()
 
 	for id := range s.Keys {
-		if !remoteSet[id] {
-			delete(s.Keys, id)
+		if remoteSet[id] || !localAtStart[id] {
+			continue
+		}
 
-			s.KeysForWallet[id.WalletID] = slices.DeleteFunc(s.KeysForWallet[id.WalletID], func(k uint64) bool {
-				return k == id.KeyID
-			})
-			if len(s.KeysForWallet[id.WalletID]) == 0 {
-				delete(s.KeysForWallet, id.WalletID)
-			}
+		delete(s.Keys, id)
+
+		s.KeysForWallet[id.WalletID] = slices.DeleteFunc(s.KeysForWallet[id.WalletID], func(k uint64) bool {
+			return k == id.KeyID
+		})
+		if len(s.KeysForWallet[id.WalletID]) == 0 {
+			delete(s.KeysForWallet, id.WalletID)
 		}
 	}
 }
