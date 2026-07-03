@@ -98,6 +98,27 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 		return nil, errVotingBeforeEvent
 	}
 
+	// Admit the proposer before any metadata work: only registered providers within their
+	// pending cap may open a box, so an ineligible request is rejected after a single map
+	// lookup rather than after resolving cosigners and ABI-encoding under the epoch lock.
+	if err := round.limiter.Increment(signer); err != nil {
+		return nil, err
+	}
+
+	box, err := buildVoteBox(data, signer, round, meta, expirationTime)
+	if err != nil {
+		// The box never opened, so release the slot we reserved. A creation failure is not
+		// an expiry, so releasing it does not weaken the anti-spam cap.
+		round.limiter.Decrement(signer)
+		return nil, err
+	}
+
+	return box, nil
+}
+
+// buildVoteBox resolves the box threshold and cosigner set from instruction metadata and
+// assembles the voteBox. The caller admits the proposer via the limiter first.
+func buildVoteBox(data *instruction.Data, signer common.Address, round *Round, meta meta.Meta, expirationTime time.Duration) (*voteBox, error) {
 	t, err := meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
 		return nil, fmt.Errorf("reading threshold: %w", err)
@@ -116,11 +137,6 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 	cosigners, cosignerThreshold, err := meta.Cosigners(&data.DataFixed)
 	if err != nil {
 		return nil, fmt.Errorf("reading cosigners: %w", err)
-	}
-
-	err = round.limiter.Increment(signer)
-	if err != nil {
-		return nil, err
 	}
 
 	box, err := newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
