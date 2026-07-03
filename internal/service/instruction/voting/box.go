@@ -22,12 +22,13 @@ import (
 )
 
 var (
-	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[400])
-	errActionAlreadyDeleted   = errors.New("already deleted")
-	errActionNotFinalized     = errors.New("not finalized")
-	errInvalidVoter           = fmt.Errorf("%w: invalid voter", status.HTTP[403])
-	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[410])
-	errSignatureAlreadyStored = fmt.Errorf("%w: signature already stored", status.HTTP[403])
+	errVotingBeforeEvent        = fmt.Errorf("%w: voting started before the event", status.HTTP[400])
+	errActionAlreadyDeleted     = errors.New("already deleted")
+	errActionNotFinalized       = errors.New("not finalized")
+	errInvalidVoter             = fmt.Errorf("%w: invalid voter", status.HTTP[403])
+	errInvalidCosignerThreshold = fmt.Errorf("%w: cosigner threshold exceeds cosigner set", status.HTTP[400])
+	errVotingEnded              = fmt.Errorf("%w: voting already ended", status.HTTP[410])
+	errSignatureAlreadyStored   = fmt.Errorf("%w: signature already stored", status.HTTP[403])
 )
 
 // eventFutureSlack is the allowed slippage between the local clock and the
@@ -137,6 +138,13 @@ func buildVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 	cosigners, cosignerThreshold, err := meta.Cosigners(&data.DataFixed)
 	if err != nil {
 		return nil, fmt.Errorf("reading cosigners: %w", err)
+	}
+
+	// A cosigner threshold larger than the cosigner set can never be met and is the signature
+	// of the uint64->uint16 wrap (e.g. 65536 -> 0). Reject before newProposal truncates it so
+	// the finalization gate agrees with the signed uint64 value.
+	if cosignerThreshold > uint64(len(cosigners)) {
+		return nil, fmt.Errorf("%w: %d > %d", errInvalidCosignerThreshold, cosignerThreshold, len(cosigners))
 	}
 
 	box, err := newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
