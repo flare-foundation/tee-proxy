@@ -99,3 +99,25 @@ require_sec_boot = false
 
 # Accept tee-node "magic_pass" sentinel; for non-Confidential-Space test runs only.
 allow_magic_pass = false
+
+
+[metrics]
+# Prometheus metrics are OPT-IN. When enable = false (the default) nothing is
+# collected and no /metrics endpoint is mounted. When enable = true, /metrics is
+# served on the internal server (port 6661 by default, network-segregated).
+enable = false
+
+# The group toggles below take effect only when enable = true.
+# An omitted group inherits enable; set one to false to omit just that group.
+# http          = true   # per-request count and latency
+# storage       = true   # Redis/Firestore operation count and errors
+# queue         = true   # dequeue counters and queue-depth gauge
+# voting        = true   # instruction and votings-started counters, threshold-duration histogram
+# active_voters = true   # per-epoch gauges: data-provider voters, initiators, top-3 providers by unfinalized proposals
+# result        = true   # result throughput, lost, and discarded counters
+# info          = true   # TEE info per-stage refresh failures
+# attestation   = true   # attestation verify outcomes
+# policy        = true   # active (newest) and oldest-resident signing-policy reward-epoch gauges
+# liveness      = true   # readiness gauge + info-staleness gauge
+# node          = true   # TEE-node response-wait latency and outcomes (info, wallet, machinepath)
+# runtime       = true   # Go runtime/process collectors and build info

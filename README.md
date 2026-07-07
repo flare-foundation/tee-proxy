@@ -45,6 +45,26 @@ The proxy listens on two TCP ports with different trust models:
   This port must **not** be reachable from outside the pod/host.
   Deployments must enforce this (e.g., Kubernetes `NetworkPolicy`, bind to loopback, or sidecar-only access).
 
+## Metrics
+
+Prometheus metrics are exposed on `GET /metrics` of the internal server (port `6661` by default; it follows `ports.internal`).
+They are opt-in: nothing is collected and the endpoint is not mounted unless `[metrics] enable = true`.
+The endpoint inherits the internal port's trust model — no app-layer authentication, and it must not be reachable from outside the pod/host.
+
+Collection is split into groups that can be toggled independently.
+When `enable = true`, an unset group is on; set a group to `false` to omit it.
+An omitted group does not collect its data unless that data is already needed elsewhere.
+The proxy refuses to start if metrics are enabled with every group disabled.
+
+```toml
+[metrics]
+enable = true
+# storage = false   # omit a single group; unset groups stay on
+```
+
+Groups: `http`, `storage`, `queue`, `voting`, `active_voters`, `result`, `info`, `attestation`, `policy`, `liveness`, `runtime`.
+Metric names are prefixed `teeproxy_`; the `runtime` group also exports the standard `go_*` and `process_*` collectors.
+
 ## Direct Endpoint
 
 The `POST /direct` endpoint allows submitting direct instructions that bypass the C-chain.

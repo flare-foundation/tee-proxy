@@ -1,0 +1,165 @@
+# Example Prometheus alerting rules for the Flare TEE proxy.
+#
+# These are STARTING POINTS, not a turnkey policy. Thresholds mirror the proxy's in-code
+# constants (noted per rule), but the right values depend on your traffic and SLOs.
+# Expressions carry no scrape-job/instance selector — add yours (e.g. {job="tee-proxy"})
+# to scope them. Each rule's data requires its metric group to be enabled (see the
+# [metrics] block in config and the group table in METRICS.md).
+#
+# Validate locally:  promtool check rules examples/monitoring/alerts.yaml
+# Under the Prometheus Operator, copy these groups into a PrometheusRule resource's .spec.
+
+groups:
+  # ---- Data integrity: silent, irrecoverable loss after the work was done -----------
+  - name: tee-proxy.data-integrity
+    rules:
+      - alert: TeeProxyResultsLost
+        expr: increase(teeproxy_results_lost_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE proxy lost a result (irrecoverable)"
+          description: >-
+            A result was acknowledged to the TEE node but never persisted — client-invisible,
+            irrecoverable loss. Requires the `result` metric group.
+
+      - alert: TeeProxyFinalizedActionEnqueueFailing
+        expr: increase(teeproxy_finalized_action_enqueue_failed_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Finalized action failed to enqueue"
+          description: >-
+            Consensus reached threshold but the finalized action could not be enqueued to the
+            main queue, so it was silently dropped. Requires the `voting` metric group.
+
+  # ---- Security: the proxy's trust assumptions about the TEE -------------------------
+  - name: tee-proxy.security
+    rules:
+      - alert: TeeProxyResultWrongTeeID
+        expr: increase(teeproxy_results_rejected_total{reason="wrong_tee_id"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Result signed by an unexpected key"
+          description: >-
+            A result was signed by a key other than the bound TEE identity — a tamper or
+            mis-route signal. Requires the `result` metric group.
+
+      - alert: TeeProxyAttestationFailing
+        expr: increase(teeproxy_attestation_verify_total{result="error"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE attestation verification failing"
+          description: >-
+            Attestation verification of a TEE_INFO response failed — possible compromise or
+            measurement drift. Inspect the `reason` label. Requires the `attestation` group.
+
+  # ---- Availability: is the proxy healthy and talking to the node? -------------------
+  - name: tee-proxy.availability
+    rules:
+      - alert: TeeProxyNotReady
+        expr: teeproxy_ready == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE proxy readiness failing"
+          description: >-
+            The last readiness evaluation failed (Redis, c-chain, info staleness, attestation,
+            or result storage). Requires the `liveness` metric group.
+
+      - alert: TeeProxyInfoStaleWarning
+        expr: teeproxy_info_service_delay_seconds > 70
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TEE info refresh lagging"
+          description: >-
+            No recent successful TEE-info refresh. 70s is half the 140s tolerance
+            (liveness.go infoDelayTolerance); readiness flips at 140s. Gives lead time.
+            Requires the `liveness` metric group.
+
+      - alert: TeeProxyInfoStale
+        expr: teeproxy_info_service_delay_seconds > 140
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE info stale past readiness tolerance"
+          description: >-
+            Info staleness exceeded the 140s tolerance (liveness.go infoDelayTolerance);
+            readiness is failing. Requires the `liveness` metric group.
+
+      - alert: TeeProxyNodeWaitTimeouts
+        expr: sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TEE node response-wait timeouts on {{ $labels.path }}"
+          description: >-
+            The proxy is timing out waiting for TEE-node responses on this path — node slow or
+            unreachable. Requires the `node` metric group.
+
+      - alert: TeeProxyHigh5xxRate
+        expr: |
+          sum by (server) (rate(teeproxy_http_requests_total{status_class="5xx"}[5m]))
+            / sum by (server) (rate(teeproxy_http_requests_total[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated 5xx rate on the {{ $labels.server }} server"
+          description: "Over 5% of requests are returning 5xx. Requires the `http` metric group."
+
+      - alert: TeeProxyStorageErrors
+        expr: sum by (backend) (rate(teeproxy_storage_operations_total{outcome="error"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Storage errors on {{ $labels.backend }}"
+          description: "Sustained Redis/Firestore operation errors. Requires the `storage` metric group."
+
+      - alert: TeeProxyDown
+        expr: up{job="tee-proxy"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE proxy target down"
+          description: >-
+            Prometheus cannot scrape the proxy. EXAMPLE ONLY — the `job` selector is your
+            scrape config; adjust it to match your setup.
+
+  # ---- Consensus: are votings actually finalizing? -----------------------------------
+  - name: tee-proxy.consensus
+    rules:
+      - alert: TeeProxyConsensusStall
+        expr: |
+          increase(teeproxy_votings_started_total[15m]) > 0
+            and increase(teeproxy_voting_threshold_duration_seconds_count[15m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Votings opening but none finalizing"
+          description: >-
+            Proposals are being opened but none have reached threshold in 15m — offline voters,
+            a mis-set threshold, or a partition. Requires the `voting` metric group.
+
+  # ---- Saturation: backpressure -------------------------------------------------------
+  - name: tee-proxy.saturation
+    rules:
+      - alert: TeeProxyQueueBackpressure
+        expr: teeproxy_action_queue_depth{queue="main"} > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Main action queue not draining"
+          description: >-
+            Main queue depth above 100 (queue.go queueDepthWarnThreshold) for 10m — the TEE node
+            is not draining actions. Requires the `queue` metric group.
