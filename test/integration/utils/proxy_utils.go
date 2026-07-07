@@ -99,23 +99,23 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	c := storage.NewClient(mr.Addr())
 	storageCfg := config.Storage{}
 	storageCfg.SetDefault()
-	aq := queue.NewActionQueues(c, storageCfg.ActionTTL)
+	aq := queue.NewActionQueues(c, storageCfg.ActionTTL, nil)
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
 
 	// Setup action and result services
 	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
 	backupIndex := testutil.NewMemStorage[common.Hash]()
-	resultService := result.NewService(rs, TestChainID)
-	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
+	resultService := result.NewService(rs, TestChainID, nil)
+	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL, nil)
 
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
-	}, &attestation.Config{Enabled: false})
+	}, &attestation.Config{Enabled: false}, nil)
 
-	livenessService := liveness.New(db, c, infoService, resultService)
+	livenessService := liveness.New(db, c, infoService, resultService, nil)
 
-	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService)
+	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService, nil)
 
 	wg.Go(func() {
 		logger.Info("Starting internal server")
@@ -146,8 +146,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}).SetDefault()
 
 	policyChan := make(chan policy.SigningPolicy, 1)
-	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj, TestChainID)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, TestChainID, aq, server.DirectConfig{})
+	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj, TestChainID, nil)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, TestChainID, aq, server.DirectConfig{}, nil)
 
 	wg.Go(func() {
 		instService.Run(ctx)

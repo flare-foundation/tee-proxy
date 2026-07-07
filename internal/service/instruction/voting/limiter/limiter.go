@@ -1,7 +1,9 @@
 package limiter
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -81,6 +83,38 @@ func (l *Limiter) Increment(address common.Address) error {
 	state.TotalProposed++
 
 	return nil
+}
+
+// VoterPending pairs a voter with its count of unfinalised (pending) proposals.
+type VoterPending struct {
+	Address common.Address
+	Pending uint
+}
+
+// TopPending returns up to n voters with the most unfinalised proposals, highest first,
+// excluding any with zero pending. Ties are broken by address for a stable ordering.
+func (l *Limiter) TopPending(n int) []VoterPending {
+	l.RLock()
+	defer l.RUnlock()
+
+	pending := make([]VoterPending, 0, len(l.counter))
+	for addr, state := range l.counter {
+		if state.pending > 0 {
+			pending = append(pending, VoterPending{Address: addr, Pending: state.pending})
+		}
+	}
+
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].Pending != pending[j].Pending {
+			return pending[i].Pending > pending[j].Pending
+		}
+		return bytes.Compare(pending[i].Address.Bytes(), pending[j].Address.Bytes()) < 0
+	})
+
+	if n >= 0 && len(pending) > n {
+		pending = pending[:n]
+	}
+	return pending
 }
 
 // Decrement decrements counter for address in round.

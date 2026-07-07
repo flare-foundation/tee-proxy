@@ -61,6 +61,7 @@ var (
 	errAttestationCodeHashInvalid           = errors.New("attestation expected_code_hashes contains invalid hex")
 	errAttestationMaxTokenAgeNegative       = errors.New("attestation max_token_age must be non-negative")
 	errDirectMaxBodySizeNegative            = errors.New("direct max_body_size must be non-negative")
+	errMetricsNoGroups                      = errors.New("metrics enabled but all groups are disabled; enable at least one group or set enable = false")
 )
 
 // Firestore holds Firestore connection configuration.
@@ -90,6 +91,7 @@ type Proxy struct {
 	Direct                       Direct          `toml:"direct"`                           // Direct endpoint configuration.
 	Storage                      Storage         `toml:"storage"`                          // TTLs applied to Redis/Firestore-backed persistent storage.
 	Attestation                  Attestation     `toml:"attestation"`                      // Bootstrap attestation verification configuration.
+	Metrics                      Metrics         `toml:"metrics"`                          // Prometheus metrics. Off by default; opt-in via [metrics] enable.
 }
 
 // Attestation controls bootstrap attestation verification.
@@ -180,6 +182,42 @@ func (s *Storage) validate() error {
 		return errStorageTTLPositive
 	}
 	return nil
+}
+
+// Metrics controls the Prometheus metrics subsystem, off by default.
+// Each group is a *bool: unset inherits Enable, an explicit false omits just that group.
+type Metrics struct {
+	Enable bool `toml:"enable"` // Master switch. When false, the whole subsystem is inert.
+
+	HTTP         *bool `toml:"http"`          // Per-request count and latency middleware.
+	Storage      *bool `toml:"storage"`       // Generic Redis/Firestore operation count and errors.
+	Queue        *bool `toml:"queue"`         // Action enqueue/dequeue counters and queue-depth gauge.
+	Voting       *bool `toml:"voting"`        // Instruction and votings-started counters, threshold-duration histogram.
+	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters, initiators, top providers).
+	Result       *bool `toml:"result"`        // Result throughput, lost, and discarded counters.
+	Info         *bool `toml:"info"`          // TEE info per-stage refresh failures.
+	Attestation  *bool `toml:"attestation"`   // Attestation verify outcomes.
+	Policy       *bool `toml:"policy"`        // Active signing-policy reward-epoch gauge.
+	Liveness     *bool `toml:"liveness"`      // Readiness gauge and info-staleness gauge.
+	Node         *bool `toml:"node"`          // TEE-node response-wait latency and outcomes (info, wallet, machinepath).
+	Runtime      *bool `toml:"runtime"`       // Go runtime/process collectors and build info.
+}
+
+// validate rejects an enabled subsystem with every group turned off, which would
+// run the endpoint while collecting nothing.
+func (m Metrics) validate() error {
+	if !m.Enable {
+		return nil
+	}
+
+	// A nil group inherits Enable (on); only an explicit false omits it.
+	for _, g := range []*bool{m.HTTP, m.Storage, m.Queue, m.Voting, m.ActiveVoters, m.Result, m.Info, m.Attestation, m.Policy, m.Liveness, m.Node, m.Runtime} {
+		if g == nil || *g {
+			return nil
+		}
+	}
+
+	return errMetricsNoGroups
 }
 
 // Direct holds configuration for the /direct endpoint.
@@ -287,6 +325,11 @@ func Read(path string) (Proxy, error) {
 	}
 
 	err = c.Attestation.validate()
+	if err != nil {
+		return c, err
+	}
+
+	err = c.Metrics.validate()
 	if err != nil {
 		return c, err
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -37,12 +38,35 @@ type Service struct {
 
 	policies <-chan policy.SigningPolicy
 	aq       *queue.ActionQueues
+
+	metrics *metrics.Metrics
 }
 
 // NewService creates a new instruction Service with the given voting config, TEE identity, and dependencies.
 // chainID is bound into the instruction signing hash and must match the TEE node's chain ID.
-func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta, chainID uint64) *Service {
-	vs := voting.NewStorage(ctx, votingCfg, meta)
+// m may be nil or disabled.
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta, chainID uint64, m *metrics.Metrics) *Service {
+	vs := voting.NewStorage(ctx, votingCfg, meta, m)
+
+	// Report current-epoch participant counts and the oldest resident signing-policy epoch at
+	// scrape time; each is a no-op when its metric group is disabled.
+	m.RegisterActiveDataProviderVoters(func() float64 { return float64(vs.CurrentRoundProviderVoterCount()) })
+	m.RegisterActiveInitiators(func() float64 { return float64(vs.CurrentRoundInitiatorCount()) })
+	m.RegisterTopUnfinalizedProposals(func() []metrics.ProviderPending {
+		top := vs.CurrentRoundTopPending(3)
+		out := make([]metrics.ProviderPending, len(top))
+		for i, vp := range top {
+			out[i] = metrics.ProviderPending{Provider: vp.Address.Hex(), Pending: float64(vp.Pending)}
+		}
+		return out
+	})
+	m.RegisterOldestStoredPolicy(func() float64 {
+		o, ok := vs.OldestStoredEpoch()
+		if !ok {
+			return 0
+		}
+		return float64(o)
+	})
 
 	return &Service{
 		teeID:   teeID,
@@ -51,6 +75,8 @@ func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Addr
 
 		policies: policiesChan,
 		aq:       aq,
+
+		metrics: m,
 	}
 }
 
@@ -62,22 +88,33 @@ func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Addr
 //
 // Additional checks are done by the voting storage.
 func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction) (*pkgvoting.Receipt, error) {
+	s.metrics.InstructionReceived()
+
 	if i.Data.TeeID != s.teeID {
+		s.metrics.InstructionRejected("wrong_tee_id")
 		return nil, errWrongTeeID
 	}
 
 	ok := op.IsValidPair(i.Data.OPType, i.Data.OPCommand)
 	if !ok {
+		s.metrics.InstructionRejected("invalid_op")
 		return nil, errInvalidOP
 	}
 
 	pub, err := i.RecoverSignersPubKey(s.chainID)
 	if err != nil {
+		s.metrics.InstructionRejected("invalid_signature")
 		return nil, errInvalidSignature
 	}
 	signer := crypto.PubkeyToAddress(*pub)
 
-	return s.vs.AddVote(&i.Data, signer, i.Signature)
+	receipt, err := s.vs.AddVote(&i.Data, signer, i.Signature)
+	if err != nil {
+		s.metrics.InstructionRejected(voting.RejectReason(err))
+		return nil, err
+	}
+
+	return receipt, nil
 }
 
 // Run starts the Forward and ListenToPolicies loops concurrently.
@@ -101,6 +138,7 @@ func (s *Service) Forward(ctx context.Context) error {
 		case action := <-s.vs.Out:
 			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
+				s.metrics.FinalizedActionEnqueueFailed()
 				logger.Errorf("enqueuing instruction action: %v", err)
 				continue
 			}

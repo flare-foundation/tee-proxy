@@ -80,7 +80,7 @@ func makeKeyGenActionResult(t *testing.T, walletID common.Hash, keyID uint64) *t
 // Run with: go test -race ./internal/service/wallets/...
 func TestWalletInfoDataRace(t *testing.T) {
 	walletID := common.BytesToHash([]byte("race-wallet"))
-	svc := NewService(nil, nil, nil, nil, time.Hour)
+	svc := NewService(nil, nil, nil, nil, time.Hour, nil)
 
 	aResult := makeKeyGenActionResult(t, walletID, 0)
 	_, _, err := svc.update(aResult)
@@ -135,7 +135,7 @@ func TestWalletInfoDataRace(t *testing.T) {
 // and the test fails. After the fix (no nested RLock), all calls complete.
 func TestWalletInfoDeadlock(t *testing.T) {
 	walletID := common.BytesToHash([]byte("deadlock-wallet"))
-	svc := NewService(nil, nil, nil, nil, time.Hour)
+	svc := NewService(nil, nil, nil, nil, time.Hour, nil)
 
 	aResult := makeKeyGenActionResult(t, walletID, 0)
 	_, _, err := svc.update(aResult)

@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
@@ -50,11 +51,14 @@ type Service struct {
 	// can be recorded without blocking the RLock held during ProcessAndStore.
 	storageMu      sync.RWMutex
 	lastStorageErr error
+
+	metrics *metrics.Metrics
 }
 
 // NewService creates a new result service. chainID is bound into the
 // domain-separated preimage used to verify the TEE's action-result signature.
-func NewService(rs *ResultStorage, chainID uint64) *Service {
+// m may be nil or disabled.
+func NewService(rs *ResultStorage, chainID uint64, m *metrics.Metrics) *Service {
 	kat := make(chan *types.ActionResult, keyActionsChanSize)
 	bst := make(chan *types.ActionResult, backupsChanSize)
 	btt := make(chan bool, backupTriggerChanSize)
@@ -65,6 +69,7 @@ func NewService(rs *ResultStorage, chainID uint64) *Service {
 		KeyActions:    kat,
 		Backups:       bst,
 		BackupTrigger: btt,
+		metrics:       m,
 	}
 }
 
@@ -89,6 +94,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 	if r.Result.ID == (common.Hash{}) {
 		logger.Warnf("discarding result with empty action ID, tag %s, status %d, log: %s",
 			r.Result.SubmissionTag, r.Result.Status, r.Result.Log)
+		s.metrics.ResultDiscarded()
 		return nil
 	}
 
@@ -99,14 +105,17 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		signer, err := recoverSigner(r, s.chainID)
 		if err != nil {
 			logger.Errorf("recover signer for result %s: %v, result log: %s", r.Result.ID, err, r.Result.Log)
+			s.metrics.ResultRejected("bad_signer")
 			return fmt.Errorf("recovering signer: %w", err)
 		}
 
 		if signer.Cmp(s.teeID) != 0 {
+			s.metrics.ResultRejected("wrong_tee_id")
 			return errInvalidTeeID
 		}
 	} else if r.Result.OPCommand != op.TEEInfo.Hash() {
 		// Pre-SetIdentity: signatures cannot be verified, so only TEE_INFO is accepted.
+		s.metrics.ResultRejected("bootstrap")
 		return errBootstrapNotTeeInfo
 	}
 
@@ -141,8 +150,23 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 		}
 	}
 
+	s.metrics.ResultProcessed(r.Result.OPCommand, r.Result.Status)
+
 	err := s.rs.StoreResponse(ctx, r)
-	s.recordStorageResult(err)
+	switch {
+	case errors.Is(err, errOverrideFinal), errors.Is(err, errOverrideTransient):
+		// A deliberate override-guard rejection protecting an already-persisted
+		// result: neither data loss nor a storage failure. Leave the liveness
+		// signal untouched and do not count it as lost.
+	case err != nil:
+		// Acknowledged to the node but not persisted: a genuine loss. Record it so
+		// readiness reflects the failure and count it as lost.
+		s.recordStorageResult(err)
+		s.metrics.ResultLost()
+	default:
+		// A successful store clears any prior storage failure (liveness auto-recovers).
+		s.recordStorageResult(nil)
+	}
 	return err
 }
 

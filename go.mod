@@ -8,6 +8,7 @@ require (
 	github.com/ethereum/go-ethereum v1.17.2
 	github.com/flare-foundation/go-flare-common v1.2.2-0.20260619092858-10bd8c2bb674
 	github.com/flare-foundation/tee-node v0.0.21-0.20260619120252-31fc839ae6d2
+	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.20.0
@@ -15,6 +16,16 @@ require (
 	google.golang.org/grpc v1.77.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.0
+)
+
+require (
+	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
+	github.com/kylelemons/godebug v1.1.0 // indirect
+	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
+	github.com/prometheus/client_model v0.6.1 // indirect
+	github.com/prometheus/common v0.55.0 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 )
 
 require (
