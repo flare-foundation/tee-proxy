@@ -78,6 +78,8 @@ var (
 	ErrDebugNotAllowed    = errors.New("attestation debug status not in allowlist")
 	ErrCodeHashNotAllowed = errors.New("attestation code hash not in allowlist")
 	ErrPlatformNotAllowed = errors.New("attestation platform not in allowlist")
+	ErrChainIDMismatch    = errors.New("attestation chainID mismatch")
+	ErrJWTInvalid         = errors.New("validating attestation JWT")
 )
 
 // ActiveChecks reports which optional checks Verify will perform. Used for the startup log line.
@@ -143,7 +145,7 @@ func Verify(tir *types.TeeInfoResponse, sentChallenge common.Hash, cfg *Config) 
 
 	_, claims, err := googlecloud.ParseAndValidatePKIToken(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, p)
 	if err != nil {
-		return fmt.Errorf("validating attestation JWT: %w", err)
+		return fmt.Errorf("%w: %w", ErrJWTInvalid, err)
 	}
 
 	return verifyClaims(claims, cfg)
@@ -207,7 +209,7 @@ func verifyClaims(claims *googlecloud.GoogleTeeClaims, cfg *Config) error {
 // verifyChainID rejects a response whose self-reported chain ID does not match the configured one.
 func verifyChainID(tir *types.TeeInfoResponse, chainID uint64) error {
 	if tir.TeeInfo.ChainID != chainID {
-		return fmt.Errorf("chainID mismatch: proxy %d, tee %d", chainID, tir.TeeInfo.ChainID)
+		return fmt.Errorf("%w: proxy %d, tee %d", ErrChainIDMismatch, chainID, tir.TeeInfo.ChainID)
 	}
 
 	return nil

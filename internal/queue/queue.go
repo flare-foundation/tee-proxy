@@ -12,6 +12,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
@@ -24,6 +25,9 @@ const (
 
 	// queueDepthWarnThreshold logs a warning past this depth; not a hard cap.
 	queueDepthWarnThreshold = 100
+
+	// queueDepthTimeout bounds the Redis LLEN issued when the depth gauge is scraped.
+	queueDepthTimeout = 2 * time.Second
 )
 
 // ErrInvalidQueueID is returned when an unrecognized queue ID is provided.
@@ -47,16 +51,65 @@ type ActionQueues struct {
 	mainQueue   storage.Queue[*ActionSubmissionID]
 	backupQueue storage.Queue[*ActionSubmissionID]
 	actionTTL   time.Duration
+
+	metrics *metrics.Metrics
 }
 
 // NewActionQueues creates a new ActionQueues backed by the given Redis client.
-func NewActionQueues(client *redis.Client, actionTTL time.Duration) *ActionQueues {
-	return &ActionQueues{
+// m may be nil or disabled.
+func NewActionQueues(client *redis.Client, actionTTL time.Duration, m *metrics.Metrics) *ActionQueues {
+	as := &ActionQueues{
 		actions:     storage.NewRedisStorage[*types.Action](Actions, client),
 		directQueue: storage.NewQueue[*ActionSubmissionID](DirectQueue, client),
 		mainQueue:   storage.NewQueue[*ActionSubmissionID](MainQueue, client),
 		backupQueue: storage.NewQueue[*ActionSubmissionID](BackupQueue, client),
 		actionTTL:   actionTTL,
+		metrics:     m,
+	}
+
+	as.registerDepthGauges()
+
+	return as
+}
+
+// registerDepthGauges registers one scrape-time depth gauge per queue. No-op when
+// queue metrics are disabled.
+func (as *ActionQueues) registerDepthGauges() {
+	for _, qq := range []struct {
+		label string
+		queue storage.Queue[*ActionSubmissionID]
+	}{
+		{"direct", as.directQueue},
+		{"main", as.mainQueue},
+		{"backup", as.backupQueue},
+	} {
+		q, label := qq.queue, qq.label
+		as.metrics.RegisterQueueDepth(label, func() float64 {
+			ctx, cancel := context.WithTimeout(context.Background(), queueDepthTimeout)
+			defer cancel()
+			n, err := q.QueueLength(ctx)
+			if err != nil {
+				// A scrape-time Redis failure is reported as depth 0; warn so an
+				// outage is distinguishable from a genuinely drained queue.
+				logger.Warnf("queue depth gauge: reading %s queue length: %v", label, err)
+				return 0
+			}
+			return float64(n)
+		})
+	}
+}
+
+// queueLabel maps a queue ID to a bounded metric label.
+func queueLabel(queueID processorutils.QueueID) string {
+	switch queueID {
+	case processorutils.Main:
+		return "main"
+	case processorutils.Direct:
+		return "direct"
+	case processorutils.Backup:
+		return "backup"
+	default:
+		return "other"
 	}
 }
 
@@ -111,20 +164,31 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 		return nil, err
 	}
 
+	ql := queueLabel(queueID)
+
 	storingID, err := queue.Dequeue(ctx)
 	if err != nil {
+		if errors.Is(err, storage.ErrEmptyQueue) {
+			as.metrics.ActionDequeued(ql, "empty")
+		} else {
+			as.metrics.ActionDequeued(ql, "error")
+		}
 		return nil, fmt.Errorf("dequeuing %v: %w", queueID, err)
 	}
 
 	action, err := as.actions.Get(ctx, storingID.String())
 	if errors.Is(err, storage.ErrNotFound) {
+		as.metrics.ActionDequeued(ql, "action_not_found")
 		return nil, fmt.Errorf("queued action not found: %s", storingID.String())
 	}
 	if err != nil {
+		as.metrics.ActionDequeued(ql, "error")
 		return nil, fmt.Errorf("fetching queued action %s: %w", storingID.String(), err)
 	}
 
 	as.actions.Remove(ctx, storingID.String()) //nolint:errcheck // error can only happen if context is canceled
+
+	as.metrics.ActionDequeued(ql, "success")
 
 	return action, nil
 }

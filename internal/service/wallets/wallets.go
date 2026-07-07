@@ -14,6 +14,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
 
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -59,6 +60,8 @@ type Service struct {
 	rs        *result.ResultStorage
 	backupTTL time.Duration
 
+	metrics *metrics.Metrics
+
 	// syncing serialises sync() across overlapping triggers so the event loop
 	// keeps draining other channels while a long sync is in progress.
 	syncing atomic.Bool
@@ -67,7 +70,7 @@ type Service struct {
 }
 
 // NewService wires the wallet service to its action queue, result storage, and backup stores.
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration) *Service {
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration, m *metrics.Metrics) *Service {
 	return &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
@@ -78,6 +81,7 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 		aq:        aq,
 		rs:        rs,
 		backupTTL: backupTTL,
+		metrics:   m,
 	}
 }
 
@@ -294,7 +298,9 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 		return nil, err
 	}
 
+	start := time.Now()
 	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
+	s.metrics.ObserveNodeWait("wallet_key_info", time.Since(start), err)
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +371,9 @@ func (s *Service) fetchKeyProofs(ctx context.Context, batch []IDPair) ([]*wallet
 		return nil, err
 	}
 
+	start := time.Now()
 	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyProofResponseTimeout)
+	s.metrics.ObserveNodeWait("wallet_key_proof", time.Since(start), err)
 	if err != nil {
 		return nil, err
 	}

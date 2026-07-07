@@ -78,13 +78,13 @@ func TestInsertBlock(t *testing.T) {
 
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
-	aq := queue.NewActionQueues(c, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
 	s := NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,
 		CycleQueueResponseWait: 1 * time.Second,
-	}, &attestation.Config{Enabled: false})
+	}, &attestation.Config{Enabled: false}, nil)
 
 	go func() {
 		err := s.Run(t.Context())
@@ -151,14 +151,14 @@ func TestAttestationStickyError(t *testing.T) {
 
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
-	aq := queue.NewActionQueues(c, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
 	// Enabled=true with AllowMagicPass=false rejects the magic_pass response below.
 	s := NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,
 		CycleQueueResponseWait: 1 * time.Second,
-	}, &attestation.Config{Enabled: true, AllowMagicPass: false})
+	}, &attestation.Config{Enabled: true, AllowMagicPass: false}, nil)
 
 	require.NoError(t, s.LastAttestationErr())
 

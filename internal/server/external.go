@@ -19,6 +19,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
@@ -64,6 +65,8 @@ type External struct {
 	privKey *ecdsa.PrivateKey
 	chainID uint64
 	direct  DirectConfig
+
+	metrics *metrics.Metrics
 }
 
 // DirectConfig holds configuration for the /direct endpoint.
@@ -85,6 +88,7 @@ func NewExternal(
 	chainID uint64,
 	actionQueues *queue.ActionQueues,
 	direct DirectConfig,
+	m *metrics.Metrics,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -107,6 +111,7 @@ func NewExternal(
 		privKey:            privateKey,
 		chainID:            chainID,
 		direct:             direct,
+		metrics:            m,
 	}
 
 	e.registerRoutes(direct.Enable)
@@ -129,7 +134,6 @@ func (e *External) Close(ctx context.Context) error {
 // With enableDirect set to true /direct endpoint is added.
 func (e *External) registerRoutes(enableDirect bool) {
 	mux := http.NewServeMux()
-	e.server.Handler = mux
 
 	mux.HandleFunc("POST /instruction", prepareHandler(e.instructionH, instructionSizeLimit, false))
 	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, noBody, false))
@@ -148,6 +152,8 @@ func (e *External) registerRoutes(enableDirect bool) {
 
 		mux.HandleFunc("POST /direct", prepareHandler(e.directH, sizeLimit, false))
 	}
+
+	e.server.Handler = instrumentHTTP(e.metrics, "external", mux)
 }
 
 // instructionH handles instruction endpoint.

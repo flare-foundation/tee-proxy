@@ -16,6 +16,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/server"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
@@ -72,12 +73,15 @@ func Run(ctx context.Context, cfgPath string) {
 			logger.Warnf("closing Redis client: %v", err)
 		}
 	}()
-	actionQueues := queue.NewActionQueues(redisClient, cfg.Storage.ActionTTL)
+	proxyMetrics := metrics.New(metricsConfig(cfg.Metrics))
+
+	actionQueues := queue.NewActionQueues(redisClient, cfg.Storage.ActionTTL, proxyMetrics)
 
 	var (
-		resultStore storage.Storage[*types.ActionResponse]
-		backupStore storage.Storage[*teewallets.TEEBackupResponse]
-		backupIndex storage.Storage[common.Hash]
+		resultStore    storage.Storage[*types.ActionResponse]
+		backupStore    storage.Storage[*teewallets.TEEBackupResponse]
+		backupIndex    storage.Storage[common.Hash]
+		storageBackend string
 	)
 
 	if cfg.GCS.Bucket != "" {
@@ -97,16 +101,24 @@ func Run(ctx context.Context, cfgPath string) {
 		backupStore = storage.NewGCSStorage[*teewallets.TEEBackupResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backups"))
 		backupIndex = storage.NewGCSStorage[common.Hash](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backupIndex"))
 		logger.Infof("persistent storage backend: GCS bucket %q prefix %q", cfg.GCS.Bucket, cfg.GCS.Prefix)
+		storageBackend = "gcs"
 	} else {
 		resultStore = storage.NewRedisStorage[*types.ActionResponse]("results", redisClient)
 		backupStore = storage.NewRedisStorage[*teewallets.TEEBackupResponse]("backups", redisClient)
 		backupIndex = storage.NewRedisStorage[common.Hash]("backupIndex", redisClient)
 		logger.Info("persistent storage backend: Redis (gcs bucket not configured)")
+		storageBackend = "redis"
+	}
+
+	if obs := proxyMetrics.StorageObserver(); obs != nil {
+		resultStore = storage.WithMetrics(resultStore, obs, storageBackend, "results")
+		backupStore = storage.WithMetrics(backupStore, obs, storageBackend, "backups")
+		backupIndex = storage.WithMetrics(backupIndex, obs, storageBackend, "backupIndex")
 	}
 
 	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
-	resultService := result.NewService(resultStorage, cfg.ChainID)
-	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
+	resultService := result.NewService(resultStorage, cfg.ChainID, proxyMetrics)
+	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL, proxyMetrics)
 
 	attestationCfg, err := buildAttestationConfig(&cfg.Attestation, cfg.ChainID)
 	if err != nil {
@@ -114,11 +126,11 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 	logAttestationPosture(attestationCfg)
 
-	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg)
+	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg, proxyMetrics)
 
-	livenessService := liveness.New(db, redisClient, infoService, resultService)
+	livenessService := liveness.New(db, redisClient, infoService, resultService, proxyMetrics)
 
-	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
+	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService, proxyMetrics)
 	go runServer("internal", internalServer.Serve)
 
 	logger.Info("fetching initial TEE info")
@@ -153,7 +165,7 @@ func Run(ctx context.Context, cfgPath string) {
 	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.KeyActions, resultService.Backups)
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, walletSyncPeriod)
 
-	policyService := policy.NewService(actionQueues, resultStorage, cfg.Addresses, cfg.ChainID, infoService)
+	policyService := policy.NewService(actionQueues, resultStorage, cfg.Addresses, cfg.ChainID, infoService, proxyMetrics)
 	err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset, initialInfo)
 	if err != nil {
 		logger.Panicf("initializing signing policy: %v", err)
@@ -169,21 +181,21 @@ func Run(ctx context.Context, cfgPath string) {
 		if err != nil {
 			logger.Panicf("governance configuration: %v", err)
 		}
-		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, governance, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce)
+		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, governance, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce, proxyMetrics)
 		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
 	} else {
 		logger.Info("machine_path_manager address not set; machine path list service disabled")
 	}
 
 	meta := meta.New(walletService, cfg.ChainID)
-	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta, cfg.ChainID)
+	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta, cfg.ChainID, proxyMetrics)
 	go instructionService.Run(ctx)
 
 	directCfg := directConfig(cfg.Direct)
 	if cfg.Direct.Enable && cfg.Direct.APIKeyOptional {
 		logger.Warn("/direct is enabled without API key authentication (api_key_optional = true)")
 	}
-	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, cfg.ChainID, actionQueues, directCfg)
+	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, cfg.ChainID, actionQueues, directCfg, proxyMetrics)
 	go runServer("external", externalServer.Serve)
 
 	livenessService.SignalStartupFinished()
@@ -228,6 +240,33 @@ func directConfig(c config.Direct) server.DirectConfig {
 		APIKey:         c.APIKey,
 		APIKeyOptional: c.APIKeyOptional,
 		MaxBodySize:    c.MaxBodySize,
+	}
+}
+
+// metricsConfig resolves config.Metrics into metrics.Config: with Enable false every
+// group is off; otherwise an unset group inherits Enable and an explicit value wins.
+func metricsConfig(c config.Metrics) metrics.Config {
+	group := func(p *bool) bool {
+		if !c.Enable {
+			return false
+		}
+		return p == nil || *p
+	}
+
+	return metrics.Config{
+		Enable:       c.Enable,
+		HTTP:         group(c.HTTP),
+		Storage:      group(c.Storage),
+		Queue:        group(c.Queue),
+		Voting:       group(c.Voting),
+		ActiveVoters: group(c.ActiveVoters),
+		Result:       group(c.Result),
+		Info:         group(c.Info),
+		Attestation:  group(c.Attestation),
+		Policy:       group(c.Policy),
+		Liveness:     group(c.Liveness),
+		Node:         group(c.Node),
+		Runtime:      group(c.Runtime),
 	}
 }
 

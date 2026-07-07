@@ -3,12 +3,16 @@ package voting
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/storage"
 	"github.com/flare-foundation/go-flare-common/pkg/voters"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting/limiter"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
@@ -50,19 +54,26 @@ type Storage struct {
 
 	// Service-lifetime ctx; per-box goroutines outlive the request that spawns them.
 	ctx context.Context //nolint:containedctx // service-lifetime ctx, see comment
+
+	metrics       *metrics.Metrics
+	collectVoters bool
+	currentEpoch  atomic.Uint32 // latest stored reward epoch, for the active-voter gauge
 }
 
 // NewStorage creates a voting Storage backed by a cyclic buffer sized by config.HistorySize.
 // ctx is the service-lifetime context that bounds per-box goroutines created during AddVote.
-func NewStorage(ctx context.Context, config *config.Voting, meta meta.Meta) *Storage {
+// m may be nil or disabled.
+func NewStorage(ctx context.Context, config *config.Voting, meta meta.Meta, m *metrics.Metrics) *Storage {
 	out := make(chan *types.Action, config.FinalizedBufferSize)
 
 	return &Storage{
-		Cyclic: storage.New[uint32, *Round](config.HistorySize),
-		config: *config,
-		meta:   meta,
-		Out:    out,
-		ctx:    ctx,
+		Cyclic:        storage.New[uint32, *Round](config.HistorySize),
+		config:        *config,
+		meta:          meta,
+		Out:           out,
+		ctx:           ctx,
+		metrics:       m,
+		collectVoters: m.ActiveVotersEnabled(),
 	}
 }
 
@@ -74,9 +85,66 @@ func (s *Storage) StoreNewRound(policy *policy.SigningPolicy) {
 		return
 	}
 
-	r := createRound(policy, s.config.MaxPendingRequests)
+	r := createRound(policy, s.config.MaxPendingRequests, s.collectVoters)
 
 	s.Store(policy.RewardEpochID, r)
+
+	if policy.RewardEpochID > s.currentEpoch.Load() {
+		s.currentEpoch.Store(policy.RewardEpochID)
+	}
+}
+
+// CurrentRoundProviderVoterCount returns the distinct data-provider-voter count for the
+// latest reward epoch, or 0 if no round is stored. Read at scrape time.
+func (s *Storage) CurrentRoundProviderVoterCount() int {
+	r, ok := s.Get(s.currentEpoch.Load())
+	if !ok {
+		return 0
+	}
+	return r.ProviderVoterCount()
+}
+
+// CurrentRoundInitiatorCount returns the distinct initiator count for the latest reward
+// epoch, or 0 if no round is stored. Read at scrape time.
+func (s *Storage) CurrentRoundInitiatorCount() int {
+	r, ok := s.Get(s.currentEpoch.Load())
+	if !ok {
+		return 0
+	}
+	return r.ProposerCount()
+}
+
+// CurrentRoundTopPending returns up to n voters with the most unfinalised proposals in the
+// latest reward epoch, or nil if no round is stored. Read at scrape time.
+func (s *Storage) CurrentRoundTopPending(n int) []limiter.VoterPending {
+	r, ok := s.Get(s.currentEpoch.Load())
+	if !ok {
+		return nil
+	}
+	return r.TopPendingProposals(n)
+}
+
+// OldestStoredEpoch returns the oldest reward epoch with a round still resident in the cyclic
+// buffer, with ok=false when none is stored. The newest resident epoch is the active one,
+// already exposed as policy_active_reward_epoch. Read at scrape time.
+func (s *Storage) OldestStoredEpoch() (uint32, bool) {
+	top := s.currentEpoch.Load()
+	var oldest uint32
+	var ok bool
+	for i := range uint32(s.Size()) {
+		if i > top {
+			break
+		}
+		e := top - i
+		if _, present := s.Get(e); present {
+			oldest = e
+			ok = true
+		}
+		if e == 0 {
+			break
+		}
+	}
+	return oldest, ok
 }
 
 // AddVote records a vote in the appropriate box and returns a signed receipt.
@@ -107,6 +175,10 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	var receipt voting.Receipt
 	var actionToSend *types.Action
+	var reached bool
+	var startedBox bool
+	var isProvider bool
+	var thresholdDuration time.Duration
 
 	// Hold locks only inside this closure; the channel send below stays unlocked.
 	err = func() error {
@@ -142,6 +214,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		// deferred delete() writes it under the same lock. Without this ordering,
 		// a second AddVote arriving as the box expires races with delete().
 		vg, weight := voterGroupCheck(signer, round.policy.Voters.VoterDataMap, box.proposal.cosigners)
+		isProvider = vg&provider != 0
 
 		r, finalized, err := box.addVote(signer, weight, signature, data.AdditionalVariableMessage, vg)
 		if err != nil {
@@ -152,6 +225,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		if !existsB {
 			boxes.M[hash] = box
 			go box.scheduleEnd(s.ctx, s.Out, boxes)
+			startedBox = true
 		}
 
 		if !existsBs {
@@ -159,6 +233,8 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 		}
 
 		if finalized {
+			reached = true
+			thresholdDuration = time.Since(box.StartTime)
 			round.limiter.Decrement(box.Proposer)
 
 			switch {
@@ -186,6 +262,22 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	if err != nil {
 		return nil, err
+	}
+
+	// Record metrics outside the locked critical section above.
+	if startedBox {
+		s.metrics.VotingStarted()
+	}
+	if s.collectVoters {
+		if isProvider {
+			round.markProviderVoter(signer)
+		}
+		if startedBox {
+			round.markProposer(signer)
+		}
+	}
+	if reached {
+		s.metrics.VotingThresholdReached(thresholdDuration)
 	}
 
 	if actionToSend != nil {

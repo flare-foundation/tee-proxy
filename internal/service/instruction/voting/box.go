@@ -355,6 +355,23 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 	}
 }
 
+// RejectReason maps an AddVote error to a bounded label for metrics.
+// Unmatched errors return "other".
+func RejectReason(err error) string {
+	switch {
+	case errors.Is(err, errInvalidVoter):
+		return "invalid_voter"
+	case errors.Is(err, errVotingEnded):
+		return "voting_ended"
+	case errors.Is(err, errSignatureAlreadyStored):
+		return "duplicate_signature"
+	case errors.Is(err, errVotingBeforeEvent):
+		return "event_in_future"
+	default:
+		return "other"
+	}
+}
+
 // signersData returns slices of signatures, additionalVariableMessages, and timestamps.
 // signature, additionalVariableMessages, and timestamps in slot j come from the same vote.
 // Slices are sorted according to the arrival of votes.

@@ -13,6 +13,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/retry"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
@@ -34,6 +35,7 @@ type Service struct {
 	scAddresses config.Addresses
 	chainID     *big.Int
 	nodeState   nodePolicyState
+	metrics     *metrics.Metrics
 
 	activePolicy *cpolicy.SigningPolicy
 
@@ -44,14 +46,16 @@ type Service struct {
 }
 
 // NewService creates a new policy Service with the given action queues, result storage,
-// contract addresses, chain ID, and a view of the node's applied policy state.
-func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, addresses config.Addresses, chainID uint64, nodeState nodePolicyState) *Service {
+// contract addresses, chain ID, a view of the node's applied policy state, and metrics.
+// m may be nil or disabled.
+func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, addresses config.Addresses, chainID uint64, nodeState nodePolicyState, m *metrics.Metrics) *Service {
 	return &Service{
 		aq:          aq,
 		responses:   responses,
 		scAddresses: addresses,
 		chainID:     new(big.Int).SetUint64(chainID),
 		nodeState:   nodeState,
+		metrics:     m,
 	}
 }
 
@@ -89,6 +93,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		}
 
 		s.activePolicy = lastPolicy
+		s.metrics.SetActiveRewardEpoch(lastPolicy.RewardEpochID)
 		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
 
 		logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
@@ -108,6 +113,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 	}
 
 	s.activePolicy = p
+	s.metrics.SetActiveRewardEpoch(p.RewardEpochID)
 
 	logger.Infof("initialized for policy %d", p.RewardEpochID)
 
@@ -185,6 +191,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			}
 			logger.Infof("reconciled active signing policy to node's %d (was %d)", nodeID, s.activePolicy.RewardEpochID)
 			s.activePolicy = p
+			s.metrics.SetActiveRewardEpoch(p.RewardEpochID)
 			attempts = 0
 			if !emit(ctx, out, p) {
 				return
@@ -252,6 +259,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		}
 
 		s.activePolicy = newPolicy
+		s.metrics.SetActiveRewardEpoch(newPolicy.RewardEpochID)
 		attempts = 0
 		logger.Infof("updated signing policy to %d", newPolicy.RewardEpochID)
 		if !emit(ctx, out, newPolicy) {

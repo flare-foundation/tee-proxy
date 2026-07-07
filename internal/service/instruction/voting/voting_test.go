@@ -42,7 +42,7 @@ func TestStorage(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 10,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -110,7 +110,7 @@ func TestFDCMessageValidity(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	chainID := uint64(14)
@@ -163,7 +163,7 @@ func TestFDCMessage(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	chainID := uint64(14)
@@ -222,7 +222,7 @@ func TestStorageConcurrent(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
@@ -289,7 +289,7 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -344,7 +344,7 @@ func TestAddVoteFinalizedSendCancelledOnShutdown(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 1,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	// Fill the finalized-action buffer so the finalizing send below cannot proceed.
@@ -407,7 +407,7 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	i := &instruction.Data{

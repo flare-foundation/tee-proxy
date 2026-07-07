@@ -14,7 +14,9 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
@@ -52,6 +54,8 @@ type Internal struct {
 	draining bool
 
 	lHandlers livenessHandlers
+
+	metrics *metrics.Metrics
 }
 
 type liveness interface {
@@ -60,11 +64,13 @@ type liveness interface {
 }
 
 // NewInternal creates and configures a new Internal server listening on port.
+// m may be nil or disabled, in which case no /metrics endpoint is mounted.
 func NewInternal(port string,
 	actionQueues *queue.ActionQueues,
 	resultService ResultService,
 	wallet *wallets.Service,
 	liveness liveness,
+	m *metrics.Metrics,
 ) *Internal {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -82,6 +88,7 @@ func NewInternal(port string,
 		resultService: resultService,
 		server:        server,
 		lHandlers:     livenessHandlers{liveness},
+		metrics:       m,
 	}
 
 	e.registerRoutes()
@@ -120,7 +127,6 @@ func (i *Internal) Close(ctx context.Context) error {
 
 func (i *Internal) registerRoutes() {
 	mux := http.NewServeMux()
-	i.server.Handler = mux
 
 	mux.HandleFunc("POST /result", prepareHandler(i.resultH, maxResultBodySize, true))
 	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(i.queueH, noBody, true))
@@ -128,6 +134,27 @@ func (i *Internal) registerRoutes() {
 	mux.HandleFunc("GET /healthy", i.lHandlers.healthy)
 	mux.HandleFunc("GET /startup", i.lHandlers.startup)
 	mux.HandleFunc("GET /ready", i.lHandlers.ready)
+
+	if i.metrics.Enabled() {
+		mux.Handle("GET /metrics", promhttp.HandlerFor(i.metrics.Registry(), promhttp.HandlerOpts{
+			// Bound concurrent scrapes: each fans out into LLEN-backed gauges and
+			// lock-walks, so a misbehaving scraper must not pile them up.
+			MaxRequestsInFlight: 3,
+			EnableOpenMetrics:   true,
+			// Surface gather/encode errors that are otherwise silently discarded.
+			ErrorLog: promErrorLogger{},
+		}))
+	}
+
+	i.server.Handler = instrumentHTTP(i.metrics, "internal", mux)
+}
+
+// promErrorLogger adapts the project logger to promhttp.Logger so /metrics gather and
+// encoding errors are surfaced instead of being silently discarded.
+type promErrorLogger struct{}
+
+func (promErrorLogger) Println(v ...any) {
+	logger.Errorf("serving /metrics: %s", fmt.Sprint(v...))
 }
 
 // resultH serves "/result" endpoint.

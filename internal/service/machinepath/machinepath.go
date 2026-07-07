@@ -11,6 +11,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/machinepath"
@@ -33,6 +34,8 @@ type Service struct {
 	extensionID    common.Hash
 	chainID        uint64
 
+	metrics *metrics.Metrics
+
 	lastNonce uint64
 }
 
@@ -43,7 +46,7 @@ type Service struct {
 // (Safe nonzero), approveMachinePathList Safe transactions are collected and
 // pre-verified as authorization evidence alongside direct governance
 // signatures.
-func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, governance types.Governance, extensionID common.Hash, chainID uint64, initialNonce uint64) *Service {
+func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, governance types.Governance, extensionID common.Hash, chainID uint64, initialNonce uint64, m *metrics.Metrics) *Service {
 	return &Service{
 		aq:             aq,
 		responses:      responses,
@@ -52,6 +55,7 @@ func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, manager
 		extensionID:    extensionID,
 		chainID:        chainID,
 		lastNonce:      initialNonce,
+		metrics:        m,
 	}
 }
 
@@ -100,7 +104,9 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 
 	// Advance lastNonce only once the TEE node confirms the action succeeded;
 	// otherwise the next poll retries the same list.
+	start := time.Now()
 	response, err := s.responses.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, responseWaitTimeout)
+	s.metrics.ObserveNodeWait("machinepath", time.Since(start), err)
 	if err != nil {
 		logger.Errorf("waiting for SET_MACHINE_PATH_LIST response for nonce %d: %v", nonce, err)
 		return
