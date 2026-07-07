@@ -3,10 +3,18 @@ FROM golang:1.25.1-alpine AS builder
 
 WORKDIR /app/tee-proxy
 
+# Build metadata stamped into the build_info metric. The build context excludes .git,
+# so debug.ReadBuildInfo cannot recover vcs.revision here; CI passes these via --build-arg.
+# VERSION defaults to "dev" and is set from the Git tag only for release images.
+ARG REVISION=unknown
+ARG VERSION=dev
+
 COPY . .
 RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o main ./cmd/proxy
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags "-X github.com/flare-foundation/tee-proxy/internal/version.Revision=${REVISION} -X github.com/flare-foundation/tee-proxy/internal/version.Version=${VERSION}" \
+    -o main ./cmd/proxy
 
 # Final stage
 FROM alpine:latest
