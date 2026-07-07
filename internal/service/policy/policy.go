@@ -8,24 +8,32 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/flare-foundation/go-flare-common/pkg/convert"
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/retry"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
+	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/policy"
 	"gorm.io/gorm"
 )
 
+// nodePolicyState reports the reward epoch of the signing policy the tee-node has most
+// recently applied. Implemented by the info service; used to reconcile the proxy's
+// active policy with the node after a missed update confirmation.
+type nodePolicyState interface {
+	LastAppliedPolicyID() uint32
+}
+
 // Service fetches signing policies from the blockchain and distributes them via action queues.
 type Service struct {
 	aq          *queue.ActionQueues
+	responses   *result.ResultStorage
 	scAddresses config.Addresses
 	chainID     *big.Int
+	nodeState   nodePolicyState
 
 	activePolicy *cpolicy.SigningPolicy
 
@@ -35,12 +43,15 @@ type Service struct {
 	restartPolicies []*cpolicy.SigningPolicy
 }
 
-// NewService creates a new policy Service with the given action queues, contract addresses, and chain ID.
-func NewService(aq *queue.ActionQueues, addresses config.Addresses, chainID uint64) *Service {
+// NewService creates a new policy Service with the given action queues, result storage,
+// contract addresses, chain ID, and a view of the node's applied policy state.
+func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, addresses config.Addresses, chainID uint64, nodeState nodePolicyState) *Service {
 	return &Service{
 		aq:          aq,
+		responses:   responses,
 		scAddresses: addresses,
 		chainID:     new(big.Int).SetUint64(chainID),
+		nodeState:   nodeState,
 	}
 }
 
@@ -80,7 +91,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		s.activePolicy = lastPolicy
 		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
 
-		logger.Infof("restart: loaded policies %d and %d (listener starts from %d)", startID, lastID, lastID+1)
+		logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
 
 		return nil
 	}
@@ -109,10 +120,6 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 		return nil, errors.New("not initialized yet")
 	}
 
-	startID := s.activePolicy.RewardEpochID + 1
-
-	logChan := signingPolicyInitializedEventsListener(ctx, db, s.scAddresses.Relay, startID, policyFetchInterval)
-
 	pChan := make(chan cpolicy.SigningPolicy, 3)
 	if s.restartPolicies != nil {
 		// On restart: emit previously loaded policies so the instruction
@@ -125,122 +132,165 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 	} else {
 		pChan <- *s.activePolicy
 	}
-	go s.update(ctx, pChan, db, logChan)
+	go s.update(ctx, pChan, db, policyFetchInterval)
 
 	return pChan, nil
 }
 
-var (
-	// updatePolicyRetry is low because collectSignatures already retries internally
-	// for up to 3 hours; a returned error means a long-tail issue unlikely to clear quickly.
-	updatePolicyRetry = retry.Params{MaxAttempts: 2, Delay: 30 * time.Second}
-	enqueueRetry      = retry.Params{MaxAttempts: 5, Delay: time.Second}
+const (
+	// confirmationWaitTimeout bounds how long the update loop waits for the tee-node to
+	// confirm an UPDATE_POLICY before retrying. It must stay well under the result
+	// storage TTL so the confirmation is still available when awaited.
+	confirmationWaitTimeout = 2 * time.Minute
+
+	// warnAfterAttempts is the number of consecutive failed attempts on a single epoch
+	// after which failure logs escalate from Info to Warn.
+	warnAfterAttempts = 3
 )
 
-type updatePolicyResult struct {
-	action *types.Action
-	policy *cpolicy.SigningPolicy
-}
+var (
+	// updateRetryDelay is the pause before re-attempting the same epoch after a failed
+	// attempt (signatures not yet collectable, node rejection, or transient error).
+	updateRetryDelay = 1 * time.Minute
 
-// update receives SigningPolicyInitialized events from logsC and:
-//   - processes them into SigningPolicy structs
-//   - creates and enqueues "UPDATE_POLICY" actions for the node
-//   - advances activePolicy and broadcasts on out, but only after enqueue succeeds
-//
-// Failures are retried with bounded backoff; if retries are exhausted the log is
-// dropped with an error indicating loss, and activePolicy is left unchanged so
-// proxy and node stay in sync.
-func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db *gorm.DB, logsC <-chan database.Log) {
+	// enqueueRetry bounds retries of the transient action enqueue; the outer update loop
+	// provides durable, unbounded retry of the epoch itself.
+	enqueueRetry = retry.Params{MaxAttempts: 5, Delay: time.Second}
+)
+
+// update drives signing-policy rollovers off activePolicy. Each iteration targets
+// activePolicy.RewardEpochID+1 and does not advance until that exact epoch has been
+// built, enqueued, and confirmed applied by the node. A failed epoch is retried
+// indefinitely (never skipped): both the proxy's signature collection and the node
+// require strictly consecutive policies, so skipping any epoch would wedge the pipeline.
+func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db *gorm.DB, fetchInterval time.Duration) {
+	attempts := 0
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		case log := <-logsC:
-			nextID := s.activePolicy.RewardEpochID + 1
-			logger.Debugf("updating signing policy from %d", s.activePolicy.RewardEpochID)
+		}
 
-			us := retry.Execute(ctx, func() (updatePolicyResult, error) {
-				action, p, e := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
-				return updatePolicyResult{action: action, policy: p}, e
-			}, updatePolicyRetry)
-			if !us.Success {
-				logger.Errorf("UPDATE_POLICY for reward epoch %d lost: %v", nextID, us.Err)
+		// Reconcile with the node: if it has already applied a later policy than we
+		// consider active (e.g. we enqueued an UPDATE_POLICY the node applied but whose
+		// confirmation we missed), adopt the node's state rather than re-submitting an
+		// epoch it already has.
+		if nodeID := s.nodeState.LastAppliedPolicyID(); nodeID > s.activePolicy.RewardEpochID {
+			p, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
+			if err != nil {
+				logger.Errorf("reconciling active signing policy to node's %d: %v", nodeID, err)
+				if !wait(ctx, fetchInterval) {
+					return
+				}
 				continue
 			}
-
-			es := retry.Execute(ctx, func() (struct{}, error) {
-				return struct{}{}, s.aq.Enqueue(ctx, us.Value.action, processorutils.Direct)
-			}, enqueueRetry)
-			if !es.Success {
-				logger.Errorf("UPDATE_POLICY enqueue for reward epoch %d lost: %v", nextID, es.Err)
-				continue
-			}
-
-			// Both side effects landed; advance proxy state.
-			s.activePolicy = us.Value.policy
-			logger.Debugf("updated signing policy to %d", us.Value.policy.RewardEpochID)
-
-			select {
-			case out <- *us.Value.policy:
-			case <-ctx.Done():
+			logger.Infof("reconciled active signing policy to node's %d (was %d)", nodeID, s.activePolicy.RewardEpochID)
+			s.activePolicy = p
+			attempts = 0
+			if !emit(ctx, out, p) {
 				return
 			}
+			continue
+		}
+
+		target := s.activePolicy.RewardEpochID + 1
+
+		log, found, err := policy.FetchSigningPolicyLog(ctx, db, s.scAddresses.Relay, target)
+		if err != nil {
+			logger.Errorf("fetching signing policy %d log: %v", target, err)
+			if !wait(ctx, fetchInterval) {
+				return
+			}
+			continue
+		}
+		if !found {
+			// The next epoch is not yet initialized on chain — the steady-state path.
+			logger.Debugf("signing policy %d not yet on chain; waiting", target)
+			if !wait(ctx, fetchInterval) {
+				return
+			}
+			continue
+		}
+
+		attempts++
+
+		action, newPolicy, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
+		if err != nil {
+			logUpdateFailure(target, attempts, "building UPDATE_POLICY action", err)
+			if !wait(ctx, updateRetryDelay) {
+				return
+			}
+			continue
+		}
+
+		es := retry.Execute(ctx, func() (struct{}, error) {
+			return struct{}{}, s.aq.Enqueue(ctx, action, processorutils.Direct)
+		}, enqueueRetry)
+		if !es.Success {
+			logUpdateFailure(target, attempts, "enqueueing UPDATE_POLICY action", es.Err)
+			if !wait(ctx, updateRetryDelay) {
+				return
+			}
+			continue
+		}
+
+		// Advance only after the node confirms it applied the policy, so proxy and node
+		// stay in lockstep (both enforce strictly consecutive epochs).
+		resp, err := s.responses.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, confirmationWaitTimeout)
+		if err != nil {
+			logUpdateFailure(target, attempts, "awaiting UPDATE_POLICY confirmation", err)
+			if !wait(ctx, updateRetryDelay) {
+				return
+			}
+			continue
+		}
+		if resp.Result.Status != 1 {
+			logUpdateFailure(target, attempts, fmt.Sprintf("node rejected UPDATE_POLICY (status %d, log %q)", resp.Result.Status, resp.Result.Log), nil)
+			if !wait(ctx, updateRetryDelay) {
+				return
+			}
+			continue
+		}
+
+		s.activePolicy = newPolicy
+		attempts = 0
+		logger.Infof("updated signing policy to %d", newPolicy.RewardEpochID)
+		if !emit(ctx, out, newPolicy) {
+			return
 		}
 	}
 }
 
-func signingPolicyInitializedEventsListener(
-	ctx context.Context,
-	db *gorm.DB,
-	relayAddress common.Address,
-	startPolicyID uint32,
-	fetchInterval time.Duration,
-) <-chan database.Log {
-	out := make(chan database.Log, 1)
+// emit sends p on out, or returns false if ctx is cancelled first.
+func emit(ctx context.Context, out chan cpolicy.SigningPolicy, p *cpolicy.SigningPolicy) bool {
+	select {
+	case out <- *p:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
 
-	policyID := startPolicyID
+// logUpdateFailure logs a failed attempt to apply target. Early attempts (typically
+// waiting for signatures to appear on chain during a rollover) are expected and log at
+// Info; sustained failures escalate to Warn so a genuinely stuck rollover is visible.
+func logUpdateFailure(target uint32, attempts int, stage string, err error) {
+	msg := fmt.Sprintf("applying signing policy %d (attempt %d): %s", target, attempts, stage)
+	if err != nil {
+		msg = fmt.Sprintf("%s: %v", msg, err)
+	}
+	if attempts >= warnAfterAttempts {
+		logger.Warn(msg)
+	} else {
+		logger.Info(msg)
+	}
+}
 
-	go func() {
-		for {
-			if ctx.Err() != nil {
-				return
-			}
-
-			topics := [4]common.Hash{}
-			topics[0] = policy.SigningPolicyInitializedEventSel
-			topics[1] = convert.Uint32ToHash(policyID)
-
-			params := database.LogsFullParams{
-				Address: relayAddress,
-				Topics:  topics,
-				Number:  1,
-			}
-
-			logs, err := database.FetchLogsFull(ctx, db, params)
-			switch {
-			case err != nil:
-				logger.Errorf("fetching logs: %v", err)
-			case len(logs) > 0:
-				if len(logs) > 1 {
-					// this should never happen
-					logger.Warnf("received more than one log for signing policy initialized ID %d", policyID)
-				}
-				select {
-				case out <- logs[0]:
-					policyID++
-					continue
-				case <-ctx.Done():
-					return
-				}
-			}
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(fetchInterval):
-			}
-		}
-	}()
-
-	return out
+// wait sleeps for d, returning false if ctx is cancelled first.
+func wait(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
 }
