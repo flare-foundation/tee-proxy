@@ -1,14 +1,4 @@
-<div align="center">
-  <a href="https://flare.network/" target="blank">
-    <img src="https://content.flare.network/Flare-2.svg" width="300" alt="Flare Logo" />
-  </a>
-  <br />
-  <a href="CONTRIBUTING.md">Contributing</a>
-  ·
-  <a href="SECURITY.md">Security</a>
-  ·
-  <a href="CHANGELOG.md">Changelog</a>
-</div>
+<div align="center"> <a href="https://flare.network/" target="blank"> <img src="https://content.flare.network/Flare-2.svg" width="300" alt="Flare Logo" /> </a> <br /> <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a> · <a href="CHANGELOG.md">Changelog</a> </div>
 
 # Flare TEE proxy
 
@@ -17,7 +7,7 @@
 Copy config.example.toml to config.toml
 
 ```bash
-cp ./config.example.toml ./config/config.toml
+cp ./config/config.example.toml ./config/config.toml
 ```
 
 and set the configurations.
@@ -116,6 +106,9 @@ docker build -t {IMAGE_TAG} -f tee-proxy/Dockerfile
 ```
 
 ### Running
+
+The image ships without a config file.
+Bind-mount your `config.toml` to `/app/config/config.toml`; without it the proxy exits at startup.
 
 ```bash
 docker run -p 6661:6661 -p 6662:6662 \

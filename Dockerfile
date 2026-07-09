@@ -23,8 +23,6 @@ WORKDIR /app
 
 COPY --from=builder /app/tee-proxy/main .
 
-COPY config.example.toml ./config/config.toml
-
 # Create non-root user and change ownership
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup

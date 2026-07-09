@@ -22,7 +22,7 @@ log_queries = false
 [logging]
 level = "DEBUG"
 file = ""
-max_file_size = ""
+max_file_size = 0               # megabytes; 0 = library default (100 MB)
 console = true
 
 
@@ -102,10 +102,12 @@ allow_magic_pass = false
 
 
 [metrics]
-# Prometheus metrics are OPT-IN. When enable = false (the default) nothing is
-# collected and no /metrics endpoint is mounted. When enable = true, /metrics is
-# served on the internal server (port 6661 by default, network-segregated).
-enable = false
+# Prometheus metrics are OPT-IN; the built-in default is enable = false (nothing is
+# collected and no /metrics endpoint is mounted). Enabled here so a deploy from this
+# example is scrapeable out of the box: /metrics is served on the internal server
+# (port 6661 by default, network-segregated) and exposes no secrets.
+# Metric catalog: METRICS.md. Example Prometheus alert rules: examples/monitoring/.
+enable = true
 
 # The group toggles below take effect only when enable = true.
 # An omitted group inherits enable; set one to false to omit just that group.
