@@ -89,8 +89,10 @@ func (as *ActionQueues) registerDepthGauges() {
 			defer cancel()
 			n, err := q.QueueLength(ctx)
 			if err != nil {
-				// A scrape-time Redis failure is reported as depth 0; warn so an
-				// outage is distinguishable from a genuinely drained queue.
+				// A scrape-time Redis failure is reported as depth 0, recorded in the
+				// read-failure counter, and warn-logged so an outage is distinguishable
+				// from a genuinely drained queue.
+				as.metrics.QueueDepthReadFailed(label)
 				logger.Warnf("queue depth gauge: reading %s queue length: %v", label, err)
 				return 0
 			}
@@ -135,20 +137,27 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 
 	logger.Debugf("enqueue action %s, type %s, tag %s, queue %s", action.Data.ID, action.Data.Type, action.Data.SubmissionTag, queueID)
 
+	ql := queueLabel(queueID)
+
 	queue, err := as.queueByID(queueID)
 	if err != nil {
+		as.metrics.ActionEnqueued(ql, "invalid_queue")
 		return err
 	}
 
 	err = as.actions.SetWithTTL(ctx, id.String(), action, as.actionTTL)
 	if err != nil {
+		as.metrics.ActionEnqueued(ql, "store_error")
 		return fmt.Errorf("storing action: %w", err)
 	}
 
 	err = queue.Enqueue(ctx, &id)
 	if err != nil {
+		as.metrics.ActionEnqueued(ql, "queue_error")
 		return fmt.Errorf("enqueueing to %s: %w", queueID, err)
 	}
+
+	as.metrics.ActionEnqueued(ql, "success")
 
 	if length, lerr := queue.QueueLength(ctx); lerr == nil && length > queueDepthWarnThreshold {
 		logger.Warnf("queue %s depth %d exceeds threshold %d", queueID, length, queueDepthWarnThreshold)

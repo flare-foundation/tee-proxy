@@ -632,6 +632,78 @@ func rejectedCount(t *testing.T, m *metrics.Metrics, reason string) float64 {
 	return 0
 }
 
+// finalizedActionLostCount reads teeproxy_finalized_action_lost_total for the given reason
+// label from the metrics registry, returning 0 if no series with that label exists.
+func finalizedActionLostCount(t *testing.T, m *metrics.Metrics, reason string) float64 {
+	t.Helper()
+
+	fams, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	for _, f := range fams {
+		if f.GetName() != "teeproxy_finalized_action_lost_total" {
+			continue
+		}
+		for _, mc := range f.GetMetric() {
+			for _, l := range mc.GetLabel() {
+				if l.GetName() == "reason" && l.GetValue() == reason {
+					return mc.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+// TestServeInstructionShutdownDropNotRejected guards the MA-21 fix: when consensus is reached
+// but the finalized-action send is cancelled at shutdown, ServeInstruction surfaces a
+// context.Canceled error that must NOT be counted as an instruction rejection — the drop is
+// already recorded under finalized_action_lost_total{reason="send_cancelled"}.
+func TestServeInstructionShutdownDropNotRejected(t *testing.T) {
+	teeID := common.HexToAddress("dead")
+	m := metrics.New(metrics.Config{Enable: true, Voting: true})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	defer c.Close() //nolint:errcheck
+
+	vCfg := (&config.Voting{HistorySize: 3, FinalizedBufferSize: 1}).SetDefault()
+	vs := voting.NewStorage(ctx, vCfg, &testMeta{}, m)
+	vs.StoreNewRound(testutil.TestSigningPolicy)
+
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+	s := &Service{
+		teeID:    teeID,
+		vs:       vs,
+		policies: make(chan policy.SigningPolicy, 1),
+		aq:       aq,
+		chainID:  testChainID,
+		metrics:  m,
+	}
+
+	// Saturate the finalized-action channel and cancel the service ctx so the finalizing
+	// vote's send blocks and falls through to the ctx.Done() arm.
+	vs.Out <- &types.Action{}
+	cancel()
+
+	iData := createBaseInstructionData("shutdown_drop", teeID)
+
+	iData.AdditionalVariableMessage = hexutil.Bytes("v1")
+	_, err := s.ServeInstruction(context.Background(), signInstruction(t, iData, testutil.PrivKey1))
+	require.NoError(t, err, "first vote opens the box without finalizing")
+
+	iData.AdditionalVariableMessage = hexutil.Bytes("v2")
+	_, err = s.ServeInstruction(context.Background(), signInstruction(t, iData, testutil.PrivKey2))
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled, "the finalized-action send was cancelled at shutdown")
+
+	require.Zero(t, rejectedCount(t, m, "other"), "a shutdown-cancelled send must not count as a rejection")
+	require.Equal(t, float64(1), finalizedActionLostCount(t, m, "send_cancelled"))
+}
+
 // TestServeInstructionRejectionMetrics drives ServeInstruction down each rejection branch
 // with a real metrics object and asserts the bounded reason label it selects. It guards
 // the literal labels and, for the catch-all branch, that AddVote errors are collapsed via

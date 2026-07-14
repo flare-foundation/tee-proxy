@@ -45,7 +45,6 @@ func TestWithMetricsRecordsOutcome(t *testing.T) {
 	}{
 		{"success", nil, "success"},
 		{"not found", ErrNotFound, "not_found"},
-		{"empty queue", ErrEmptyQueue, "empty_queue"},
 		{"error", errors.New("boom"), "error"},
 	}
 

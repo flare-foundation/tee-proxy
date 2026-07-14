@@ -37,6 +37,25 @@ func TestReason(t *testing.T) {
 	}
 }
 
+func TestErrorReasonsCoversMappedErrors(t *testing.T) {
+	mapped := []error{
+		ErrChallengeMismatch, ErrPubKeyMismatch, ErrChainIDMismatch, ErrMagicPassDisabled,
+		ErrTokenTooOld, ErrSecBootDisabled, ErrDebugNotAllowed, ErrCodeHashNotAllowed,
+		ErrPlatformNotAllowed, ErrJWTInvalid,
+	}
+	for _, err := range mapped {
+		reason := Reason(err)
+		require.NotEqual(t, "ok", reason, "a mapped error must not map to the nil-error reason")
+		require.Contains(t, ErrorReasons, reason, "Reason(%v)=%q missing from ErrorReasons", err, reason)
+	}
+
+	require.Equal(t, "ok", Reason(nil))
+	require.NotContains(t, ErrorReasons, "ok", `"ok" is the nil-error result, not an error reason`)
+
+	require.Equal(t, "other", Reason(errors.New("x")))
+	require.Contains(t, ErrorReasons, "other", "the default reason must be enumerated for pre-init")
+}
+
 func TestIsMagicPass(t *testing.T) {
 	require.True(t, IsMagicPass(&types.TeeInfoResponse{Attestation: teeattestation.MagicPass}))
 	require.False(t, IsMagicPass(&types.TeeInfoResponse{}))

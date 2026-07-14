@@ -22,6 +22,10 @@ const (
 	keyActionsChanSize    = 1000
 	backupsChanSize       = 1000
 	backupTriggerChanSize = 1
+
+	channelKeyActions    = "key_actions"
+	channelBackups       = "backups"
+	channelBackupTrigger = "backup_trigger"
 )
 
 var (
@@ -134,18 +138,21 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 			case s.KeyActions <- &r.Result:
 			default:
 				logger.Error("key actions channel full")
+				s.metrics.ResultChannelDropped(channelKeyActions)
 			}
 		case op.TEEBackup.Hash():
 			select {
 			case s.Backups <- &r.Result:
 			default:
 				logger.Error("backup storage channel full")
+				s.metrics.ResultChannelDropped(channelBackups)
 			}
 		case op.UpdatePolicy.Hash():
 			select {
 			case s.BackupTrigger <- true:
 			default:
 				logger.Error("backup trigger channel full")
+				s.metrics.ResultChannelDropped(channelBackupTrigger)
 			}
 		}
 	}

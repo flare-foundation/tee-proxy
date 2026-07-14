@@ -2,6 +2,7 @@ package result
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 	"testing"
 	"time"
@@ -46,20 +47,12 @@ func TestRecoverSignerChainIDBinding(t *testing.T) {
 
 	const signChainID = uint64(14)
 
-	ar := &types.ActionResponse{
-		Result: types.ActionResult{
-			ID:            common.HexToHash("0x00000000000000000000000000000000000000000000000000000000000000aa"),
-			SubmissionTag: types.Threshold,
-			Status:        1,
-			Data:          []byte(`{"ok":true}`),
-		},
-	}
-
-	signHash, err := csigning.NewPayload(csigning.TEEActionResult, signChainID, common.BytesToHash(ar.Result.Hash())).Hash()
-	require.NoError(t, err)
-	sig, err := crypto.Sign(accounts.TextHash(signHash[:]), key)
-	require.NoError(t, err)
-	ar.Signature = sig
+	ar := signedActionResult(t, key, signChainID, types.ActionResult{
+		ID:            common.HexToHash("0x00000000000000000000000000000000000000000000000000000000000000aa"),
+		SubmissionTag: types.Threshold,
+		Status:        1,
+		Data:          []byte(`{"ok":true}`),
+	})
 
 	got, err := recoverSigner(ar, signChainID)
 	require.NoError(t, err)
@@ -70,6 +63,19 @@ func TestRecoverSignerChainIDBinding(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, teeAddr, other,
 		"a result signed under one chain ID must not recover to the signer under another")
+}
+
+// signedActionResult builds an ActionResponse wrapping res, signed by key under the
+// chainID-bound TEE_ACTION_RESULT preimage recoverSigner expects.
+func signedActionResult(t *testing.T, key *ecdsa.PrivateKey, chainID uint64, res types.ActionResult) *types.ActionResponse {
+	t.Helper()
+
+	signHash, err := csigning.NewPayload(csigning.TEEActionResult, chainID, common.BytesToHash(res.Hash())).Hash()
+	require.NoError(t, err)
+	sig, err := crypto.Sign(accounts.TextHash(signHash[:]), key)
+	require.NoError(t, err)
+
+	return &types.ActionResponse{Result: res, Signature: sig}
 }
 
 // TestProcessAndStoreDropsZeroIDResult verifies that a delivery-failure
@@ -179,6 +185,79 @@ func TestProcessAndStoreResultMetrics(t *testing.T) {
 		require.Equal(t, float64(1), counterValue(t, m, lost))
 		require.ErrorIs(t, s.LastStorageErr(), errStoreFailed)
 	})
+}
+
+// TestProcessAndStoreChannelDrops verifies that a full result fan-out channel is a
+// silent, absorbed drop — ProcessAndStore still succeeds and persists the result —
+// while the drop increments teeproxy_result_channel_dropped_total under the matching
+// channel label.
+func TestProcessAndStoreChannelDrops(t *testing.T) {
+	const chainID = uint64(14)
+	const dropped = "teeproxy_result_channel_dropped_total"
+
+	mr := miniredis.RunT(t)
+	n := storage.NewNotifier(storage.NewClient(mr.Addr()))
+
+	tests := []struct {
+		channel   string
+		opCommand common.Hash
+		fill      func(s *Service)
+	}{
+		{
+			channel:   channelKeyActions,
+			opCommand: op.KeyGenerate.Hash(),
+			fill: func(s *Service) {
+				for range keyActionsChanSize {
+					s.KeyActions <- &types.ActionResult{}
+				}
+			},
+		},
+		{
+			channel:   channelBackups,
+			opCommand: op.TEEBackup.Hash(),
+			fill: func(s *Service) {
+				for range backupsChanSize {
+					s.Backups <- &types.ActionResult{}
+				}
+			},
+		},
+		{
+			channel:   channelBackupTrigger,
+			opCommand: op.UpdatePolicy.Hash(),
+			fill: func(s *Service) {
+				for range backupTriggerChanSize {
+					s.BackupTrigger <- true
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.channel, func(t *testing.T) {
+			key, err := crypto.GenerateKey()
+			require.NoError(t, err)
+			teeAddr := crypto.PubkeyToAddress(key.PublicKey)
+
+			m := metrics.New(metrics.Config{Enable: true, Result: true})
+			rs := NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, 30*time.Minute)
+			s := NewService(rs, chainID, m)
+			require.NoError(t, s.SetIdentity(teeAddr))
+
+			tc.fill(s)
+
+			id, err := random.Hash()
+			require.NoError(t, err)
+			resp := signedActionResult(t, key, chainID, types.ActionResult{
+				ID:            id,
+				SubmissionTag: types.Threshold,
+				Status:        1,
+				OPCommand:     tc.opCommand,
+			})
+
+			require.NoError(t, s.ProcessAndStore(t.Context(), resp))
+			require.Equal(t, float64(1), counterValue(t, m, dropped))
+		})
+	}
 }
 
 // teeInfoResponse builds a TEE_INFO result, which ProcessAndStore accepts without a

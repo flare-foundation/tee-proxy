@@ -14,6 +14,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -315,7 +316,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
-func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxes *voteBoxes) {
+func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxes *voteBoxes, m *metrics.Metrics) {
 	// Cancellable wait so shutdown doesn't leak per-box goroutines.
 	if d := time.Until(vb.EndTime); d > 0 {
 		select {
@@ -356,6 +357,7 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 			a, err := vb.Action(types.Threshold)
 			if err != nil {
 				logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
+				m.FinalizedActionLost("build_error")
 			} else {
 				as = append(as, a)
 			}
@@ -367,6 +369,7 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 		a, err := vb.Action(types.End)
 		if err != nil {
 			logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+			m.FinalizedActionLost("build_error")
 		} else {
 			as = append(as, a)
 		}
@@ -378,6 +381,7 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 		select {
 		case out <- a:
 		case <-ctx.Done():
+			m.FinalizedActionLost("send_cancelled")
 			return
 		}
 	}

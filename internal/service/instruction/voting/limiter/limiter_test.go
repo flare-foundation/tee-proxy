@@ -86,6 +86,57 @@ func TestLimiterTopPending(t *testing.T) {
 	}
 }
 
+func TestSortTopPending(t *testing.T) {
+	a := common.HexToAddress("0x1")
+	b := common.HexToAddress("0x2")
+	c := common.HexToAddress("0x3")
+
+	tests := []struct {
+		name  string
+		input []VoterPending
+		n     int
+		want  []VoterPending
+	}{
+		{
+			name:  "empty input returns empty",
+			input: nil,
+			n:     3,
+			want:  nil,
+		},
+		{
+			name:  "sorted descending by pending",
+			input: []VoterPending{{a, 1}, {c, 3}, {b, 2}},
+			n:     -1,
+			want:  []VoterPending{{c, 3}, {b, 2}, {a, 1}},
+		},
+		{
+			name:  "ties broken by ascending address",
+			input: []VoterPending{{c, 2}, {a, 2}, {b, 2}},
+			n:     -1,
+			want:  []VoterPending{{a, 2}, {b, 2}, {c, 2}},
+		},
+		{
+			name:  "n truncates after sorting",
+			input: []VoterPending{{a, 1}, {c, 3}, {b, 2}},
+			n:     2,
+			want:  []VoterPending{{c, 3}, {b, 2}},
+		},
+		{
+			name:  "negative n returns all",
+			input: []VoterPending{{a, 1}, {b, 2}},
+			n:     -1,
+			want:  []VoterPending{{b, 2}, {a, 1}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SortTopPending(tt.input, tt.n)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestLimiterTopPendingTieBreak(t *testing.T) {
 	lo := common.HexToAddress("0x5")
 	hi := common.HexToAddress("0x6")

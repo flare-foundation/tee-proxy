@@ -31,7 +31,22 @@ groups:
           summary: "Finalized action failed to enqueue"
           description: >-
             Consensus reached threshold but the finalized action could not be enqueued to the
-            main queue, so it was silently dropped. Requires the `voting` metric group.
+            main queue (enqueue failures only; pre-enqueue drops are counted separately by
+            teeproxy_finalized_action_lost_total). Requires the `voting` metric group.
+
+      - alert: TeeProxyFinalizedActionLost
+        expr: increase(teeproxy_finalized_action_lost_total{reason="build_error"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Finalized action dropped before enqueue (build error)"
+          description: >-
+            Consensus reached threshold but a finalized action was dropped before it could be
+            enqueued, because building the action failed to serialize — a practically
+            unreachable path. Scoped to reason="build_error"; the sibling reason="send_cancelled"
+            is an expected transient during shutdown and is not alerted. The series is
+            pre-initialized to 0, so this fires on the first occurrence. Requires the `voting`
+            metric group.
 
   # ---- Security: the proxy's trust assumptions about the TEE -------------------------
   - name: tee-proxy.security
@@ -46,6 +61,19 @@ groups:
             A result was signed by a key other than the bound TEE identity — a tamper or
             mis-route signal. Requires the `result` metric group.
 
+      - alert: TeeProxyInfoVerifySignatureFailing
+        expr: increase(teeproxy_info_refresh_failures_total{stage="verify_signature"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE info response signature verification failing"
+          description: >-
+            The signed TEE_INFO response failed signature verification — the info-path
+            counterpart to TeeProxyResultWrongTeeID. The stage="verify_signature" series is
+            pre-initialized to 0 at startup (metrics.go, same treatment as
+            teeproxy_results_rejected_total), so this fires on the first occurrence, not only
+            once a series already exists. Requires the `info` metric group.
+
       - alert: TeeProxyAttestationFailing
         expr: increase(teeproxy_attestation_verify_total{result="error"}[10m]) > 0
         labels:
@@ -55,6 +83,59 @@ groups:
           description: >-
             Attestation verification of a TEE_INFO response failed — possible compromise or
             measurement drift. Inspect the `reason` label. Requires the `attestation` group.
+
+      - alert: TeeProxyMagicPassAccepted
+        expr: increase(teeproxy_attestation_verify_total{reason="magic_pass"}[10m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "TEE attestation bypassed via magic_pass"
+          description: >-
+            A TEE_INFO response was accepted via the magic_pass sentinel instead of a real JWT
+            chain — must never happen in production (requires allow_magic_pass=true). This series
+            carries result="ok", so TeeProxyAttestationFailing (result="error") does not cover it.
+            Requires the `attestation` metric group.
+
+      - alert: TeeProxyMagicPassAllowed
+        expr: teeproxy_attestation_posture{setting="magic_pass_allowed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "attestation allow_magic_pass enabled"
+          description: >-
+            The proxy is configured with allow_magic_pass=true, permitting the JWT chain to be
+            bypassed — do not run this posture in production. Requires the `attestation` metric
+            group.
+
+  # ---- Meta: a disabled security metric group silently disables its page-now rule --
+  - name: tee-proxy.meta
+    rules:
+      - alert: TeeProxyAttestationMetricsMissing
+        expr: absent(teeproxy_attestation_verify_total)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Attestation metric group disabled — TeeProxyAttestationFailing is inert"
+          description: >-
+            teeproxy_attestation_verify_total is absent, so the page-now
+            TeeProxyAttestationFailing rule cannot fire. The series exists at 0 in a
+            healthy proxy (pre-initialized at startup and set on every info refresh);
+            absence means the `attestation` metric group is disabled in [metrics] config.
+
+      - alert: TeeProxyResultMetricsMissing
+        expr: absent(teeproxy_results_rejected_total)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Result metric group disabled — TeeProxyResultWrongTeeID is inert"
+          description: >-
+            teeproxy_results_rejected_total is absent, so the page-now
+            TeeProxyResultWrongTeeID rule cannot fire. The series exists at 0 in a
+            healthy proxy (pre-initialized at startup); absence means the `result`
+            metric group is disabled in [metrics] config.
 
   # ---- Availability: is the proxy healthy and talking to the node? -------------------
   - name: tee-proxy.availability
@@ -84,13 +165,17 @@ groups:
 
       - alert: TeeProxyInfoStale
         expr: teeproxy_info_service_delay_seconds > 140
+        for: 2m
         labels:
           severity: critical
         annotations:
           summary: "TEE info stale past readiness tolerance"
           description: >-
             Info staleness exceeded the 140s tolerance (liveness.go infoDelayTolerance);
-            readiness is failing. Requires the `liveness` metric group.
+            readiness is failing. The 2m debounce absorbs the bootstrap window before the
+            first successful info refresh completes (info.go NewService sets LastUpdated to
+            the process start time, not zero-time, so this only pages on a genuine
+            multi-minute stall). Requires the `liveness` metric group.
 
       - alert: TeeProxyNodeWaitTimeouts
         expr: sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0
@@ -102,6 +187,18 @@ groups:
           description: >-
             The proxy is timing out waiting for TEE-node responses on this path — node slow or
             unreachable. Requires the `node` metric group.
+
+      - alert: TeeProxyMachinepathPollErrors
+        expr: increase(teeproxy_machinepath_poll_total{result=~"fetch_error|build_error|enqueue_error"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Machine-path poll cycle failing"
+          description: >-
+            A machine-path poll cycle failed before the node ever saw the action (fetching the
+            signed list, building the action, or enqueueing it) — the node-wait leg is separately
+            covered by teeproxy_node_response_wait_total{path="machinepath"}. Requires the `node`
+            metric group.
 
       - alert: TeeProxyHigh5xxRate
         expr: |
@@ -150,6 +247,36 @@ groups:
             Proposals are being opened but none have reached threshold in 15m — offline voters,
             a mis-set threshold, or a partition. Requires the `voting` metric group.
 
+  # ---- Signing policy: is the rollover loop alive and applying? ----------------------
+  - name: tee-proxy.policy
+    rules:
+      - alert: TeeProxyPolicyFetchStalled
+        expr: time() - teeproxy_policy_last_fetch_timestamp_seconds > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Signing-policy update loop stalled"
+          description: >-
+            The signing-policy update loop has not completed an error-free iteration in over
+            1800s — roughly 3x the default signing_policy_fetch_interval (10m,
+            config.go defaultSigningPolicyFetchInterval). The gauge is seeded at startup, so
+            this reflects a genuinely wedged loop, not a cold start. Requires the `policy`
+            metric group.
+
+      - alert: TeeProxyPolicyUpdateFailing
+        expr: increase(teeproxy_policy_update_total{result=~"build_failed|enqueue_failed|await_failed|rejected"}[15m]) > 3
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Signing-policy rollover repeatedly failing"
+          description: >-
+            A signing-policy rollover is repeatedly failing to build, enqueue, confirm, or
+            being rejected by the node — the loop is stuck on one epoch and cannot advance.
+            The result="rejected" case is invisible to the node-wait metric (a status!=1
+            rejection returns no error). Requires the `policy` metric group.
+
   # ---- Saturation: backpressure -------------------------------------------------------
   - name: tee-proxy.saturation
     rules:
@@ -162,4 +289,80 @@ groups:
           summary: "Main action queue not draining"
           description: >-
             Main queue depth above 100 (queue.go queueDepthWarnThreshold) for 10m — the TEE node
-            is not draining actions. Requires the `queue` metric group.
+            is not draining actions. During Redis degradation the LLEN read fails and the depth
+            gauge reads 0 (see teeproxy_action_queue_depth_read_failures_total), so this alert is
+            masked; TeeProxyStorageErrors is then the authoritative degradation signal. Requires
+            the `queue` metric group.
+
+      - alert: TeeProxyQueueBackpressureDirect
+        expr: teeproxy_action_queue_depth{queue="direct"} > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Direct action queue not draining"
+          description: >-
+            Direct queue depth above 100 (queue.go queueDepthWarnThreshold, checked
+            identically for all three queue IDs) for 10m. Requires the `queue` metric group.
+
+      - alert: TeeProxyQueueBackpressureBackup
+        expr: teeproxy_action_queue_depth{queue="backup"} > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backup action queue not draining"
+          description: >-
+            Backup queue depth above 100 (queue.go queueDepthWarnThreshold, checked
+            identically for all three queue IDs) for 10m. Requires the `queue` metric group.
+
+      - alert: TeeProxyActionEnqueueFailing
+        expr: sum(rate(teeproxy_action_enqueue_total{result=~"store_error|queue_error"}[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Action enqueue failures"
+          description: >-
+            Actions are failing to enqueue on the ingest path — Redis SET (store_error) or LPUSH
+            (queue_error) errors while persisting or appending an action. Requires the `queue`
+            metric group.
+
+      - alert: TeeProxyQueueDepthReadFailing
+        expr: sum(rate(teeproxy_action_queue_depth_read_failures_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue-depth reads failing — backpressure alert blind"
+          description: >-
+            Scrape-time queue-depth (LLEN) reads are failing, so the depth gauge reports 0 and
+            TeeProxyQueueBackpressure cannot fire. Treat TeeProxyStorageErrors as authoritative
+            until reads recover. Requires the `queue` metric group.
+
+  # ---- Wallet: is the periodic key/proof sync loop healthy? -------------------------
+  - name: tee-proxy.wallet
+    rules:
+      - alert: TeeProxyWalletSyncFailing
+        expr: increase(teeproxy_wallet_sync_total{result=~"enqueue_error|parse_error"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Wallet key/proof sync cycle failing"
+          description: >-
+            A wallet key/proof sync cycle failed before enqueueing to the node (enqueue_error) or
+            after a node wait that returned OK but did not decode (parse_error). Node-wait failures
+            are separately covered by teeproxy_node_response_wait_total{path=~"wallet_key_info|wallet_key_proof"}.
+            Requires the `wallet` metric group.
+
+      - alert: TeeProxyWalletSyncWedged
+        expr: increase(teeproxy_wallet_sync_total{result="skipped"}[3h]) >= 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Wallet sync appears wedged"
+          description: >-
+            3 consecutive sync triggers were skipped because a previous sync was still in
+            progress. At the 1h wallet sync cadence (walletSyncPeriod), this means sync has not
+            completed in 3+ hours — the syncing flag is likely wedged on a stuck tee-node wait.
+            Requires the `wallet` metric group.

@@ -104,15 +104,21 @@ type VoterPending struct {
 // excluding any with zero pending. Ties are broken by address for a stable ordering.
 func (l *Limiter) TopPending(n int) []VoterPending {
 	l.RLock()
-	defer l.RUnlock()
-
 	pending := make([]VoterPending, 0, len(l.counter))
 	for addr, state := range l.counter {
 		if state.pending > 0 {
 			pending = append(pending, VoterPending{Address: addr, Pending: state.pending})
 		}
 	}
+	l.RUnlock()
 
+	return SortTopPending(pending, n)
+}
+
+// SortTopPending returns pending sorted by count descending (ties broken by ascending
+// address) and truncated to n; n < 0 returns all. It holds no lock, so callers merging
+// pending across rounds reuse the exact ordering TopPending applies.
+func SortTopPending(pending []VoterPending, n int) []VoterPending {
 	sort.Slice(pending, func(i, j int) bool {
 		if pending[i].Pending != pending[j].Pending {
 			return pending[i].Pending > pending[j].Pending

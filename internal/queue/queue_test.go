@@ -85,7 +85,7 @@ func TestActionQueuesRecordsMetrics(t *testing.T) {
 	require.NoError(t, err)
 
 	const expected = `
-# HELP teeproxy_action_dequeue_total Action dequeue attempts by queue and result; a success result returned a body, any other result dequeued nothing.
+# HELP teeproxy_action_dequeue_total Action dequeue attempts by queue and result: success returned a body; empty found nothing queued; action_not_found and error consumed a queue ID whose body could not be fetched (an orphaned/lost action).
 # TYPE teeproxy_action_dequeue_total counter
 teeproxy_action_dequeue_total{queue="main",result="empty"} 1
 teeproxy_action_dequeue_total{queue="main",result="success"} 1
@@ -133,9 +133,54 @@ func TestDequeueMissingAction(t *testing.T) {
 	// The evicted-body path must be labeled action_not_found — distinct from a healthy
 	// dequeue or a Redis error — so an operator can alert on body/ID divergence.
 	const expected = `
-# HELP teeproxy_action_dequeue_total Action dequeue attempts by queue and result; a success result returned a body, any other result dequeued nothing.
+# HELP teeproxy_action_dequeue_total Action dequeue attempts by queue and result: success returned a body; empty found nothing queued; action_not_found and error consumed a queue ID whose body could not be fetched (an orphaned/lost action).
 # TYPE teeproxy_action_dequeue_total counter
 teeproxy_action_dequeue_total{queue="main",result="action_not_found"} 1
 `
 	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_action_dequeue_total"))
+}
+
+// TestEnqueueRecordsMetrics verifies teeproxy_action_enqueue_total classifies the
+// success, invalid-queue, and store-error exit paths of Enqueue.
+func TestEnqueueRecordsMetrics(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Queue: true})
+	q := NewActionQueues(c, time.Hour, m)
+	ctx := context.Background()
+
+	action := &types.Action{
+		Data: types.ActionData{
+			ID:            crypto.Keccak256Hash([]byte("id")),
+			Type:          types.Direct,
+			SubmissionTag: types.Threshold,
+			Message:       hexutil.Bytes{},
+		},
+		AdditionalVariableMessages: []hexutil.Bytes{},
+		Timestamps:                 []uint64{},
+		AdditionalActionData:       hexutil.Bytes{},
+		Signatures:                 []hexutil.Bytes{},
+	}
+
+	require.NoError(t, q.Enqueue(ctx, action, processorutils.Main)) // success
+
+	err := q.Enqueue(ctx, action, processorutils.QueueID("bogus")) // invalid queue
+	require.ErrorIs(t, err, ErrInvalidQueueID)
+
+	mr.Close() // sever the backing store so the next SetWithTTL fails
+
+	err = q.Enqueue(ctx, action, processorutils.Main) // store error
+	require.ErrorContains(t, err, "storing action")
+
+	const expected = `
+# HELP teeproxy_action_enqueue_total Action enqueue attempts by queue and result.
+# TYPE teeproxy_action_enqueue_total counter
+teeproxy_action_enqueue_total{queue="main",result="store_error"} 1
+teeproxy_action_enqueue_total{queue="main",result="success"} 1
+teeproxy_action_enqueue_total{queue="other",result="invalid_queue"} 1
+`
+	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_action_enqueue_total"))
 }

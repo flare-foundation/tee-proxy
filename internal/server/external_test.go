@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,14 +10,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -204,6 +209,43 @@ func TestValidateDirect(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// TestDirectHEnqueueFailureReturns503 pins the 4xx/5xx split of directH: a well-formed
+// request whose downstream enqueue fails maps to 503, while a malformed body stays 400.
+func TestDirectHEnqueueFailureReturns503(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	defer c.Close() //nolint:errcheck
+
+	e := &External{
+		actionQueues: queue.NewActionQueues(c, time.Hour, nil),
+		direct:       DirectConfig{APIKeyOptional: true},
+	}
+
+	t.Run("enqueue failure maps to 503", func(t *testing.T) {
+		body, err := json.Marshal(&types.DirectInstruction{
+			OPType:  op.Type("F_CUSTOM").Hash(),
+			Message: []byte("payload"),
+		})
+		require.NoError(t, err)
+
+		mr.Close() // sever Redis so the enqueue fails on a valid request
+
+		req := httptest.NewRequest(http.MethodPost, "/direct", bytes.NewReader(body))
+		err = e.directH(httptest.NewRecorder(), req)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errEnqueueFailed)
+		assert.Equal(t, http.StatusServiceUnavailable, status.ErrToCode(err))
+	})
+
+	t.Run("malformed body stays 400", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/direct", strings.NewReader("not json"))
+		err := e.directH(httptest.NewRecorder(), req)
+		require.Error(t, err)
+		assert.Equal(t, http.StatusBadRequest, status.ErrToCode(err))
+	})
 }
 
 func resultHRequest(actionIDHex, rawQuery string) *http.Request {

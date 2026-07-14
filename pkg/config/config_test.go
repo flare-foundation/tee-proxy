@@ -241,7 +241,7 @@ func TestMetricsValidate(t *testing.T) {
 
 	allOff := Metrics{
 		HTTP: off(), Storage: off(), Queue: off(), Voting: off(),
-		ActiveVoters: off(), Result: off(), Info: off(), Attestation: off(),
+		ActiveVoters: off(), Result: off(), Wallet: off(), Info: off(), Attestation: off(),
 		Policy: off(), Liveness: off(), Node: off(), Runtime: off(),
 	}
 

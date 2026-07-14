@@ -52,7 +52,7 @@ enable = true
 # storage = false   # omit a single group; unset groups stay on
 ```
 
-Groups: `http`, `storage`, `queue`, `voting`, `active_voters`, `result`, `info`, `attestation`, `policy`, `liveness`, `runtime`.
+Groups: `http`, `storage`, `queue`, `voting`, `active_voters`, `result`, `wallet`, `info`, `attestation`, `policy`, `liveness`, `node`, `runtime`.
 Metric names are prefixed `teeproxy_`; the `runtime` group also exports the standard `go_*` and `process_*` collectors.
 
 ## Direct Endpoint

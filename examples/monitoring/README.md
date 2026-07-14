@@ -10,8 +10,11 @@ They are **starting points**, not a turnkey policy: thresholds mirror the proxy'
 
 A few things to adjust before use:
 
-- **Scrape selector.** The expressions carry no `job`/instance selector. Add yours (e.g. `{job="tee-proxy"}`) so the rules scope to the proxy.
-- **Metric groups.** Each rule needs its metric group enabled in the proxy's `[metrics]` config; the rule notes which one. A disabled group means the series never exist and the rule never fires.
+- **Scrape selector.** The expressions carry no `job`/instance selector.
+  Add yours (e.g. `{job="tee-proxy"}`) so the rules scope to the proxy.
+- **Metric groups.** Each rule needs its metric group enabled in the proxy's `[metrics]` config; the rule notes which one.
+  A disabled group means the series never exist and the rule never fires.
+  The two security groups now carry example `absent()` meta-alerts (the `tee-proxy.meta` group) so an intentionally or mistakenly disabled `result`/`attestation` group is itself alertable — made possible because their security series are pre-initialized to 0 at startup.
 - **`TeeProxyDown`** is example-only: the `up{job="tee-proxy"}` selector is your scrape config.
 
 ### Validate

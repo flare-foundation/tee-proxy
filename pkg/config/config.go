@@ -215,8 +215,9 @@ type Metrics struct {
 	Queue        *bool `toml:"queue"`         // Action enqueue/dequeue counters and queue-depth gauge.
 	Voting       *bool `toml:"voting"`        // Instruction and votings-started counters, threshold-duration histogram.
 	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters, initiators, top providers).
-	Result       *bool `toml:"result"`        // Result throughput, lost, and discarded counters.
-	Info         *bool `toml:"info"`          // TEE info per-stage refresh failures.
+	Result       *bool `toml:"result"`        // Result throughput, lost, discarded, rejected, and channel-dropped counters; rejected{reason=wrong_tee_id} is the TEE tamper/mis-route signal.
+	Wallet       *bool `toml:"wallet"`        // Wallet key/proof sync-cycle outcome counter and cached-key gauge.
+	Info         *bool `toml:"info"`          // TEE info per-stage refresh failures and end-to-end refresh-duration histogram.
 	Attestation  *bool `toml:"attestation"`   // Attestation verify outcomes.
 	Policy       *bool `toml:"policy"`        // Active signing-policy reward-epoch gauge.
 	Liveness     *bool `toml:"liveness"`      // Readiness gauge and info-staleness gauge.
@@ -232,7 +233,7 @@ func (m Metrics) validate() error {
 	}
 
 	// A nil group inherits Enable (on); only an explicit false omits it.
-	for _, g := range []*bool{m.HTTP, m.Storage, m.Queue, m.Voting, m.ActiveVoters, m.Result, m.Info, m.Attestation, m.Policy, m.Liveness, m.Node, m.Runtime} {
+	for _, g := range []*bool{m.HTTP, m.Storage, m.Queue, m.Voting, m.ActiveVoters, m.Result, m.Wallet, m.Info, m.Attestation, m.Policy, m.Liveness, m.Node, m.Runtime} {
 		if g == nil || *g {
 			return nil
 		}

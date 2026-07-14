@@ -94,34 +94,67 @@ func (s *Storage) StoreNewRound(policy *policy.SigningPolicy) {
 	}
 }
 
-// CurrentRoundProviderVoterCount returns the distinct data-provider-voter count for the
-// latest reward epoch, or 0 if no round is stored. Read at scrape time.
-func (s *Storage) CurrentRoundProviderVoterCount() int {
-	r, ok := s.Get(s.currentEpoch.Load())
-	if !ok {
-		return 0
+// activeParticipantEpochs returns the newest resident reward epoch and its immediate
+// predecessor so a scrape-time gauge can report the max across the epoch-announcement
+// overlap, when a freshly stored policy's round is still empty while the active epoch keeps
+// voting into the previous round.
+func (s *Storage) activeParticipantEpochs() []uint32 {
+	cur := s.currentEpoch.Load()
+	if cur == 0 {
+		return []uint32{0}
 	}
-	return r.ProviderVoterCount()
+	return []uint32{cur, cur - 1}
+}
+
+// CurrentRoundProviderVoterCount returns the distinct data-provider-voter count for the
+// latest reward epoch, or 0 if no round is stored. During an epoch-announcement overlap it
+// reports the max of the newest resident round and its predecessor. Read at scrape time.
+func (s *Storage) CurrentRoundProviderVoterCount() int {
+	var count int
+	for _, e := range s.activeParticipantEpochs() {
+		if r, ok := s.Get(e); ok {
+			count = max(count, r.ProviderVoterCount())
+		}
+	}
+	return count
 }
 
 // CurrentRoundInitiatorCount returns the distinct initiator count for the latest reward
-// epoch, or 0 if no round is stored. Read at scrape time.
+// epoch, or 0 if no round is stored. During an epoch-announcement overlap it reports the max
+// of the newest resident round and its predecessor. Read at scrape time.
 func (s *Storage) CurrentRoundInitiatorCount() int {
-	r, ok := s.Get(s.currentEpoch.Load())
-	if !ok {
-		return 0
+	var count int
+	for _, e := range s.activeParticipantEpochs() {
+		if r, ok := s.Get(e); ok {
+			count = max(count, r.ProposerCount())
+		}
 	}
-	return r.ProposerCount()
+	return count
 }
 
 // CurrentRoundTopPending returns up to n voters with the most unfinalised proposals in the
-// latest reward epoch, or nil if no round is stored. Read at scrape time.
+// latest reward epoch, or nil if no round is stored. During an epoch-announcement overlap it
+// merges the newest resident round and its predecessor, taking the max pending per provider
+// (not the sum, so a provider present in both rounds is not double-counted). Read at scrape time.
 func (s *Storage) CurrentRoundTopPending(n int) []limiter.VoterPending {
-	r, ok := s.Get(s.currentEpoch.Load())
-	if !ok {
+	merged := map[common.Address]uint{}
+	for _, e := range s.activeParticipantEpochs() {
+		r, ok := s.Get(e)
+		if !ok {
+			continue
+		}
+		for _, vp := range r.TopPendingProposals(-1) { // -1 returns all pending voters
+			merged[vp.Address] = max(merged[vp.Address], vp.Pending)
+		}
+	}
+	if len(merged) == 0 {
 		return nil
 	}
-	return r.TopPendingProposals(n)
+	out := make([]limiter.VoterPending, 0, len(merged))
+	for addr, p := range merged {
+		out = append(out, limiter.VoterPending{Address: addr, Pending: p})
+	}
+	return limiter.SortTopPending(out, n)
 }
 
 // OldestStoredEpoch returns the oldest reward epoch with a round still resident in the cyclic
@@ -178,6 +211,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	var reached bool
 	var startedBox bool
 	var isProvider bool
+	var buildErr bool
 	var thresholdDuration time.Duration
 
 	// Hold locks only inside this closure; the channel send below stays unlocked.
@@ -224,7 +258,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 		if !existsB {
 			boxes.M[hash] = box
-			go box.scheduleEnd(s.ctx, s.Out, boxes)
+			go box.scheduleEnd(s.ctx, s.Out, boxes, s.metrics)
 			startedBox = true
 		}
 
@@ -251,6 +285,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 				a, err := box.Action(types.Threshold)
 				if err != nil {
 					logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+					buildErr = true
 				} else {
 					actionToSend = a
 				}
@@ -279,11 +314,15 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	if reached {
 		s.metrics.VotingThresholdReached(thresholdDuration)
 	}
+	if buildErr {
+		s.metrics.FinalizedActionLost("build_error")
+	}
 
 	if actionToSend != nil {
 		select {
 		case s.Out <- actionToSend:
 		case <-s.ctx.Done():
+			s.metrics.FinalizedActionLost("send_cancelled")
 			return nil, fmt.Errorf("forwarding finalized action: %w", s.ctx.Err())
 		}
 	}

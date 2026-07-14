@@ -71,7 +71,7 @@ type Service struct {
 
 // NewService wires the wallet service to its action queue, result storage, and backup stores.
 func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration, m *metrics.Metrics) *Service {
-	return &Service{
+	s := &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
 
@@ -83,6 +83,14 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 		backupTTL: backupTTL,
 		metrics:   m,
 	}
+
+	m.RegisterWalletKeysCached(func() float64 {
+		s.RLock()
+		defer s.RUnlock()
+		return float64(len(s.Keys))
+	})
+
+	return s
 }
 
 // RunUpdateInfo runs the wallet service's event loop until ctx is cancelled.
@@ -95,22 +103,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Info("wallet event loop exiting")
 			return
 		case <-walletSyncTrigger:
-			// Run sync in its own goroutine so the loop keeps draining keyActions,
-			// backups, and backupTrigger while sync waits on the tee-node (up to
-			// minutes per batch). syncing guards against overlapping syncs.
-			if !s.syncing.CompareAndSwap(false, true) {
-				logger.Debug("wallet sync skipped: already in progress")
-				continue
-			}
-			go func() {
-				defer s.syncing.Store(false)
-				logger.Debug("wallet sync start")
-				if err := s.sync(ctx); err != nil {
-					logger.Errorf("wallet sync: %v", err)
-					return
-				}
-				logger.Debug("wallet sync done")
-			}()
+			s.triggerSync(ctx)
 		case keyAction := <-keyActions:
 			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
@@ -154,6 +147,28 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("backups enqueued")
 		}
 	}
+}
+
+// triggerSync starts one sync cycle unless one is already in progress, in which case it
+// records a skip and returns. Sync runs in its own goroutine so the event loop keeps
+// draining keyActions, backups, and backupTrigger while sync waits on the tee-node (up to
+// minutes per batch). syncing guards against overlapping syncs.
+func (s *Service) triggerSync(ctx context.Context) {
+	if !s.syncing.CompareAndSwap(false, true) {
+		logger.Debug("wallet sync skipped: already in progress")
+		s.metrics.WalletSyncObserved("skipped")
+		return
+	}
+	go func() {
+		defer s.syncing.Store(false)
+		logger.Debug("wallet sync start")
+		if err := s.sync(ctx); err != nil {
+			logger.Errorf("wallet sync: %v", err)
+			return
+		}
+		logger.Debug("wallet sync done")
+		s.metrics.WalletSyncObserved("success")
+	}()
 }
 
 // WalletsInfo returns summary information about all stored wallets and keys.
@@ -271,6 +286,7 @@ func (s *Service) sync(ctx context.Context) error {
 			info, err := parseKeyExistenceProof(proof)
 			if err != nil {
 				s.Unlock()
+				s.metrics.WalletSyncObserved("parse_error")
 				return fmt.Errorf("parsing key proof: %w", err)
 			}
 
@@ -307,11 +323,13 @@ func (s *Service) localKeySet() map[IDPair]bool {
 func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 	action, err := keysInfoAction()
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, fmt.Errorf("creating key info action: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
@@ -322,7 +340,12 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 		return nil, err
 	}
 
-	return parseKeyInfoResult(&response.Result)
+	infos, err := parseKeyInfoResult(&response.Result)
+	if err != nil {
+		s.metrics.WalletSyncObserved("parse_error")
+		return nil, err
+	}
+	return infos, nil
 }
 
 // keysNeedingProof returns the key ID pairs from remote that are not in the local cache
@@ -378,16 +401,19 @@ func (s *Service) removeStaleKeys(remote []types.KeyInfo, localAtStart map[IDPai
 func (s *Service) fetchKeyProofs(ctx context.Context, batch []IDPair) ([]*wallets.SignedKeyExistenceProof, error) {
 	msg, err := json.Marshal(batch)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
 	action, err := queue.PrepareDirectAction(op.Get, op.KeyProof, msg)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
@@ -398,7 +424,12 @@ func (s *Service) fetchKeyProofs(ctx context.Context, batch []IDPair) ([]*wallet
 		return nil, err
 	}
 
-	return parseKeyProofResult(&response.Result)
+	proofs, err := parseKeyProofResult(&response.Result)
+	if err != nil {
+		s.metrics.WalletSyncObserved("parse_error")
+		return nil, err
+	}
+	return proofs, nil
 }
 
 // parseKeyInfoResult parses a KEY_INFO response into a list of key infos.

@@ -94,6 +94,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 		s.activePolicy = lastPolicy
 		s.metrics.SetActiveRewardEpoch(lastPolicy.RewardEpochID)
+		s.metrics.SetPolicyFetched()
 		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
 
 		logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
@@ -114,6 +115,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 	s.activePolicy = p
 	s.metrics.SetActiveRewardEpoch(p.RewardEpochID)
+	s.metrics.SetPolicyFetched()
 
 	logger.Infof("initialized for policy %d", p.RewardEpochID)
 
@@ -184,6 +186,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			p, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
 			if err != nil {
 				logger.Errorf("reconciling active signing policy to node's %d: %v", nodeID, err)
+				s.metrics.PolicyUpdate("reconcile_error")
 				if !wait(ctx, fetchInterval) {
 					return
 				}
@@ -192,6 +195,8 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			logger.Infof("reconciled active signing policy to node's %d (was %d)", nodeID, s.activePolicy.RewardEpochID)
 			s.activePolicy = p
 			s.metrics.SetActiveRewardEpoch(p.RewardEpochID)
+			s.metrics.SetPolicyFetched()
+			s.metrics.PolicyUpdate("reconciled")
 			attempts = 0
 			if !emit(ctx, out, p) {
 				return
@@ -204,6 +209,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		log, found, err := policy.FetchSigningPolicyLog(ctx, db, s.scAddresses.Relay, target)
 		if err != nil {
 			logger.Errorf("fetching signing policy %d log: %v", target, err)
+			s.metrics.PolicyUpdate("fetch_error")
 			if !wait(ctx, fetchInterval) {
 				return
 			}
@@ -212,6 +218,8 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		if !found {
 			// The next epoch is not yet initialized on chain — the steady-state path.
 			logger.Debugf("signing policy %d not yet on chain; waiting", target)
+			s.metrics.SetPolicyFetched()
+			s.metrics.PolicyUpdate("empty")
 			if !wait(ctx, fetchInterval) {
 				return
 			}
@@ -223,6 +231,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		action, newPolicy, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
 		if err != nil {
 			logUpdateFailure(target, attempts, "building UPDATE_POLICY action", err)
+			s.metrics.PolicyUpdate("build_failed")
 			if !wait(ctx, updateRetryDelay) {
 				return
 			}
@@ -234,6 +243,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		}, enqueueRetry)
 		if !es.Success {
 			logUpdateFailure(target, attempts, "enqueueing UPDATE_POLICY action", es.Err)
+			s.metrics.PolicyUpdate("enqueue_failed")
 			if !wait(ctx, updateRetryDelay) {
 				return
 			}
@@ -242,9 +252,12 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 		// Advance only after the node confirms it applied the policy, so proxy and node
 		// stay in lockstep (both enforce strictly consecutive epochs).
+		start := time.Now()
 		resp, err := s.responses.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, confirmationWaitTimeout)
+		s.metrics.ObserveNodeWait("policy_update", time.Since(start), err)
 		if err != nil {
 			logUpdateFailure(target, attempts, "awaiting UPDATE_POLICY confirmation", err)
+			s.metrics.PolicyUpdate("await_failed")
 			if !wait(ctx, updateRetryDelay) {
 				return
 			}
@@ -252,6 +265,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		}
 		if resp.Result.Status != 1 {
 			logUpdateFailure(target, attempts, fmt.Sprintf("node rejected UPDATE_POLICY (status %d, log %q)", resp.Result.Status, resp.Result.Log), nil)
+			s.metrics.PolicyUpdate("rejected")
 			if !wait(ctx, updateRetryDelay) {
 				return
 			}
@@ -260,6 +274,8 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 		s.activePolicy = newPolicy
 		s.metrics.SetActiveRewardEpoch(newPolicy.RewardEpochID)
+		s.metrics.SetPolicyFetched()
+		s.metrics.PolicyUpdate("applied")
 		attempts = 0
 		logger.Infof("updated signing policy to %d", newPolicy.RewardEpochID)
 		if !emit(ctx, out, newPolicy) {

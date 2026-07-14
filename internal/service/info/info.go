@@ -54,10 +54,12 @@ type Service struct {
 
 // NewService creates an info Service that periodically refreshes TEE info from the tee-node
 // and, when ac.Enabled, verifies the response's attestation. m may be nil or disabled.
+// LastUpdated starts at construction time so info_service_delay_seconds reports real elapsed
+// time from boot instead of a multi-decade spike before the first refresh.
 func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config, m *metrics.Metrics) *Service {
 	return &Service{
 		Latest:      new(types.TeeInfoResponse),
-		LastUpdated: time.Unix(0, 0),
+		LastUpdated: time.Now(),
 
 		db:              db,
 		actionQueues:    aq,
@@ -204,11 +206,8 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 
 		vErr := attestation.Verify(&result, challenge, s.attestationCfg)
 		if s.attestationCfg.Enabled {
-			res := "ok"
-			if vErr != nil {
-				res = "error"
-			}
-			s.metrics.AttestationVerified(res, attestation.Reason(vErr))
+			res, reason := attestationOutcome(&result, vErr)
+			s.metrics.AttestationVerified(res, reason)
 		}
 		if vErr != nil {
 			s.Lock()
@@ -229,6 +228,22 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 	s.LastUpdated = time.Now()
 
 	return challenge, nil
+}
+
+// attestationOutcome maps a completed attestation verification to its bounded metric labels.
+// An accepted magic_pass sentinel (nil error under AllowMagicPass) yields result "ok" with
+// reason ReasonMagicPass, keeping it distinguishable from a genuine JWT pass; any error yields
+// result "error" with the classified Reason. The vErr==nil gate guarantees the sentinel was
+// actually accepted — a magic_pass under AllowMagicPass=false returns ErrMagicPassDisabled and
+// takes the error branch, so IsMagicPass is only consulted after acceptance.
+func attestationOutcome(tir *types.TeeInfoResponse, vErr error) (result, reason string) {
+	if vErr != nil {
+		return "error", attestation.Reason(vErr)
+	}
+	if attestation.IsMagicPass(tir) {
+		return "ok", attestation.ReasonMagicPass
+	}
+	return "ok", attestation.Reason(nil)
 }
 
 // ParseTeeID returns the TEE identity: the address derived from the TEE public key in the response.

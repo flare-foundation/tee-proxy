@@ -7,6 +7,15 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
+// ErrorReasons lists every label Reason returns for a non-nil error.
+// It is the closed error set that metrics pre-initialization enumerates.
+var ErrorReasons = []string{"challenge_mismatch", "pubkey_mismatch", "chain_id_mismatch", "magic_pass_disabled", "token_too_old", "sec_boot_disabled", "debug_not_allowed", "code_hash_not_allowed", "platform_not_allowed", "jwt_invalid", "other"}
+
+// ReasonMagicPass is the attestation_verify_total reason label callers emit for an accepted
+// magic_pass sentinel (result "ok"). It is deliberately NOT returned by Reason, which
+// classifies only errors — an accepted magic_pass yields a nil error.
+const ReasonMagicPass = "magic_pass"
+
 // Reason maps a Verify error to a bounded label for metrics, so callers never
 // derive labels from raw error text (which embeds token ages, hashes, addresses).
 // A nil error yields "ok"; an unrecognized error yields "other".

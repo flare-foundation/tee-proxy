@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
@@ -15,6 +16,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
 
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -179,4 +181,232 @@ func TestSyncPreservesKeyAddedDuringSync(t *testing.T) {
 	// K1 was added mid-sync and is absent from the remote snapshot; it must survive.
 	_, err = svc.KeyData(k1Wallet, 0)
 	require.NoError(t, err, "key added during sync must survive removeStaleKeys")
+}
+
+// walletSyncCount reads teeproxy_wallet_sync_total for the given result label from m's
+// registry, returning 0 if no series with that label exists.
+func walletSyncCount(t *testing.T, m *metrics.Metrics, result string) float64 {
+	t.Helper()
+
+	fams, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	for _, f := range fams {
+		if f.GetName() != "teeproxy_wallet_sync_total" {
+			continue
+		}
+		for _, mc := range f.GetMetric() {
+			for _, l := range mc.GetLabel() {
+				if l.GetName() == "result" && l.GetValue() == result {
+					return mc.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+// TestSyncParseErrorIncrementsWalletSync guards fetchKeyInfo's parse-error accounting: a
+// KEY_INFO response whose data does not decode as JSON must surface as a sync error and
+// increment wallet_sync_total{result="parse_error"} exactly once, without touching
+// enqueue_error or skipped.
+func TestSyncParseErrorIncrementsWalletSync(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(aq, rs, nil, nil, time.Hour, m)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	go func() {
+		action, err := dequeueDirect(ctx, aq)
+		if err != nil {
+			return
+		}
+		_ = storeGetResponse(ctx, rs, action, op.KeyInfo, []byte("not-a-json-array"))
+	}()
+
+	err := svc.sync(ctx)
+	require.Error(t, err)
+
+	require.Equal(t, float64(1), walletSyncCount(t, m, "parse_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "skipped"))
+}
+
+// TestSyncKeyProofParseErrorIncrementsWalletSync guards the batch loop's parse-error
+// accounting: a KEY_PROOF response whose KeyExistence field fails to ABI-decode must
+// surface as a sync error and increment wallet_sync_total{result="parse_error"}.
+func TestSyncKeyProofParseErrorIncrementsWalletSync(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(aq, rs, nil, nil, time.Hour, m)
+
+	k0Wallet := common.BytesToHash([]byte("wallet-K0-badproof"))
+	remoteInfo := []types.KeyInfo{{WalletID: k0Wallet, KeyID: 0, Nonce: 0}}
+	badProof := &wallets.SignedKeyExistenceProof{
+		KeyExistence: hexutil.Bytes{0x01, 0x02, 0x03},
+		Signature:    hexutil.Bytes{},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	go func() {
+		for {
+			action, err := dequeueDirect(ctx, aq)
+			if err != nil {
+				return
+			}
+
+			var di types.DirectInstruction
+			if err := json.Unmarshal(action.Data.Message, &di); err != nil {
+				return
+			}
+
+			switch di.OPCommand {
+			case op.KeyInfo.Hash():
+				data, err := json.Marshal(remoteInfo)
+				if err != nil {
+					return
+				}
+				if err := storeGetResponse(ctx, rs, action, op.KeyInfo, data); err != nil {
+					return
+				}
+			case op.KeyProof.Hash():
+				data, err := json.Marshal([]*wallets.SignedKeyExistenceProof{badProof})
+				if err != nil {
+					return
+				}
+				_ = storeGetResponse(ctx, rs, action, op.KeyProof, data)
+				return
+			default:
+				return
+			}
+		}
+	}()
+
+	err := svc.sync(ctx)
+	require.Error(t, err)
+
+	require.Equal(t, float64(1), walletSyncCount(t, m, "parse_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "skipped"))
+}
+
+// TestFetchKeyInfoEnqueueErrorIncrementsWalletSync guards fetchKeyInfo's enqueue-error
+// accounting: an Enqueue failure (Redis unreachable) increments
+// wallet_sync_total{result="enqueue_error"} exactly once.
+func TestFetchKeyInfoEnqueueErrorIncrementsWalletSync(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(aq, rs, nil, nil, time.Hour, m)
+
+	mr.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := svc.sync(ctx)
+	require.Error(t, err)
+
+	require.Equal(t, float64(1), walletSyncCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "parse_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "skipped"))
+}
+
+// TestTriggerSyncSkippedIncrementsWalletSync guards triggerSync's skip path: calling it
+// while a sync is already in progress must not start a second sync, must leave syncing
+// untouched, and must increment wallet_sync_total{result="skipped"} exactly once.
+func TestTriggerSyncSkippedIncrementsWalletSync(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(nil, nil, nil, nil, time.Hour, m)
+
+	svc.syncing.Store(true)
+
+	svc.triggerSync(context.Background())
+
+	require.Equal(t, float64(1), walletSyncCount(t, m, "skipped"))
+	require.True(t, svc.syncing.Load(), "a skipped trigger must not disturb the in-progress sync's flag")
+}
+
+// TestTriggerSyncSuccessIncrementsWalletSync guards triggerSync's success path end to end:
+// a clean sync via a fake tee-node eventually increments
+// wallet_sync_total{result="success"} exactly once and no error/skipped label.
+func TestTriggerSyncSuccessIncrementsWalletSync(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(aq, rs, nil, nil, time.Hour, m)
+
+	k0Wallet := common.BytesToHash([]byte("wallet-trigger-success"))
+	k0Proof := makeSignedProof(t, k0Wallet, 0)
+	remoteInfo := []types.KeyInfo{{WalletID: k0Wallet, KeyID: 0, Nonce: 0}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	go func() {
+		for {
+			action, err := dequeueDirect(ctx, aq)
+			if err != nil {
+				return
+			}
+
+			var di types.DirectInstruction
+			if err := json.Unmarshal(action.Data.Message, &di); err != nil {
+				return
+			}
+
+			switch di.OPCommand {
+			case op.KeyInfo.Hash():
+				data, err := json.Marshal(remoteInfo)
+				if err != nil {
+					return
+				}
+				if err := storeGetResponse(ctx, rs, action, op.KeyInfo, data); err != nil {
+					return
+				}
+			case op.KeyProof.Hash():
+				data, err := json.Marshal([]*wallets.SignedKeyExistenceProof{k0Proof})
+				if err != nil {
+					return
+				}
+				_ = storeGetResponse(ctx, rs, action, op.KeyProof, data)
+				return
+			default:
+				return
+			}
+		}
+	}()
+
+	svc.triggerSync(ctx)
+
+	require.Eventually(t, func() bool {
+		return walletSyncCount(t, m, "success") == 1
+	}, 5*time.Second, 10*time.Millisecond, "triggerSync's success accounting is set asynchronously from its goroutine")
+
+	require.Equal(t, float64(0), walletSyncCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "parse_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "skipped"))
 }

@@ -125,6 +125,7 @@ func Run(ctx context.Context, cfgPath string) {
 		logger.Panicf("building attestation config: %v", err)
 	}
 	logAttestationPosture(attestationCfg)
+	proxyMetrics.SetAttestationPosture(attestationPostureSettings(attestationCfg))
 
 	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg, proxyMetrics)
 
@@ -261,6 +262,7 @@ func metricsConfig(c config.Metrics) metrics.Config {
 		Voting:       group(c.Voting),
 		ActiveVoters: group(c.ActiveVoters),
 		Result:       group(c.Result),
+		Wallet:       group(c.Wallet),
 		Info:         group(c.Info),
 		Attestation:  group(c.Attestation),
 		Policy:       group(c.Policy),
@@ -318,5 +320,21 @@ func logAttestationPosture(cfg *attestation.Config) {
 		a.Audience, a.CodeHash, a.Platform, a.DebugStatus, a.MaxTokenAge, a.SecBoot, a.MagicPass)
 	if cfg.AllowMagicPass {
 		logger.Warn("attestation: allow_magic_pass=true — accepts the tee-node magic_pass sentinel in place of a real JWT; do not enable in production")
+	}
+}
+
+// attestationPostureSettings maps the attestation config to the closed-key gauge map
+// SetAttestationPosture records: enabled plus each optional check Verify will run.
+func attestationPostureSettings(cfg *attestation.Config) map[string]bool {
+	a := cfg.Active()
+	return map[string]bool{
+		"enabled":             cfg.Enabled,
+		"magic_pass_allowed":  a.MagicPass,
+		"audience_check":      a.Audience,
+		"code_hash_check":     a.CodeHash,
+		"platform_check":      a.Platform,
+		"debug_status_check":  a.DebugStatus,
+		"max_token_age_check": a.MaxTokenAge,
+		"sec_boot_check":      a.SecBoot,
 	}
 }

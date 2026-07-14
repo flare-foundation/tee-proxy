@@ -84,21 +84,25 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 	nonce, toBlock, found, err := machinepath.LatestSignedList(ctx, db, s.managerAddress, s.extensionID, s.lastNonce)
 	if err != nil {
 		logger.Errorf("fetching latest signed machine path list for extension %s: %v", s.extensionID, err)
+		s.metrics.MachinepathPollObserved("fetch_error")
 		return
 	}
 	if !found {
 		logger.Debugf("no machine path list newer than nonce %d for extension %s", s.lastNonce, s.extensionID)
+		s.metrics.MachinepathPollObserved("no_change")
 		return
 	}
 
 	action, err := machinepath.SetMachinePathListAction(ctx, db, s.managerAddress, s.governance, s.extensionID, s.chainID, nonce, toBlock)
 	if err != nil {
 		logger.Errorf("creating SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
+		s.metrics.MachinepathPollObserved("build_error")
 		return
 	}
 
 	if err := s.aq.Enqueue(ctx, action, processorutils.Direct); err != nil {
 		logger.Errorf("enqueueing SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
+		s.metrics.MachinepathPollObserved("enqueue_error")
 		return
 	}
 
@@ -117,5 +121,6 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 	}
 
 	s.lastNonce = nonce
+	s.metrics.MachinepathPollObserved("confirmed")
 	logger.Infof("confirmed machine path list nonce %d for extension %s", nonce, s.extensionID)
 }

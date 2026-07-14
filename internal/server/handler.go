@@ -44,6 +44,7 @@ func (s *statusRecorder) Unwrap() http.ResponseWriter {
 // It returns next unchanged when metrics or the HTTP group are disabled.
 // next must be the routed mux: r.Pattern is read after it serves, by which point
 // the mux has matched the route template.
+// A handler panic is recorded as a 5xx request and then re-raised so net/http still handles it.
 func instrumentHTTP(m *metrics.Metrics, server string, next http.Handler) http.Handler {
 	if !m.HTTPEnabled() {
 		return next
@@ -53,9 +54,23 @@ func instrumentHTTP(m *metrics.Metrics, server string, next http.Handler) http.H
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 
-		next.ServeHTTP(rec, r)
+		defer func() {
+			p := recover()
+			if p != nil {
+				// A panicking handler never completed a normal response; force the
+				// server-error class so the request is counted even when the handler
+				// already wrote a status. Panic status takes precedence.
+				rec.status = http.StatusInternalServerError
+			}
+			m.ObserveHTTP(server, r.Pattern, rec.status, time.Since(start))
+			if p != nil {
+				// Re-raise so net/http's per-connection recovery (logging, connection
+				// abort, http.ErrAbortHandler suppression) still runs.
+				panic(p)
+			}
+		}()
 
-		m.ObserveHTTP(server, r.Pattern, rec.status, time.Since(start))
+		next.ServeHTTP(rec, r)
 	})
 }
 

@@ -2,6 +2,7 @@ package instruction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -110,6 +111,12 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 
 	receipt, err := s.vs.AddVote(&i.Data, signer, i.Signature)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			// Consensus was reached but the finalized-action send was cancelled at shutdown
+			// (already counted under finalized_action_lost_total{reason="send_cancelled"});
+			// it is not a rejection, so skip instructions_rejected_total.
+			return nil, err
+		}
 		s.metrics.InstructionRejected(voting.RejectReason(err))
 		return nil, err
 	}

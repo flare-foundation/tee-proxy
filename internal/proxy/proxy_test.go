@@ -43,7 +43,7 @@ func TestMetricsConfig(t *testing.T) {
 		got := metricsConfig(config.Metrics{Enable: true})
 		require.Equal(t, metrics.Config{
 			Enable: true, HTTP: true, Storage: true, Queue: true, Voting: true,
-			ActiveVoters: true, Result: true, Info: true, Attestation: true,
+			ActiveVoters: true, Result: true, Wallet: true, Info: true, Attestation: true,
 			Policy: true, Liveness: true, Node: true, Runtime: true,
 		}, got)
 	})

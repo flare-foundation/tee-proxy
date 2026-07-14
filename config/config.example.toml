@@ -116,10 +116,11 @@ enable = true
 # queue         = true   # dequeue counters and queue-depth gauge
 # voting        = true   # instruction and votings-started counters, threshold-duration histogram
 # active_voters = true   # per-epoch gauges: data-provider voters, initiators, top-3 providers by unfinalized proposals
-# result        = true   # result throughput, lost, and discarded counters
-# info          = true   # TEE info per-stage refresh failures
+# result        = true   # result throughput, lost, discarded, rejected, and channel-dropped counters (rejected{reason=wrong_tee_id} = TEE tamper/mis-route signal)
+# wallet        = true   # wallet key/proof sync-cycle outcome counter and cached-key gauge
+# info          = true   # TEE info per-stage refresh failures and refresh-duration histogram
 # attestation   = true   # attestation verify outcomes
 # policy        = true   # active (newest) and oldest-resident signing-policy reward-epoch gauges
 # liveness      = true   # readiness gauge + info-staleness gauge
-# node          = true   # TEE-node response-wait latency and outcomes (info, wallet, machinepath)
+# node          = true   # TEE-node response-wait latency/outcomes and machine-path poll-cycle outcomes (info, wallet, machinepath)
 # runtime       = true   # Go runtime/process collectors and build info
