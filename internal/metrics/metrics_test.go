@@ -221,21 +221,23 @@ func TestFinalizedActionLostCounter(t *testing.T) {
 	m.FinalizedActionLost("build_error")
 	m.FinalizedActionLost("send_cancelled")
 	m.FinalizedActionLost("send_cancelled")
+	m.FinalizedActionLost("send_failed")
 
 	require.Equal(t, float64(1), testutil.ToFloat64(m.finalizedActionLost.WithLabelValues("build_error")))
 	require.Equal(t, float64(2), testutil.ToFloat64(m.finalizedActionLost.WithLabelValues("send_cancelled")))
+	require.Equal(t, float64(1), testutil.ToFloat64(m.finalizedActionLost.WithLabelValues("send_failed")))
 	require.Contains(t, gatheredNames(t, m), "teeproxy_finalized_action_lost_total")
 }
 
-// TestFinalizedActionLostPreInitialized proves both reasons are born at 0 so the first,
-// possibly one-shot drop satisfies the increase(...)>0 alert on build_error.
+// TestFinalizedActionLostPreInitialized proves all reasons are born at 0 so the first,
+// possibly one-shot drop satisfies the increase(...)>0 alerts on build_error and send_failed.
 func TestFinalizedActionLostPreInitialized(t *testing.T) {
 	m := New(Config{Enable: true, Voting: true})
 
-	for _, reason := range []string{"build_error", "send_cancelled"} {
+	for _, reason := range []string{"build_error", "send_cancelled", "send_failed"} {
 		require.Zerof(t, testutil.ToFloat64(m.finalizedActionLost.WithLabelValues(reason)), "reason %q not pre-initialized", reason)
 	}
-	require.Equal(t, 2, testutil.CollectAndCount(m.finalizedActionLost), "both reason series must exist before any drop")
+	require.Equal(t, 3, testutil.CollectAndCount(m.finalizedActionLost), "all reason series must exist before any drop")
 }
 
 func TestFinalizedActionLostNilSafe(t *testing.T) {
@@ -456,14 +458,15 @@ func TestNodeDisabledIsNoOp(t *testing.T) {
 func TestMachinepathPollMetrics(t *testing.T) {
 	m := New(Config{Enable: true, Node: true})
 
-	for _, result := range []string{"fetch_error", "build_error", "enqueue_error", "no_change", "confirmed"} {
+	results := []string{"fetch_error", "build_error", "enqueue_error", "no_change", "confirmed", "rejected"}
+	for _, result := range results {
 		m.MachinepathPollObserved(result)
 	}
 
-	for _, result := range []string{"fetch_error", "build_error", "enqueue_error", "no_change", "confirmed"} {
+	for _, result := range results {
 		require.Equalf(t, float64(1), testutil.ToFloat64(m.machinepathPollTotal.WithLabelValues(result)), "result %q", result)
 	}
-	require.Equal(t, 5, testutil.CollectAndCount(m.machinepathPollTotal), "each result must be its own series")
+	require.Equal(t, len(results), testutil.CollectAndCount(m.machinepathPollTotal), "each result must be its own series")
 }
 
 func TestPolicyMetrics(t *testing.T) {
@@ -667,6 +670,16 @@ func TestWalletSyncMetrics(t *testing.T) {
 	require.Equal(t, 4, testutil.CollectAndCount(m.walletSyncTotal), "each result must be its own series")
 }
 
+func TestWalletKeyUpdateFailedCounter(t *testing.T) {
+	m := New(Config{Enable: true, Wallet: true})
+
+	m.WalletKeyUpdateFailed()
+	m.WalletKeyUpdateFailed()
+
+	require.Equal(t, float64(2), testutil.ToFloat64(m.walletKeyUpdateFailed))
+	require.Contains(t, gatheredNames(t, m), "teeproxy_wallet_key_update_failed_total")
+}
+
 func TestWalletKeysCachedGauge(t *testing.T) {
 	on := New(Config{Enable: true, Wallet: true})
 	require.True(t, on.WalletEnabled())
@@ -697,6 +710,7 @@ func TestWalletDisabledIsNoOp(t *testing.T) {
 	require.False(t, m.WalletEnabled())
 	require.NotPanics(t, func() {
 		m.WalletSyncObserved("success")
+		m.WalletKeyUpdateFailed()
 		m.RegisterWalletKeysCached(func() float64 { return 1 })
 	})
 }

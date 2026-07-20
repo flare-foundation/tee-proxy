@@ -108,14 +108,13 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 	if s.teeID.Cmp(common.Address{}) != 0 {
 		signer, err := recoverSigner(r, s.chainID)
 		if err != nil {
-			logger.Errorf("recover signer for result %s: %v, result log: %s", r.Result.ID, err, r.Result.Log)
 			s.metrics.ResultRejected("bad_signer")
-			return fmt.Errorf("recovering signer: %w", err)
+			return fmt.Errorf("recovering signer (result log: %q): %w", r.Result.Log, err)
 		}
 
 		if signer.Cmp(s.teeID) != 0 {
 			s.metrics.ResultRejected("wrong_tee_id")
-			return errInvalidTeeID
+			return fmt.Errorf("%w: signer %s, expected %s", errInvalidTeeID, signer, s.teeID)
 		}
 	} else if r.Result.OPCommand != op.TEEInfo.Hash() {
 		// Pre-SetIdentity: signatures cannot be verified, so only TEE_INFO is accepted.
@@ -124,7 +123,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 	}
 
 	if r.Result.Status == 0 {
-		logger.Errorf("received failed result %s, tag %s, opType %s, opCommand %s, log: %s",
+		logger.Warnf("received failed result %s, tag %s, opType %s, opCommand %s, log: %s",
 			r.Result.ID, r.Result.SubmissionTag, op.HashToOPType(r.Result.OPType), op.HashToOPCommand(r.Result.OPCommand), r.Result.Log)
 	} else {
 		logger.Debugf("received result %s, tag %s, opType %s, opCommand %s, status %d",
@@ -137,21 +136,21 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 			select {
 			case s.KeyActions <- &r.Result:
 			default:
-				logger.Error("key actions channel full")
+				logger.Warn("key actions channel full")
 				s.metrics.ResultChannelDropped(channelKeyActions)
 			}
 		case op.TEEBackup.Hash():
 			select {
 			case s.Backups <- &r.Result:
 			default:
-				logger.Error("backup storage channel full")
+				logger.Warn("backup storage channel full")
 				s.metrics.ResultChannelDropped(channelBackups)
 			}
 		case op.UpdatePolicy.Hash():
 			select {
 			case s.BackupTrigger <- true:
 			default:
-				logger.Error("backup trigger channel full")
+				logger.Warn("backup trigger channel full")
 				s.metrics.ResultChannelDropped(channelBackupTrigger)
 			}
 		}

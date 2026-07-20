@@ -192,6 +192,11 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 func (e *External) verifyAPIKey(r *http.Request) error {
 	key := r.Header.Get("X-API-Key")
 	if subtle.ConstantTimeCompare([]byte(key), []byte(e.direct.APIKey)) != 1 {
+		reason := "invalid"
+		if key == "" {
+			reason = "missing"
+		}
+		logger.Warnf("rejected %s request from %s: %s API key", r.Pattern, r.RemoteAddr, reason)
 		return errUnauthorized
 	}
 

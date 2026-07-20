@@ -284,7 +284,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 				a, err := box.Action(types.Threshold)
 				if err != nil {
-					logger.Errorf("failed crating threshold action for %v, %v: %v", id, hash, err)
+					logger.Errorf("failed creating threshold action for %v, %v: %v", id, hash, err)
 					buildErr = true
 				} else {
 					actionToSend = a

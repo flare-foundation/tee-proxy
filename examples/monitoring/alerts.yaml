@@ -31,7 +31,7 @@ groups:
           summary: "Finalized action failed to enqueue"
           description: >-
             Consensus reached threshold but the finalized action could not be enqueued to the
-            main queue (enqueue failures only; pre-enqueue drops are counted separately by
+            main queue (enqueue failures only; build/send losses are counted separately by
             teeproxy_finalized_action_lost_total). Requires the `voting` metric group.
 
       - alert: TeeProxyFinalizedActionLost
@@ -43,10 +43,24 @@ groups:
           description: >-
             Consensus reached threshold but a finalized action was dropped before it could be
             enqueued, because building the action failed to serialize — a practically
-            unreachable path. Scoped to reason="build_error"; the sibling reason="send_cancelled"
-            is an expected transient during shutdown and is not alerted. The series is
+            unreachable path. Scoped to reason="build_error"; reason="send_cancelled" is an
+            expected transient during shutdown and is not alerted, and reason="send_failed"
+            has its own critical alert (TeeProxyFinalizedActionSendFailed). The series is
             pre-initialized to 0, so this fires on the first occurrence. Requires the `voting`
             metric group.
+
+      - alert: TeeProxyFinalizedActionSendFailed
+        expr: increase(teeproxy_finalized_action_lost_total{reason="send_failed"}[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Finalized action lost sending to the node"
+          description: >-
+            A consensus-finalized action was dequeued — its body already deleted from the main
+            queue — but the response write to the TEE node failed, so the action is
+            irrecoverably lost. The action ID is in the proxy log line "sending action ...
+            failed after dequeue". The series is pre-initialized to 0, so this fires on the
+            first occurrence. Requires the `voting` metric group.
 
   # ---- Security: the proxy's trust assumptions about the TEE -------------------------
   - name: tee-proxy.security
@@ -200,6 +214,19 @@ groups:
             covered by teeproxy_node_response_wait_total{path="machinepath"}. Requires the `node`
             metric group.
 
+      - alert: TeeProxyMachinepathRejected
+        expr: increase(teeproxy_machinepath_poll_total{result="rejected"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "TEE node rejected the machine-path action"
+          description: >-
+            The node returned a non-success status for a SET_MACHINE_PATH_LIST action — most
+            plausibly a governance/threshold mismatch between the node and the chain. The poller
+            never advances its nonce, so the same action is rebuilt and re-rejected every poll
+            (~10m) until the mismatch is resolved; the node's own reason is in the proxy log line
+            "SET_MACHINE_PATH_LIST action for nonce ... failed". Requires the `node` metric group.
+
       - alert: TeeProxyHigh5xxRate
         expr: |
           sum by (server) (rate(teeproxy_http_requests_total{status_class="5xx"}[5m]))
@@ -340,6 +367,20 @@ groups:
             TeeProxyQueueBackpressure cannot fire. Treat TeeProxyStorageErrors as authoritative
             until reads recover. Requires the `queue` metric group.
 
+      - alert: TeeProxyResultChannelDropped
+        expr: increase(teeproxy_result_channel_dropped_total{channel=~"key_actions|backups"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Result fan-out channel full — {{ $labels.channel }} dropped"
+          description: >-
+            A KEY_* or TEE_BACKUP result was dropped because its in-process fan-out channel was
+            full, i.e. the wallet event loop is stalled (typically on Redis-backed backup stores
+            during a storage outage). The drop is not permanent loss — a missed key update self-heals
+            at the next periodic sync and a missed backup at the next backup trigger — but sustained
+            drops mean the loop is wedged. The backup_trigger channel is intentionally excluded
+            (a full size-1 coalescing channel is benign). Requires the `result` metric group.
+
   # ---- Wallet: is the periodic key/proof sync loop healthy? -------------------------
   - name: tee-proxy.wallet
     rules:
@@ -366,3 +407,16 @@ groups:
             progress. At the 1h wallet sync cadence (walletSyncPeriod), this means sync has not
             completed in 3+ hours — the syncing flag is likely wedged on a stuck tee-node wait.
             Requires the `wallet` metric group.
+
+      - alert: TeeProxyWalletKeyUpdateFailed
+        expr: increase(teeproxy_wallet_key_update_failed_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Signed KEY_* result failed to apply to the key cache"
+          description: >-
+            A signature-verified KEY_* result from the trusted TEE node could not be decoded and
+            applied to the key cache — a protocol invariant break, most plausibly a tee-node bug or
+            proxy/node version skew. The key cache is left stale (a missing new key or a lingering
+            deleted key) until the hourly sync reconciles it; the decode error is in the proxy log
+            line "wallet key update". Requires the `wallet` metric group.

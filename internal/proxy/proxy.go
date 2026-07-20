@@ -149,7 +149,11 @@ func Run(ctx context.Context, cfgPath string) {
 
 	go func() {
 		if err := infoService.Run(ctx); err != nil {
-			logger.Errorf("info service exited: %v", err)
+			if errors.Is(err, context.Canceled) {
+				logger.Infof("info service exited: %v", err)
+			} else {
+				logger.Errorf("info service exited: %v", err)
+			}
 		}
 	}()
 

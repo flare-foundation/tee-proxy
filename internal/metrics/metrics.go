@@ -85,7 +85,8 @@ type Metrics struct {
 	resultsRejected      *prometheus.CounterVec
 	resultChannelDropped *prometheus.CounterVec
 
-	walletSyncTotal *prometheus.CounterVec
+	walletSyncTotal       *prometheus.CounterVec
+	walletKeyUpdateFailed prometheus.Counter
 
 	instructionsReceived    prometheus.Counter
 	instructionsRejected    *prometheus.CounterVec
@@ -191,6 +192,10 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Subsystem: "wallet", Name: "sync_total",
 			Help: "Wallet key/proof sync cycles by result.",
 		}, []string{"result"})
+		m.walletKeyUpdateFailed = f.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace, Subsystem: "wallet", Name: "key_update_failed_total",
+			Help: "Signed KEY_* results from the node that failed to apply to the key cache.",
+		})
 	}
 
 	if cfg.Voting {
@@ -221,11 +226,11 @@ func New(cfg Config) *Metrics {
 		})
 		m.finalizedActionLost = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "finalized_action_lost_total",
-			Help: "Finalized actions dropped before enqueue, by reason.",
+			Help: "Finalized actions lost before enqueue or on send to the node, by reason.",
 		}, []string{"reason"})
 		// Pre-initialize so a first, possibly one-shot drop satisfies increase()>0 (a series born at 1 never
-		// does); build_error feeds the TeeProxyFinalizedActionLost alert over a practically unreachable path.
-		for _, reason := range []string{"build_error", "send_cancelled"} {
+		// does); build_error and send_failed feed the TeeProxyFinalizedActionLost/SendFailed alerts.
+		for _, reason := range []string{"build_error", "send_cancelled", "send_failed"} {
 			m.finalizedActionLost.WithLabelValues(reason).Add(0)
 		}
 	}
@@ -292,7 +297,7 @@ func New(cfg Config) *Metrics {
 		}, []string{"path", "result"})
 		m.machinepathPollTotal = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Subsystem: "machinepath", Name: "poll_total",
-			Help: "Machine-path poll cycles by result; excludes node-wait and status outcomes already covered by node_response_wait_total and results_processed_total.",
+			Help: "Machine-path poll cycles by result (including a node rejection as result=\"rejected\"); the node-wait leg is covered separately by node_response_wait_total.",
 		}, []string{"result"})
 	}
 
@@ -410,10 +415,10 @@ func (m *Metrics) FinalizedActionEnqueueFailed() {
 	m.finalizedEnqueueFail.Inc()
 }
 
-// FinalizedActionLost records a finalized action dropped before the main-queue enqueue,
-// by bounded reason ("build_error", "send_cancelled"). Callers pass compile-time constants,
-// so the reason enum stays closed. It is a sibling of FinalizedActionEnqueueFailed, which
-// keeps counting enqueue failures separately.
+// FinalizedActionLost records a finalized action lost before the main-queue enqueue or on
+// send to the node, by bounded reason ("build_error", "send_cancelled", "send_failed").
+// Callers pass compile-time constants, so the reason enum stays closed. It is a sibling of
+// FinalizedActionEnqueueFailed, which keeps counting enqueue failures separately.
 func (m *Metrics) FinalizedActionLost(reason string) {
 	if m == nil || m.finalizedActionLost == nil {
 		return
@@ -708,6 +713,15 @@ func (m *Metrics) WalletSyncObserved(result string) {
 		return
 	}
 	m.walletSyncTotal.WithLabelValues(result).Inc()
+}
+
+// WalletKeyUpdateFailed records a signed KEY_* result from the node that failed to apply
+// to the key cache — a protocol invariant break (node bug or version skew).
+func (m *Metrics) WalletKeyUpdateFailed() {
+	if m == nil || m.walletKeyUpdateFailed == nil {
+		return
+	}
+	m.walletKeyUpdateFailed.Inc()
 }
 
 // RegisterWalletKeysCached registers a scrape-time gauge reporting count(), the key proofs

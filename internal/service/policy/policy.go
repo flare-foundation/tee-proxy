@@ -185,7 +185,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		if nodeID := s.nodeState.LastAppliedPolicyID(); nodeID > s.activePolicy.RewardEpochID {
 			p, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
 			if err != nil {
-				logger.Errorf("reconciling active signing policy to node's %d: %v", nodeID, err)
+				logger.Warnf("reconciling active signing policy to node's %d: %v", nodeID, err)
 				s.metrics.PolicyUpdate("reconcile_error")
 				if !wait(ctx, fetchInterval) {
 					return
@@ -208,7 +208,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 		log, found, err := policy.FetchSigningPolicyLog(ctx, db, s.scAddresses.Relay, target)
 		if err != nil {
-			logger.Errorf("fetching signing policy %d log: %v", target, err)
+			logger.Warnf("fetching signing policy %d log: %v", target, err)
 			s.metrics.PolicyUpdate("fetch_error")
 			if !wait(ctx, fetchInterval) {
 				return

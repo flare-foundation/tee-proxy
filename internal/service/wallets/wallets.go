@@ -105,10 +105,10 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 		case <-walletSyncTrigger:
 			s.triggerSync(ctx)
 		case keyAction := <-keyActions:
-			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
 			if err != nil {
-				logger.Errorf("wallet key update: %v", err)
+				logger.Warnf("wallet key update: %v", err)
+				s.metrics.WalletKeyUpdateFailed()
 				continue
 			}
 
@@ -116,7 +116,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			if !added {
 				action = "removed"
 			}
-			logger.Debugf("walletID: %v keyID: %d %s", id.WalletID, id.KeyID, action)
+			logger.Debugf("wallet key update: walletID %v keyID %d %s", id.WalletID, id.KeyID, action)
 
 			if added {
 				go func() {
@@ -124,7 +124,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 
 					err := s.initiateBackup(ctx, id)
 					if err != nil {
-						logger.Errorf("making backup for %v: %v", id, err)
+						logger.Warnf("making backup for %v: %v", id, err)
 					}
 					logger.Debugf("backup done for %v", id)
 				}()
@@ -133,7 +133,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("storing backup result")
 			err := s.createNewBackup(ctx, backupResult)
 			if err != nil {
-				logger.Errorf("storing backup result: %v", err)
+				logger.Warnf("storing backup result: %v", err)
 				continue
 			}
 
@@ -141,7 +141,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("backups triggered")
 			err := s.InitiateBackups(ctx)
 			if err != nil {
-				logger.Errorf("triggering backups: %v", err)
+				logger.Warnf("triggering backups: %v", err)
 				continue
 			}
 			logger.Debug("backups enqueued")
@@ -163,7 +163,7 @@ func (s *Service) triggerSync(ctx context.Context) {
 		defer s.syncing.Store(false)
 		logger.Debug("wallet sync start")
 		if err := s.sync(ctx); err != nil {
-			logger.Errorf("wallet sync: %v", err)
+			logger.Warnf("wallet sync: %v", err)
 			return
 		}
 		logger.Debug("wallet sync done")

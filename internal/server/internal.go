@@ -154,7 +154,7 @@ func (i *Internal) registerRoutes() {
 type promErrorLogger struct{}
 
 func (promErrorLogger) Println(v ...any) {
-	logger.Errorf("serving /metrics: %s", fmt.Sprint(v...))
+	logger.Warnf("serving /metrics: %s", fmt.Sprint(v...))
 }
 
 // resultH serves "/result" endpoint.
@@ -165,6 +165,7 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 	dec.DisallowUnknownFields()
 	err := dec.Decode(&response)
 	if err != nil {
+		logger.Warnf("decoding result body from node: %v", err)
 		return ErrInvalidBody
 	}
 
@@ -185,14 +186,14 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// storeResult persists a result already acked to the TEE node; a failure means the
-// result is lost.
+// storeResult persists a result already acked to the TEE node.
 func (i *Internal) storeResult(response *types.ActionResponse) {
 	ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
 	defer cancel()
 
 	if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
-		logger.Errorf("result lost id=%s tag=%s opType=%s opCommand=%s: %v",
+		// Warn, not Error: ProcessAndStore records the lost-result metric; rejections aren't losses.
+		logger.Warnf("processing result failed id=%s tag=%s opType=%s opCommand=%s: %v",
 			response.Result.ID,
 			response.Result.SubmissionTag,
 			op.HashToOPType(response.Result.OPType),
@@ -221,8 +222,15 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 
 		logger.Debugf("sending action %v with tag %v to the node on queue %v", value.Data.ID, value.Data.SubmissionTag, queueID)
 		err = json.NewEncoder(w).Encode(value)
+		if err == nil {
+			// Flush so a buffered write failure surfaces here; the body is already deleted from the queue.
+			err = http.NewResponseController(w).Flush()
+		}
 		if err != nil {
-			return err
+			if queueID == processorutils.Main {
+				i.metrics.FinalizedActionLost("send_failed")
+			}
+			return fmt.Errorf("sending action %v (tag %v, queue %v) to node failed after dequeue, action lost: %w", value.Data.ID, value.Data.SubmissionTag, queueID, err)
 		}
 
 	default:

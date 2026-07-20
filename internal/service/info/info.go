@@ -103,12 +103,13 @@ func (s *Service) Run(ctx context.Context) error {
 		_, err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
 		if err != nil {
 			errCount++
+			logger.Debugf("tee info update failed (attempt %d): %v", errCount, err)
 		} else {
 			errCount = 0
 		}
 
-		if errCount > 5 {
-			logger.Errorf("tee info update unsuccessful in %d attempts: latest error: %v", errCount, err)
+		if errCount > 5 && (errCount == 6 || errCount%30 == 0) {
+			logger.Warnf("tee info update unsuccessful in %d attempts: latest error: %v", errCount, err)
 		}
 	}
 }
@@ -211,8 +212,12 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 		}
 		if vErr != nil {
 			s.Lock()
+			changed := s.lastAttestationErr == nil || s.lastAttestationErr.Error() != vErr.Error()
 			s.lastAttestationErr = vErr
 			s.Unlock()
+			if changed {
+				logger.Warnf("attestation verification failed (sticky, readiness fails until restart): %v", vErr)
+			}
 			s.metrics.InfoRefreshFailed("verify_attestation")
 			return common.Hash{}, fmt.Errorf("verifying attestation: %w", vErr)
 		}

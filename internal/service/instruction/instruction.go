@@ -124,15 +124,25 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 	return receipt, nil
 }
 
+// logExit reports a background loop's exit: Info on graceful cancellation,
+// Error otherwise, since these loops should only ever return on ctx.Done.
+func logExit(name string, err error) {
+	if errors.Is(err, context.Canceled) {
+		logger.Infof("%s exited: %v", name, err)
+		return
+	}
+	logger.Errorf("%s exited: %v", name, err)
+}
+
 // Run starts the Forward and ListenToPolicies loops concurrently.
 func (s *Service) Run(ctx context.Context) {
 	go func() {
 		if err := s.Forward(ctx); err != nil {
-			logger.Errorf("instruction forward exited: %v", err)
+			logExit("instruction forward", err)
 		}
 	}()
 	if err := s.ListenToPolicies(ctx); err != nil {
-		logger.Errorf("listen to policies exited: %v", err)
+		logExit("listen to policies", err)
 	}
 }
 
@@ -146,7 +156,7 @@ func (s *Service) Forward(ctx context.Context) error {
 			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
 				s.metrics.FinalizedActionEnqueueFailed()
-				logger.Errorf("enqueuing instruction action: %v", err)
+				logger.Warnf("enqueuing instruction action: %v", err)
 				continue
 			}
 		}

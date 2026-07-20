@@ -143,8 +143,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	err = s.index.SetWithTTL(indexCtx, toKey(idPair), idHash, s.backupTTL)
 	if err != nil {
 		// Body landed but index didn't: backup is orphaned until backupTTL.
-		logger.Errorf("backup orphaned for %v: body at %s but index write failed: %v", idPair, idHashKey, err)
-		return fmt.Errorf("storing backup index: %w", err)
+		return fmt.Errorf("storing backup index for %v (body orphaned at %s): %w", idPair, idHashKey, err)
 	}
 
 	return nil
