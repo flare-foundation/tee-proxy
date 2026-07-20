@@ -379,8 +379,7 @@ func (s *Service) removeStaleKeys(remote []types.KeyInfo, localAtStart map[IDPai
 	}
 
 	s.Lock()
-	defer s.Unlock()
-
+	var evicted []IDPair
 	for id := range s.Keys {
 		if remoteSet[id] || !localAtStart[id] {
 			continue
@@ -394,6 +393,12 @@ func (s *Service) removeStaleKeys(remote []types.KeyInfo, localAtStart map[IDPai
 		if len(s.KeysForWallet[id.WalletID]) == 0 {
 			delete(s.KeysForWallet, id.WalletID)
 		}
+		evicted = append(evicted, id)
+	}
+	s.Unlock()
+
+	for _, id := range evicted {
+		logger.Infof("wallet sync evicted stale key walletID %v keyID %d (absent from node)", id.WalletID, id.KeyID)
 	}
 }
 
