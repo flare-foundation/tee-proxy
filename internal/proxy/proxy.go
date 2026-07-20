@@ -158,7 +158,7 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	if cfg.Addresses.MachinePathManager != (common.Address{}) {
-		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, initialInfo.MachineData.ExtensionID, cfg.ChainID)
+		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce)
 		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
 	} else {
 		logger.Info("machine_path_manager address not set; machine path list service disabled")
