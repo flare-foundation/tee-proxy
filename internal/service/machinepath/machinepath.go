@@ -37,13 +37,14 @@ type Service struct {
 // NewService creates a machine path list service for the given extension. The
 // manager address must be nonzero; the caller is responsible for skipping
 // service creation when the feature is disabled.
-func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, extensionID common.Hash, chainID uint64) *Service {
+func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, extensionID common.Hash, chainID uint64, initialNonce uint64) *Service {
 	return &Service{
 		aq:             aq,
 		responses:      responses,
 		managerAddress: managerAddress,
 		extensionID:    extensionID,
 		chainID:        chainID,
+		lastNonce:      initialNonce,
 	}
 }
 
@@ -75,6 +76,7 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 		return
 	}
 	if !found {
+		logger.Debugf("no machine path list newer than nonce %d for extension %s", s.lastNonce, s.extensionID)
 		return
 	}
 

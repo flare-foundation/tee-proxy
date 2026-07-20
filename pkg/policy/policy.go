@@ -189,7 +189,9 @@ func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addre
 		return nil, nil, fmt.Errorf("creating signing policy instance: %w", err)
 	}
 
-	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainID)
+	// The transaction scan range is (start, to], so start one block below the
+	// SigningPolicyInitialized event
+	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber)-1, chainID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("preparing update policy message: %w", err)
 	}
