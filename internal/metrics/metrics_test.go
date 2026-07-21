@@ -504,6 +504,39 @@ func TestPolicyDisabledIsNoOp(t *testing.T) {
 	}
 }
 
+func TestPolicyRewardEpochGauges(t *testing.T) {
+	m := New(Config{Enable: true, Policy: true})
+	m.RegisterNodeAppliedPolicy(func() float64 { return 42 })
+	m.RegisterMaxConsensusEpoch(func() float64 { return 41 })
+
+	names := gatheredNames(t, m)
+	require.Contains(t, names, "teeproxy_node_applied_policy_epoch")
+	require.Contains(t, names, "teeproxy_consensus_max_reward_epoch")
+
+	const expected = `
+# HELP teeproxy_node_applied_policy_epoch Reward epoch of the signing policy the tee-node reports it has most recently applied.
+# TYPE teeproxy_node_applied_policy_epoch gauge
+teeproxy_node_applied_policy_epoch 42
+`
+	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_node_applied_policy_epoch"))
+}
+
+func TestPolicyRewardEpochGaugesDisabled(t *testing.T) {
+	m := New(Config{Enable: true, Policy: false})
+
+	appliedCalled, consensusCalled := false, false
+	m.RegisterNodeAppliedPolicy(func() float64 { appliedCalled = true; return 1 })
+	m.RegisterMaxConsensusEpoch(func() float64 { consensusCalled = true; return 1 })
+
+	for _, name := range []string{"teeproxy_node_applied_policy_epoch", "teeproxy_consensus_max_reward_epoch"} {
+		n, err := testutil.GatherAndCount(m.Registry(), name)
+		require.NoError(t, err)
+		require.Zerof(t, n, "%s must register no series when the policy group is disabled", name)
+	}
+	require.False(t, appliedCalled)
+	require.False(t, consensusCalled)
+}
+
 func TestLivenessMetrics(t *testing.T) {
 	m := New(Config{Enable: true, Liveness: true})
 	require.True(t, m.LivenessEnabled())
@@ -520,6 +553,14 @@ func TestLivenessMetrics(t *testing.T) {
 teeproxy_info_service_delay_seconds 12
 `
 	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_info_service_delay_seconds"))
+
+	m.RegisterCChainDelay(func() float64 { return 30 })
+	const expectedCChain = `
+# HELP teeproxy_cchain_indexer_delay_seconds Seconds since the last c-chain indexer block, read from the indexer DB at scrape time.
+# TYPE teeproxy_cchain_indexer_delay_seconds gauge
+teeproxy_cchain_indexer_delay_seconds 30
+`
+	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expectedCChain), "teeproxy_cchain_indexer_delay_seconds"))
 }
 
 func TestLivenessDisabledIsNoOp(t *testing.T) {
@@ -534,6 +575,13 @@ func TestLivenessDisabledIsNoOp(t *testing.T) {
 	require.Zero(t, n)
 	require.False(t, called)
 	require.NotPanics(t, func() { m.SetReady(true) })
+
+	cchainCalled := false
+	m.RegisterCChainDelay(func() float64 { cchainCalled = true; return 1 })
+	n, err = testutil.GatherAndCount(m.Registry(), "teeproxy_cchain_indexer_delay_seconds")
+	require.NoError(t, err)
+	require.Zero(t, n)
+	require.False(t, cchainCalled)
 }
 
 func TestActiveParticipantGauges(t *testing.T) {

@@ -575,9 +575,9 @@ func nodeWaitResult(err error) string {
 }
 
 // MachinepathPollObserved records one machine-path poll-loop outcome under a bounded result
-// ("fetch_error"/"build_error"/"enqueue_error"/"no_change"/"confirmed"). Wait and
-// status-rejection outcomes are already covered by node_response_wait_total and
-// results_processed_total and are intentionally not duplicated here.
+// ("fetch_error"/"build_error"/"enqueue_error"/"no_change"/"rejected"/"confirmed"); "rejected"
+// is a node status!=1 rejection (err==nil, so invisible to node_response_wait_total). The
+// node-wait leg itself is covered separately by node_response_wait_total.
 func (m *Metrics) MachinepathPollObserved(result string) {
 	if m == nil || m.machinepathPollTotal == nil {
 		return
@@ -630,6 +630,30 @@ func (m *Metrics) RegisterOldestStoredPolicy(oldest func() float64) {
 	}, oldest))
 }
 
+// RegisterNodeAppliedPolicy registers a scrape-time gauge of the tee-node's last applied
+// signing-policy reward epoch. No-op when the policy group is disabled.
+func (m *Metrics) RegisterNodeAppliedPolicy(applied func() float64) {
+	if !m.PolicyEnabled() || applied == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "node_applied_policy_epoch",
+		Help: "Reward epoch of the signing policy the tee-node reports it has most recently applied.",
+	}, applied))
+}
+
+// RegisterMaxConsensusEpoch registers a scrape-time gauge of the highest reward epoch any voting
+// has reached consensus in since process start. No-op when the policy group is disabled.
+func (m *Metrics) RegisterMaxConsensusEpoch(epoch func() float64) {
+	if !m.PolicyEnabled() || epoch == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "consensus_max_reward_epoch",
+		Help: "Highest reward epoch of any voting that reached consensus since process start.",
+	}, epoch))
+}
+
 // LivenessEnabled reports whether liveness metrics are collected.
 func (m *Metrics) LivenessEnabled() bool {
 	return m != nil && m.cfg.Enable && m.cfg.Liveness
@@ -656,6 +680,18 @@ func (m *Metrics) RegisterInfoDelay(seconds func() float64) {
 	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: namespace, Name: "info_service_delay_seconds",
 		Help: "Seconds since the last successful TEE info refresh.",
+	}, seconds))
+}
+
+// RegisterCChainDelay registers a scrape-time gauge of seconds since the last c-chain
+// indexer block, read from the indexer DB. No-op when the liveness group is disabled.
+func (m *Metrics) RegisterCChainDelay(seconds func() float64) {
+	if !m.LivenessEnabled() || seconds == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "cchain_indexer_delay_seconds",
+		Help: "Seconds since the last c-chain indexer block, read from the indexer DB at scrape time.",
 	}, seconds))
 }
 

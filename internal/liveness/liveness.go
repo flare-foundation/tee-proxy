@@ -18,6 +18,9 @@ import (
 const (
 	cChainDelayTolerance = 140 * time.Second
 	infoDelayTolerance   = 140 * time.Second
+
+	// cChainDelayReadTimeout bounds the scrape-time indexer-DB read for the delay gauge.
+	cChainDelayReadTimeout = 2 * time.Second
 )
 
 var (
@@ -56,6 +59,21 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.
 			delay := time.Since(info.LastUpdated)
 			info.RUnlock()
 			return delay.Seconds()
+		})
+	}
+
+	if db != nil {
+		// Scrape-time read of the indexer's last block timestamp. A read error reports 0
+		// (the DB-down case is caught by readiness via TeeProxyNotReady); this gauge's job
+		// is the stale-but-reachable indexer, which reads fine and returns a large delay.
+		m.RegisterCChainDelay(func() float64 {
+			ctx, cancel := context.WithTimeout(context.Background(), cChainDelayReadTimeout)
+			defer cancel()
+			state, err := database.FetchState(ctx, db, nil)
+			if err != nil {
+				return 0
+			}
+			return time.Since(time.Unix(int64(state.BlockTimestamp), 0)).Seconds()
 		})
 	}
 

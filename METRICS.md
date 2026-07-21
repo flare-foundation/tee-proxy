@@ -32,8 +32,8 @@ For the histograms, use `histogram_quantile(0.95, rate(<name>_bucket[5m]))` for 
 | `wallet` | wallet sync-cycle outcome counter and cached-key gauge |
 | `info` | TEE info refresh duration and per-stage failures |
 | `attestation` | attestation verify outcomes |
-| `policy` | active/resident reward-epoch gauges, fetch-loop staleness timestamp, and update-outcome counter |
-| `liveness` | readiness gauge and info-staleness gauge |
+| `policy` | active/node-applied/consensus/resident reward-epoch gauges, fetch-loop staleness timestamp, and update-outcome counter |
+| `liveness` | readiness gauge, info-staleness gauge, and c-chain indexer-delay gauge |
 | `node` | TEE-node response-wait latency and outcomes; machine-path poll-cycle outcomes |
 | `runtime` | Go runtime/process collectors and build info |
 
@@ -54,7 +54,9 @@ Page-now (critical) signals:
 | `TeeProxyMagicPassAccepted` | `increase(teeproxy_attestation_verify_total{reason="magic_pass"}[10m]) > 0` | A TEE_INFO response was accepted via the magic_pass sentinel instead of a real JWT chain (`result="ok"`, so not covered by `TeeProxyAttestationFailing`). |
 | `TeeProxyMagicPassAllowed` | `teeproxy_attestation_posture{setting="magic_pass_allowed"} == 1` for 5m | Configured with `allow_magic_pass=true`, permitting the JWT chain to be bypassed — must not run in production. |
 | `TeeProxyFinalizedActionEnqueueFailing` | `increase(teeproxy_finalized_action_enqueue_failed_total[5m]) > 0` | Consensus reached but the action failed to enqueue to the main queue (enqueue failures only; pre-enqueue drops are in `teeproxy_finalized_action_lost_total`). |
+| `TeeProxyFinalizedActionSendFailed` | `increase(teeproxy_finalized_action_lost_total{reason="send_failed"}[5m]) > 0` | A finalized action was dequeued (body already deleted) but the send to the node failed — irrecoverable loss. |
 | `TeeProxyInfoStale` | `teeproxy_info_service_delay_seconds > 140` for 2m | Past the 140s readiness tolerance (`liveness.go` `infoDelayTolerance`); the 2m debounce absorbs the bootstrap window. |
+| `TeeProxyCChainStale` | `teeproxy_cchain_indexer_delay_seconds > 140` for 2m | c-chain indexer past the 140s readiness tolerance (`liveness.go` `cChainDelayTolerance`); attributes the readiness failure to the c-chain leg, which `TeeProxyNotReady` cannot. |
 | `TeeProxyNotReady` | `teeproxy_ready == 0` for 2m | Readiness failing. |
 | `TeeProxyDown` | `up{job="tee-proxy"} == 0` for 2m | Prometheus cannot scrape the proxy. **Example only** — keys on Prometheus's synthetic `up` metric, not a `teeproxy_*` one; the `job` selector must match your scrape config. |
 
@@ -66,6 +68,7 @@ Warnings (lead time before a page):
 | Alert | Condition | Signal |
 | --- | --- | --- |
 | `TeeProxyInfoStaleWarning` | `teeproxy_info_service_delay_seconds > 70` for 1m | Half the 140s tolerance — lead time before readiness flips. |
+| `TeeProxyCChainDelayWarning` | `teeproxy_cchain_indexer_delay_seconds > 70` for 1m | Half the 140s c-chain tolerance — lead time before readiness flips. |
 | `TeeProxyNodeWaitTimeouts` | `sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0` for 10m | TEE node slow or unreachable on a path. |
 | `TeeProxyQueueBackpressure` | `teeproxy_action_queue_depth{queue="main"} > 100` for 10m | Main queue not draining (`queue.go` `queueDepthWarnThreshold`). |
 | `TeeProxyQueueBackpressureDirect` | `teeproxy_action_queue_depth{queue="direct"} > 100` for 10m | Direct queue not draining (same threshold). |
@@ -108,6 +111,7 @@ A handler panic is recorded once with `status_class` `5xx` and a duration sample
 | `teeproxy_storage_operation_duration_seconds` | histogram | `backend`, `namespace`, `operation` | Storage operation latency by backend, namespace, and operation. |
 
 Label values: `backend` is `redis` or `firestore`; `namespace` is `results`/`backups`/`backupIndex`; `operation` is `set`/`set_with_ttl`/`get`/`remove`; `outcome` is `success`/`not_found`/`error`.
+Of the `operation` values only `get` and `set_with_ttl` are emitted by the wired namespaces; `set` and `remove` do not currently appear.
 
 ## `queue`
 
@@ -130,18 +134,19 @@ During Redis degradation the depth gauge reads 0 and `TeeProxyQueueBackpressure`
 | `teeproxy_votings_started_total` | counter | — | Votings opened (a new proposal box created). |
 | `teeproxy_voting_threshold_duration_seconds` | histogram | — | Seconds from voting start to reaching threshold. Its `_count` is the number of votings finalized. |
 | `teeproxy_finalized_action_enqueue_failed_total` | counter | — | Finalized actions that failed to enqueue to the main queue. |
-| `teeproxy_finalized_action_lost_total` | counter | `reason` | Finalized actions dropped before the main-queue enqueue, by reason. |
+| `teeproxy_finalized_action_lost_total` | counter | `reason` | Finalized actions lost before the main-queue enqueue or on send to the node, by reason. |
 
 Label values: `reason` is one of `wrong_tee_id`/`invalid_op`/`invalid_signature`/`invalid_voter`/`voting_ended`/`duplicate_signature`/`event_in_future`/`other`.
 A voting is finalized exactly when it reaches threshold, so "votings finalized" is `voting_threshold_duration_seconds_count` (the histogram's observation count).
 The threshold-duration histogram is intentionally unlabeled: consensus latency is governed by a protocol uniform across op types, so an `op_command` label would only stratify it by traffic mix.
 Every started voting eventually either finalizes or expires, so expired votings are `votings_started_total − voting_threshold_duration_seconds_count` (exactly once all in-flight votings have closed; instantaneously this also includes votings still open within the proposal-expiration window).
 
-On `finalized_action_lost_total`, `reason` is one of `build_error`/`send_cancelled`.
+On `finalized_action_lost_total`, `reason` is one of `build_error`/`send_cancelled`/`send_failed`.
 `build_error` is a (practically unreachable) action-serialization failure.
 `send_cancelled` fires only when a finalized action's send to the forwarding channel is aborted during shutdown.
-Enqueue failures are a separate, sibling failure mode counted by `finalized_action_enqueue_failed_total`, so total finalized-action loss is the sum of the two counters.
-Both `reason` series are pre-initialized to 0 at startup so the first, possibly one-shot drop satisfies the `increase(...) > 0` alert on `build_error`.
+`send_failed` is an irrecoverable post-dequeue loss: the action was dequeued (its body already deleted from the main queue) but the response write to the node failed; it has its own critical alert `TeeProxyFinalizedActionSendFailed`.
+Enqueue failures are a separate, sibling failure mode counted by `finalized_action_enqueue_failed_total`, so total finalized-action loss is `finalized_action_lost_total` (all three reasons) plus `finalized_action_enqueue_failed_total`.
+All three `reason` series are pre-initialized to 0 at startup so the first, possibly one-shot drop satisfies the `increase(...) > 0` alerts on `build_error` and `send_failed`.
 
 ## `active_voters`
 
@@ -211,6 +216,8 @@ The full error-reason set is enumerated in `pkg/attestation` `ErrorReasons`, whi
 | Metric | Type | Labels | Description |
 | --- | --- | --- | --- |
 | `teeproxy_policy_active_reward_epoch` | gauge | — | Reward epoch of the active signing policy, which is also the newest one the proxy holds. |
+| `teeproxy_node_applied_policy_epoch` | gauge (scrape-time) | — | Reward epoch of the signing policy the tee-node reports it has most recently applied. |
+| `teeproxy_consensus_max_reward_epoch` | gauge (scrape-time) | — | Highest reward epoch of any voting that reached consensus since process start. |
 | `teeproxy_signing_policy_oldest_reward_epoch` | gauge (scrape-time) | — | Oldest reward epoch with a signing policy still resident in the in-memory voting window. |
 | `teeproxy_policy_last_fetch_timestamp_seconds` | gauge | — | Unix time of the last error-free signing-policy update-loop iteration. |
 | `teeproxy_policy_update_total` | counter | `result` | Signing-policy update-loop iterations by outcome. |
@@ -225,17 +232,27 @@ The proxy does not persist signing policies.
 The active policy (`policy_active_reward_epoch`) is the newest one it has ingested, so the resident window runs from `signing_policy_oldest_reward_epoch` up to `policy_active_reward_epoch`.
 The window is the voting cyclic buffer, whose size is `voting.history_size` (default 3).
 
+`node_applied_policy_epoch` reads the node's self-reported `TeeInfo.LastSigningPolicyID`, so a persistent nonzero `policy_active_reward_epoch − node_applied_policy_epoch` flags proxy/node signing-policy desync.
+`consensus_max_reward_epoch` is derived from the voting stream — the highest reward epoch of any voting that reached threshold — a forge-proof witness of the epoch the network is finalizing in, independent of the proxy's own policy cursor.
+It lives in the `policy` group so the reward-epoch gauges enable together.
+`policy_active_reward_epoch` itself tracks the newest signing policy the proxy has adopted (confirmed by the node); during the ~2h between a policy's on-chain initialization and its reward epoch's start, that is the upcoming epoch, not the one currently enforced.
+
 ## `liveness`
 
 | Metric | Type | Labels | Description |
 | --- | --- | --- | --- |
 | `teeproxy_ready` | gauge | — | 1 if the last readiness check passed, else 0. |
 | `teeproxy_info_service_delay_seconds` | gauge (scrape-time) | — | Seconds since the last successful TEE info refresh. |
+| `teeproxy_cchain_indexer_delay_seconds` | gauge (scrape-time) | — | Seconds since the last c-chain indexer block, read from the indexer DB at scrape time. |
 
 `info_service_delay_seconds` starts at zero at process start: `info.NewService` sets `LastUpdated` to the construction time, so the gauge only rises if refreshes genuinely stop, not as an artifact of not having refreshed yet.
 `teeproxy_ready` reflects only the outcome of the last evaluation triggered by a `GET /ready` call — it is not recomputed on a `/metrics` scrape.
 It requires a periodic external readiness probe (a Kubernetes-style `readinessProbe` hitting `/ready` every 10-30s is the intended deployment) to stay fresh well inside the 2m window `TeeProxyNotReady` uses.
 If nothing ever calls `/ready`, the gauge stays at its zero-value default and `TeeProxyNotReady` pages permanently starting 2 minutes after boot; that is a deployment misconfiguration (no readiness probe wired), not a proxy bug.
+
+`cchain_indexer_delay_seconds` is a direct scrape-time read of the indexer DB (`FetchState`, the same query `Ready` runs against the 140s `cChainDelayTolerance`), so unlike `teeproxy_ready` it is fresh on every scrape without a `/ready` probe, and unlike `info_service_delay_seconds` it reflects an external dependency rather than an in-memory timestamp.
+The read is bounded by a 2s timeout and reports 0 if it fails; a DB outage is caught by `TeeProxyNotReady` (readiness fails on the same check), so this gauge targets the stale-but-reachable indexer, which reads fine and returns a large delay.
+It gives lead time before the 140s readiness cutoff and attributes a readiness failure to the c-chain leg, which the composite `teeproxy_ready` cannot.
 
 ## `node`
 
@@ -245,11 +262,12 @@ If nothing ever calls `/ready`, the gauge stays at its zero-value default and `T
 | `teeproxy_node_response_wait_total` | counter | `path`, `result` | TEE-node response waits by path and outcome. |
 | `teeproxy_machinepath_poll_total` | counter | `result` | Machine-path poll cycles by result. |
 
-Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`enqueue_error`/`no_change`/`confirmed`.
+Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`enqueue_error`/`no_change`/`rejected`/`confirmed`.
 `policy_update` is the `UPDATE_POLICY` confirmation wait (2m timeout), fired roughly once per reward epoch during a signing-policy rollover.
 This is the proxy's synchronous round-trip to the TEE node (the wait inside `WaitOnResponse`).
 A rising `timeout` share, or a p99 approaching the per-path response timeout (2–3 minutes), is the leading signal that the node is slow or unreachable — and the `path` label localizes partial degradation (e.g. `wallet_key_proof` slow while `info` is fine).
-`machinepath_poll_total` is scoped to the pre-delivery and outcome legs of the machine-path poll loop only — the node-wait leg for the same poll is `teeproxy_node_response_wait_total{path="machinepath"}`, and the post-wait status rejection is `teeproxy_results_processed_total{op_command="SET_MACHINE_PATH_LIST"}`.
+`machinepath_poll_total` covers the poll loop's pre-delivery legs (`fetch_error`/`build_error`/`enqueue_error`/`no_change`) and its post-wait outcomes (`rejected`/`confirmed`); the node-wait leg itself is `teeproxy_node_response_wait_total{path="machinepath"}`.
+`rejected` is a node `status != 1` rejection — `WaitOnResponse` returns `err == nil` for it, so the node-wait metric records it as `result="ok"`, and only this counter (and `teeproxy_results_processed_total{op_command="SET_MACHINE_PATH_LIST"}`) distinguishes it.
 
 ## `runtime`
 
@@ -258,3 +276,28 @@ A rising `timeout` share, or a p99 approaching the per-path response timeout (2�
 | `teeproxy_build_info` | gauge | `version`, `revision`, `go_version` | Constant 1, labeled with build metadata (version, VCS revision, and Go version). |
 | `go_*` | various | — | Standard Go runtime collector (includes `go_goroutines`, GC stats, etc.). |
 | `process_*` | various | — | Standard process collector (CPU, memory, file descriptors, etc.). |
+
+## Review findings (2026-07-21)
+
+An adversarial review scored every metric for whether it earns its place and hunted for coverage gaps.
+Verdicts across 41 series: 29 keep, 9 marginal, 2 redundant, 1 drop; 12 coverage gaps confirmed (22 candidates rejected as already derivable).
+These are recommendations, not applied changes, except the two new gauges and the doc fixes noted below.
+
+### Recommended removals
+
+`teeproxy_active_initiators` — drop: no alert, monotonic within an epoch, and proposer-address distinctness drives no operator action (submission volume is already in `votings_started_total`).
+`teeproxy_finalized_action_enqueue_failed_total` — redundant: numerically equal to `action_enqueue_total{queue="main",result!="success"}` (the main queue has a single producer); its critical alert can retarget to that.
+`teeproxy_signing_policy_oldest_reward_epoch` — redundant: a fixed offset `policy_active_reward_epoch − (voting.history_size − 1)`; no alert and a misleading 0 when the window is empty.
+
+### Keep, but wire the missing alert
+
+These carry a unique signal that no alert currently consumes: `action_dequeue_total` (`action_not_found` = an orphaned finalized action), `http_request_duration_seconds` (a p99 latency SLO), `wallet_keys_cached` (a mass-eviction drop), and `results_discarded_total`.
+
+### Coverage gaps
+
+Closed by this change: node/proxy signing-policy epoch divergence → `node_applied_policy_epoch`; a forge-proof consensus-derived epoch witness → `consensus_max_reward_epoch`; c-chain indexer staleness attribution and lead time → `cchain_indexer_delay_seconds`.
+Still open, highest value first: split `instructions_rejected_total{reason="other"}` into `rate_limited`/`not_eligible`/`oversized`/`no_round`; add `absent()` meta-alerts for the `info`/`voting`/`liveness` groups; count handler panics distinctly from handled 5xx; count Direct/Backup post-dequeue send loss (only Main is counted today); count `wallet_backup_apply_failed` before storage; add an end-to-end finalized→result latency histogram.
+
+### Doc accuracy fixed here
+
+`finalized_action_lost_total` now documents `send_failed` and its critical `TeeProxyFinalizedActionSendFailed` alert, the machine-path poll enumeration now includes `rejected`, and the storage `operation` note records which values the wired namespaces actually emit.

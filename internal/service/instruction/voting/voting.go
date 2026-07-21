@@ -55,9 +55,10 @@ type Storage struct {
 	// Service-lifetime ctx; per-box goroutines outlive the request that spawns them.
 	ctx context.Context //nolint:containedctx // service-lifetime ctx, see comment
 
-	metrics       *metrics.Metrics
-	collectVoters bool
-	currentEpoch  atomic.Uint32 // latest stored reward epoch, for the active-voter gauge
+	metrics           *metrics.Metrics
+	collectVoters     bool
+	currentEpoch      atomic.Uint32 // latest stored reward epoch, for the active-voter gauge
+	maxConsensusEpoch atomic.Uint32 // highest reward epoch of any voting that reached consensus
 }
 
 // NewStorage creates a voting Storage backed by a cyclic buffer sized by config.HistorySize.
@@ -92,6 +93,24 @@ func (s *Storage) StoreNewRound(policy *policy.SigningPolicy) {
 	if policy.RewardEpochID > s.currentEpoch.Load() {
 		s.currentEpoch.Store(policy.RewardEpochID)
 	}
+}
+
+// recordConsensusEpoch raises the max-consensus-epoch watermark to epoch if it is larger.
+func (s *Storage) recordConsensusEpoch(epoch uint32) {
+	for {
+		old := s.maxConsensusEpoch.Load()
+		if epoch <= old {
+			return
+		}
+		if s.maxConsensusEpoch.CompareAndSwap(old, epoch) {
+			return
+		}
+	}
+}
+
+// MaxConsensusEpoch returns the highest reward epoch reached by consensus, or 0 if none yet.
+func (s *Storage) MaxConsensusEpoch() uint32 {
+	return s.maxConsensusEpoch.Load()
 }
 
 // activeParticipantEpochs returns the newest resident reward epoch and its immediate
@@ -313,6 +332,7 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 	}
 	if reached {
 		s.metrics.VotingThresholdReached(thresholdDuration)
+		s.recordConsensusEpoch(data.RewardEpochID)
 	}
 	if buildErr {
 		s.metrics.FinalizedActionLost("build_error")

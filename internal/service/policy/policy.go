@@ -49,6 +49,9 @@ type Service struct {
 // contract addresses, chain ID, a view of the node's applied policy state, and metrics.
 // m may be nil or disabled.
 func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, addresses config.Addresses, chainID uint64, nodeState nodePolicyState, m *metrics.Metrics) *Service {
+	// Node's applied signing-policy epoch at scrape time, for proxy/node desync detection.
+	m.RegisterNodeAppliedPolicy(func() float64 { return float64(nodeState.LastAppliedPolicyID()) })
+
 	return &Service{
 		aq:          aq,
 		responses:   responses,

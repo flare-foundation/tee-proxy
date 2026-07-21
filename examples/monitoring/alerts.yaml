@@ -191,6 +191,33 @@ groups:
             the process start time, not zero-time, so this only pages on a genuine
             multi-minute stall). Requires the `liveness` metric group.
 
+      - alert: TeeProxyCChainDelayWarning
+        expr: teeproxy_cchain_indexer_delay_seconds > 70
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "c-chain indexer lagging"
+          description: >-
+            The c-chain indexer's last block is over 70s old — half the 140s readiness
+            tolerance (liveness.go cChainDelayTolerance) — giving lead time before readiness
+            flips. The gauge is read from the indexer DB at scrape time and reads 0 if that
+            read fails, so a DB outage is caught by TeeProxyNotReady instead. Requires the
+            `liveness` metric group.
+
+      - alert: TeeProxyCChainStale
+        expr: teeproxy_cchain_indexer_delay_seconds > 140
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "c-chain indexer stale past readiness tolerance"
+          description: >-
+            The c-chain indexer is delayed beyond the 140s tolerance (liveness.go
+            cChainDelayTolerance), so readiness is failing. This attributes the readiness
+            failure to the c-chain leg specifically, which TeeProxyNotReady (five multiplexed
+            causes) cannot. Requires the `liveness` metric group.
+
       - alert: TeeProxyNodeWaitTimeouts
         expr: sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0
         for: 10m

@@ -102,6 +102,23 @@ func TestStorage(t *testing.T) {
 
 	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
 	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
+
+	require.Equal(t, uint32(1), s.MaxConsensusEpoch(), "consensus watermark tracks the finalized voting's reward epoch")
+}
+
+func TestMaxConsensusEpoch(t *testing.T) {
+	s := NewStorage(t.Context(), &config.Voting{HistorySize: 3, FinalizedBufferSize: 1}, &testMeta{}, nil)
+
+	require.Equal(t, uint32(0), s.MaxConsensusEpoch(), "zero before any finalization")
+
+	s.recordConsensusEpoch(5)
+	require.Equal(t, uint32(5), s.MaxConsensusEpoch())
+
+	s.recordConsensusEpoch(3) // a late finalization for an older epoch must not lower the watermark
+	require.Equal(t, uint32(5), s.MaxConsensusEpoch())
+
+	s.recordConsensusEpoch(6)
+	require.Equal(t, uint32(6), s.MaxConsensusEpoch())
 }
 
 func TestFDCMessageValidity(t *testing.T) {

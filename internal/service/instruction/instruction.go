@@ -68,6 +68,7 @@ func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Addr
 		}
 		return float64(o)
 	})
+	m.RegisterMaxConsensusEpoch(func() float64 { return float64(vs.MaxConsensusEpoch()) })
 
 	return &Service{
 		teeID:   teeID,

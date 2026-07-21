@@ -7,6 +7,7 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/redis/go-redis/v9"
@@ -135,6 +136,29 @@ func TestReady(t *testing.T) {
 		err := l.Ready(t.Context())
 		require.NoError(t, err)
 	})
+}
+
+func TestCChainDelayGauge(t *testing.T) {
+	db, _, redisClient, infoSvc := setup(t, "cchain-gauge")
+	m := metrics.New(metrics.Config{Enable: true, Liveness: true})
+
+	addState(t, db, uint64(time.Now().Add(-15*time.Minute).Unix()))
+
+	New(db, redisClient, infoSvc, nil, m)
+
+	families, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	var delay float64
+	found := false
+	for _, f := range families {
+		if f.GetName() == "teeproxy_cchain_indexer_delay_seconds" {
+			found = true
+			delay = f.GetMetric()[0].GetGauge().GetValue()
+		}
+	}
+	require.True(t, found, "c-chain delay gauge must be registered")
+	require.InDelta(t, (15 * time.Minute).Seconds(), delay, 60, "delay reflects the indexer block timestamp")
 }
 
 func addState(t *testing.T, db *gorm.DB, blockTime uint64) {
