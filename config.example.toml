@@ -60,10 +60,13 @@ backup_ttl = "192h"          # 8d — backups and backup index
 
 
 
-[firestore]
-url = ":8086"
-project_id = "your-gcp-project-id"
-database_id = ""  # Firestore database ID. Empty = default database.
+# Google Cloud Storage for persistent storage: all action results (including
+# transient submit-tagged ones) and wallet backups. Omit the section (or leave
+# bucket empty) to store them in Redis instead. Queues and pub/sub always use Redis.
+[gcs]
+bucket = ""  # Bucket name; setting it enables GCS-backed storage.
+prefix = ""  # Optional object-name prefix namespacing this proxy's data.
+url = ""  # Endpoint override for emulators/tests, e.g. "http://127.0.0.1:4443/storage/v1/". Empty = production GCS.
 credentials_file = ""  # Path to service account JSON. Empty = Application Default Credentials.
 
 [direct]
