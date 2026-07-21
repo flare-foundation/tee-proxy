@@ -281,7 +281,7 @@ A rising `timeout` share, or a p99 approaching the per-path response timeout (2â
 
 An adversarial review scored every metric for whether it earns its place and hunted for coverage gaps.
 Verdicts across 41 series: 29 keep, 9 marginal, 2 redundant, 1 drop; 12 coverage gaps confirmed (22 candidates rejected as already derivable).
-These are recommendations, not applied changes, except the two new gauges and the doc fixes noted below.
+These are recommendations, not applied changes, except the three new gauges and the doc fixes noted below.
 
 ### Recommended removals
 

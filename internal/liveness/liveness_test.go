@@ -146,19 +146,49 @@ func TestCChainDelayGauge(t *testing.T) {
 
 	New(db, redisClient, infoSvc, nil, m)
 
+	require.InDelta(t, (15 * time.Minute).Seconds(), cchainGaugeValue(t, m), 60, "delay reflects the indexer block timestamp")
+}
+
+func TestCChainDelayGaugeReadError(t *testing.T) {
+	// No last_database_block row: FetchState fails, so the gauge must report 0 rather than
+	// a bogus time.Since(epoch). This is the branch the critical TeeProxyCChainStale rests on.
+	// NOTE: FetchState retries under the 2s timeout, so Gather blocks ~2s here — expected, not a hang.
+	db, _, redisClient, infoSvc := setup(t, "cchain-read-error")
+	require.NoError(t, db.AutoMigrate(&database.State{})) // table exists but is empty
+	m := metrics.New(metrics.Config{Enable: true, Liveness: true})
+
+	New(db, redisClient, infoSvc, nil, m)
+
+	require.Zero(t, cchainGaugeValue(t, m), "a read error must report 0, not time.Since(epoch)")
+}
+
+func TestCChainDelayGaugeNotRegisteredWithoutDB(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, Liveness: true})
+	New(nil, nil, nil, nil, m) // db nil -> the c-chain gauge must not be registered
+
+	_, found := cchainGauge(t, m)
+	require.False(t, found)
+}
+
+// cchainGauge returns the c-chain delay gauge value and whether it is registered.
+func cchainGauge(t *testing.T, m *metrics.Metrics) (float64, bool) {
+	t.Helper()
 	families, err := m.Registry().Gather()
 	require.NoError(t, err)
-
-	var delay float64
-	found := false
 	for _, f := range families {
 		if f.GetName() == "teeproxy_cchain_indexer_delay_seconds" {
-			found = true
-			delay = f.GetMetric()[0].GetGauge().GetValue()
+			return f.GetMetric()[0].GetGauge().GetValue(), true
 		}
 	}
+	return 0, false
+}
+
+// cchainGaugeValue returns the c-chain delay gauge value, failing if it is not registered.
+func cchainGaugeValue(t *testing.T, m *metrics.Metrics) float64 {
+	t.Helper()
+	v, found := cchainGauge(t, m)
 	require.True(t, found, "c-chain delay gauge must be registered")
-	require.InDelta(t, (15 * time.Minute).Seconds(), delay, 60, "delay reflects the indexer block timestamp")
+	return v
 }
 
 func addState(t *testing.T, db *gorm.DB, blockTime uint64) {

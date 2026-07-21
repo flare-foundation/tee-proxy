@@ -64,8 +64,9 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.
 
 	if db != nil {
 		// Scrape-time read of the indexer's last block timestamp. A read error reports 0
-		// (the DB-down case is caught by readiness via TeeProxyNotReady); this gauge's job
-		// is the stale-but-reachable indexer, which reads fine and returns a large delay.
+		// and consumes the full cChainDelayReadTimeout (FetchState retries under the ctx);
+		// the DB-down case is caught by readiness (TeeProxyNotReady), so this gauge targets
+		// the stale-but-reachable indexer, which reads fine and returns a large delay.
 		m.RegisterCChainDelay(func() float64 {
 			ctx, cancel := context.WithTimeout(context.Background(), cChainDelayReadTimeout)
 			defer cancel()

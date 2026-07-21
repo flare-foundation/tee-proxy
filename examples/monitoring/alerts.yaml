@@ -215,8 +215,8 @@ groups:
           description: >-
             The c-chain indexer is delayed beyond the 140s tolerance (liveness.go
             cChainDelayTolerance), so readiness is failing. This attributes the readiness
-            failure to the c-chain leg specifically, which TeeProxyNotReady (five multiplexed
-            causes) cannot. Requires the `liveness` metric group.
+            failure to the c-chain leg specifically, which the composite TeeProxyNotReady
+            cannot. Requires the `liveness` metric group.
 
       - alert: TeeProxyNodeWaitTimeouts
         expr: sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0
