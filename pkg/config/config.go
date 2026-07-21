@@ -61,21 +61,31 @@ var (
 	errAttestationCodeHashInvalid           = errors.New("attestation expected_code_hashes contains invalid hex")
 	errAttestationMaxTokenAgeNegative       = errors.New("attestation max_token_age must be non-negative")
 	errDirectMaxBodySizeNegative            = errors.New("direct max_body_size must be non-negative")
+	errGCSBucketNotSet                      = errors.New("gcs is configured but bucket is not set")
 )
 
-// Firestore holds Firestore connection configuration.
-type Firestore struct {
-	URL             string `toml:"url"`              // Firestore URL
-	ProjectID       string `toml:"project_id"`       // Google Cloud project ID.
-	DatabaseID      string `toml:"database_id"`      // Firestore database ID. Empty means default database.
+// GCS holds Google Cloud Storage connection configuration.
+// Setting bucket enables GCS-backed persistent storage; empty means Redis-backed.
+type GCS struct {
+	Bucket          string `toml:"bucket"`           // Bucket holding the proxy's persistent data.
+	Prefix          string `toml:"prefix"`           // Optional object-name prefix namespacing this proxy's data within the bucket.
+	URL             string `toml:"url"`              // Endpoint override for emulators/tests. Empty means production Google Cloud Storage.
 	CredentialsFile string `toml:"credentials_file"` // Path to service account JSON key. Empty means Application Default Credentials.
+}
+
+// validate checks that a non-empty GCS configuration names a bucket.
+func (g GCS) validate() error {
+	if (g != GCS{}) && g.Bucket == "" {
+		return errGCSBucketNotSet
+	}
+	return nil
 }
 
 // Proxy holds the full configuration for the TEE proxy service.
 type Proxy struct {
 	DB                           database.Config `toml:"db"`                               // C-chain indexer database config.
 	RedisPort                    string          `toml:"redis_port"`                       // Redis database port.
-	Firestore                    Firestore       `toml:"firestore"`                        // Firestore connection configuration.
+	GCS                          GCS             `toml:"gcs"`                              // Google Cloud Storage connection configuration.
 	ChainID                      uint64          `toml:"chain_id"`                         // EVM chain ID bound into TEE/FDC2 signed payloads. Must be a positive integer.
 	Addresses                    Addresses       `toml:"addresses"`                        // Smart contract addresses.
 	Ports                        Ports           `toml:"ports"`                            // Servers ports.
@@ -88,7 +98,7 @@ type Proxy struct {
 	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between DB sync retries on startup. Defaults to 10m.
 	Logging                      logger.Config   `toml:"logging"`                          // Logging configurations. Default is "DEBUG" level in consol.
 	Direct                       Direct          `toml:"direct"`                           // Direct endpoint configuration.
-	Storage                      Storage         `toml:"storage"`                          // TTLs applied to Redis/Firestore-backed persistent storage.
+	Storage                      Storage         `toml:"storage"`                          // TTLs applied to Redis/GCS-backed persistent storage.
 	Attestation                  Attestation     `toml:"attestation"`                      // Bootstrap attestation verification configuration.
 }
 
@@ -152,7 +162,7 @@ func parseCodeHash(s string) (common.Hash, error) {
 	return common.BytesToHash(b), nil
 }
 
-// Storage holds TTLs for persistent stores (Redis/Firestore).
+// Storage holds TTLs for persistent stores (Redis/GCS).
 type Storage struct {
 	ActionTTL       time.Duration `toml:"action_ttl"`        // Retention for queued action bodies. Defaults to 14 days.
 	ResultTTL       time.Duration `toml:"result_ttl"`        // Retention for Threshold/End results. Defaults to 14 days.
@@ -271,6 +281,11 @@ func Read(path string) (Proxy, error) {
 	}
 
 	err = c.Storage.validate()
+	if err != nil {
+		return c, err
+	}
+
+	err = c.GCS.validate()
 	if err != nil {
 		return c, err
 	}

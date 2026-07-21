@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -78,19 +79,19 @@ func Run(ctx context.Context, cfgPath string) {
 		backupIndex storage.Storage[common.Hash]
 	)
 
-	if (cfg.Firestore != config.Firestore{}) {
-		fbClient, err := storage.NewFirestoreClient(ctx, cfg.Firestore.ProjectID, cfg.Firestore.DatabaseID, cfg.Firestore.CredentialsFile, cfg.Firestore.URL)
+	if cfg.GCS.Bucket != "" {
+		gcsClient, err := storage.NewGCSClient(ctx, cfg.GCS.CredentialsFile, cfg.GCS.URL)
 		if err != nil {
-			logger.Panicf("connecting to Firestore: %v", err)
+			logger.Panicf("connecting to Google Cloud Storage: %v", err)
 		}
 		defer func() {
-			if err := fbClient.Close(); err != nil {
-				logger.Warnf("closing Firestore client: %v", err)
+			if err := gcsClient.Close(); err != nil {
+				logger.Warnf("closing Google Cloud Storage client: %v", err)
 			}
 		}()
-		resultStore = storage.NewFirestoreStorage[*types.ActionResponse](fbClient, "results")
-		backupStore = storage.NewFirestoreStorage[*teewallets.TEEBackupResponse](fbClient, "backups")
-		backupIndex = storage.NewFirestoreStorage[common.Hash](fbClient, "backupIndex")
+		resultStore = storage.NewGCSStorage[*types.ActionResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "results"))
+		backupStore = storage.NewGCSStorage[*teewallets.TEEBackupResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backups"))
+		backupIndex = storage.NewGCSStorage[common.Hash](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backupIndex"))
 	} else {
 		resultStore = storage.NewRedisStorage[*types.ActionResponse]("results", redisClient)
 		backupStore = storage.NewRedisStorage[*teewallets.TEEBackupResponse]("backups", redisClient)

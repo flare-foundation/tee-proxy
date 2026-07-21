@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
+	"github.com/fsouza/fake-gcs-server/fakestorage"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -38,6 +39,10 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	pkgwallets "github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
+
+// gcsTestBucket is the bucket in the in-process fake GCS server backing the
+// proxy's persistent stores in integration tests.
+const gcsTestBucket = "integration"
 
 type ProxyConfig struct {
 	ExtPort     uint
@@ -100,11 +105,20 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	storageCfg := config.Storage{}
 	storageCfg.SetDefault()
 	aq := queue.NewActionQueues(c, storageCfg.ActionTTL)
-	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
+	// Persistent stores run against an in-process fake GCS server so the whole
+	// integration flow exercises the production GCS storage path (envelope
+	// serialization, lazy TTL, prefix layout) without external services.
+	gcsServer, err := fakestorage.NewServerWithOptions(fakestorage.Options{NoListener: true})
+	require.NoError(t, err)
+	t.Cleanup(gcsServer.Stop)
+	gcsServer.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: gcsTestBucket})
+	gcsClient := gcsServer.Client()
+
+	rs := result.NewStorage(storage.NewGCSStorage[*types.ActionResponse](gcsClient, gcsTestBucket, "results"), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
 
 	// Setup action and result services
-	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
-	backupIndex := testutil.NewMemStorage[common.Hash]()
+	backupStore := storage.NewGCSStorage[*teewallets.TEEBackupResponse](gcsClient, gcsTestBucket, "backups")
+	backupIndex := storage.NewGCSStorage[common.Hash](gcsClient, gcsTestBucket, "backupIndex")
 	resultService := result.NewService(rs, TestChainID)
 	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
 
