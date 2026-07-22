@@ -25,7 +25,7 @@ import (
 const initiateBackupsConcurrency = 10
 
 // backupStoreTimeout caps each storage call in createNewBackup. Bounded so a degraded
-// Redis can't stall the wallet event loop indefinitely.
+// backup store (GCS or Redis) can't stall the wallet event loop indefinitely.
 const backupStoreTimeout = 10 * time.Second
 
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
