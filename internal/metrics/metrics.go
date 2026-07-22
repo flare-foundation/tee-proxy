@@ -32,8 +32,8 @@ const namespace = "teeproxy"
 // be observed taking longer than 15s.
 var httpBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60}
 
-// storageBuckets covers sub-millisecond Redis ops through slow backend calls.
-var storageBuckets = []float64{0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5}
+// storageBuckets covers sub-millisecond Redis ops through multi-second GCS commits.
+var storageBuckets = []float64{0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
 // votingDurationBuckets covers sub-second consensus through votings that approach the
 // proposal-expiration window (minutes).

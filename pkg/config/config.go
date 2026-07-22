@@ -211,7 +211,7 @@ type Metrics struct {
 	Enable bool `toml:"enable"` // Master switch. When false, the whole subsystem is inert.
 
 	HTTP         *bool `toml:"http"`          // Per-request count and latency middleware.
-	Storage      *bool `toml:"storage"`       // Generic Redis/Firestore operation count and errors.
+	Storage      *bool `toml:"storage"`       // Generic Redis/GCS operation count and errors.
 	Queue        *bool `toml:"queue"`         // Action enqueue/dequeue counters and queue-depth gauge.
 	Voting       *bool `toml:"voting"`        // Instruction and votings-started counters, threshold-duration histogram.
 	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters, initiators, top providers).

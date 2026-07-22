@@ -112,7 +112,7 @@ enable = true
 # The group toggles below take effect only when enable = true.
 # An omitted group inherits enable; set one to false to omit just that group.
 # http          = true   # per-request count and latency
-# storage       = true   # Redis/Firestore operation count and errors
+# storage       = true   # Redis/GCS operation count and errors
 # queue         = true   # dequeue counters and queue-depth gauge
 # voting        = true   # instruction and votings-started counters, threshold-duration histogram
 # active_voters = true   # per-epoch gauges: data-provider voters, initiators, top-3 providers by unfinalized proposals

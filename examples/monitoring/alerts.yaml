@@ -343,7 +343,7 @@ groups:
         annotations:
           summary: "Storage errors on {{ $labels.backend }}/{{ $labels.namespace }}"
           description: >-
-            A Redis/Firestore operation errored. Awareness only; a sustained condition escalates via
+            A Redis/GCS operation errored. Awareness only; a sustained condition escalates via
             TeeProxyStorageErrorsSustained. Storage is exercised by background loops, so this fires
             regardless of client traffic. Requires the `storage` metric group.
 
@@ -355,7 +355,7 @@ groups:
         annotations:
           summary: "Sustained storage errors on {{ $labels.backend }}/{{ $labels.namespace }}"
           description: >-
-            Redis/Firestore operations have errored continuously for 10m. Self-driven (background
+            Redis/GCS operations have errored continuously for 10m. Self-driven (background
             loops keep exercising storage), so duration-based escalation is valid here. namespace
             "backups" is silent wallet-recovery-data loss and worth a dedicated higher-priority
             route. Requires the `storage` metric group.
