@@ -585,8 +585,8 @@ groups:
           summary: "Result fan-out channel full — {{ $labels.channel }} dropped"
           description: >-
             A KEY_* or TEE_BACKUP result was dropped because its in-process fan-out channel was full,
-            i.e. the wallet event loop is stalled (typically on Redis-backed backup stores during a
-            storage outage). Not permanent loss — a missed key update self-heals at the next sync and
+            i.e. the wallet event loop is stalled (typically on the GCS/Redis-backed backup stores
+            during a storage outage). Not permanent loss — a missed key update self-heals at the next sync and
             a missed backup at the next trigger — but sustained drops mean the loop is wedged. The
             backup_trigger channel is intentionally excluded. Requires the `result` metric group.
 

@@ -59,14 +59,16 @@ func (s *instrumentedStorage[T]) Remove(ctx context.Context, key string) error {
 	return err
 }
 
-// outcome classifies an operation result, normalizing a missing key to not_found so
-// that expected control-flow miss stays out of the error bucket.
+// outcome classifies an operation result, normalizing a missing key to not_found and a
+// caller-side context expiry to cancelled so neither pollutes the error bucket.
 func outcome(err error) string {
 	switch {
 	case err == nil:
 		return "success"
 	case errors.Is(err, ErrNotFound):
 		return "not_found"
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return "cancelled"
 	default:
 		return "error"
 	}

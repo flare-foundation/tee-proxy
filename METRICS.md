@@ -148,8 +148,9 @@ A handler panic is recorded once with `status_class` `5xx` and a duration sample
 | `teeproxy_storage_operations_total`           | counter   | `backend`, `namespace`, `operation`, `outcome` | Storage operations by backend, namespace, operation, and outcome. |
 | `teeproxy_storage_operation_duration_seconds` | histogram | `backend`, `namespace`, `operation`            | Storage operation latency by backend, namespace, and operation.   |
 
-Label values: `backend` is `redis` or `gcs`; `namespace` is `results`/`backups`/`backupIndex`; `operation` is `set`/`set_with_ttl`/`get`/`remove`; `outcome` is `success`/`not_found`/`error`.
+Label values: `backend` is `redis` or `gcs`; `namespace` is `results`/`backups`/`backupIndex`; `operation` is `set`/`set_with_ttl`/`get`/`remove`; `outcome` is `success`/`not_found`/`cancelled`/`error`.
 Of the `operation` values only `get` and `set_with_ttl` are emitted by the wired namespaces; `set` and `remove` do not currently appear.
+`cancelled` is a caller-side context expiry or cancellation (e.g. the post-timeout "hopeful" result fetch after a TEE-node stall, or a write aborted by shutdown) — the backend was not necessarily at fault, so it is excluded from the storage error alerts.
 
 ## `queue`
 
