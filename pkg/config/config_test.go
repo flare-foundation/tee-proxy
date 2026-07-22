@@ -170,3 +170,29 @@ func TestConfig(t *testing.T) {
 		require.Equal(t, test.before, test.after)
 	}
 }
+
+func TestValidateGCS(t *testing.T) {
+	tests := []struct {
+		name string
+		g    GCS
+		err  error
+	}{
+		{"empty means redis-backed", GCS{}, nil},
+		{"bucket only", GCS{Bucket: "b"}, nil},
+		{"bucket with emulator url", GCS{Bucket: "b", URL: "http://localhost:4443/storage/v1/"}, nil},
+		{"bucket with credentials", GCS{Bucket: "b", CredentialsFile: "sa.json"}, nil},
+		{"configured without bucket", GCS{Prefix: "p"}, errGCSBucketNotSet},
+		{"url and credentials together", GCS{Bucket: "b", URL: "http://localhost:4443", CredentialsFile: "sa.json"}, errGCSURLWithCredentials},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.g.validate()
+			if tt.err == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.err)
+			}
+		})
+	}
+}

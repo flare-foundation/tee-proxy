@@ -62,6 +62,7 @@ var (
 	errAttestationMaxTokenAgeNegative       = errors.New("attestation max_token_age must be non-negative")
 	errDirectMaxBodySizeNegative            = errors.New("direct max_body_size must be non-negative")
 	errGCSBucketNotSet                      = errors.New("gcs is configured but bucket is not set")
+	errGCSURLWithCredentials                = errors.New("gcs url (unauthenticated emulator endpoint) and credentials_file cannot both be set")
 )
 
 // GCS holds Google Cloud Storage connection configuration.
@@ -73,10 +74,14 @@ type GCS struct {
 	CredentialsFile string `toml:"credentials_file"` // Path to service account JSON key. Empty means Application Default Credentials.
 }
 
-// validate checks that a non-empty GCS configuration names a bucket.
+// validate checks that a non-empty GCS configuration names a bucket and does not
+// combine the unauthenticated endpoint override with credentials.
 func (g GCS) validate() error {
 	if (g != GCS{}) && g.Bucket == "" {
 		return errGCSBucketNotSet
+	}
+	if g.URL != "" && g.CredentialsFile != "" {
+		return errGCSURLWithCredentials
 	}
 	return nil
 }
