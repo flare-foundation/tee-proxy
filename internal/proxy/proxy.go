@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -190,12 +191,20 @@ func Run(ctx context.Context, cfgPath string) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := internalServer.Close(shutdownCtx); err != nil {
-		logger.Warnf("shutting down internal server: %v", err)
-	}
-	if err := externalServer.Close(shutdownCtx); err != nil {
-		logger.Warnf("shutting down external server: %v", err)
-	}
+	// Parallel: the internal server's wait for result writes must not eat the
+	// external server's drain budget.
+	var closes sync.WaitGroup
+	closes.Go(func() {
+		if err := internalServer.Close(shutdownCtx); err != nil {
+			logger.Warnf("shutting down internal server: %v", err)
+		}
+	})
+	closes.Go(func() {
+		if err := externalServer.Close(shutdownCtx); err != nil {
+			logger.Warnf("shutting down external server: %v", err)
+		}
+	})
+	closes.Wait()
 }
 
 // runServer invokes serve and panics if it returns an error other than http.ErrServerClosed,

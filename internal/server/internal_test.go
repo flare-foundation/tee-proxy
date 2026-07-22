@@ -52,3 +52,26 @@ func TestInternalCloseWaitsForResultWrites(t *testing.T) {
 		t.Fatal("Close returned before the detached result write completed")
 	}
 }
+
+// TestInternalResultAfterCloseStoresSynchronously guards the drain path: a result
+// landing once Close has begun must still be stored, without touching the
+// WaitGroup that Close may already be waiting on.
+func TestInternalResultAfterCloseStoresSynchronously(t *testing.T) {
+	svc := &slowResultService{stored: make(chan struct{}), delay: 10 * time.Millisecond}
+	i := &Internal{resultService: svc, server: &http.Server{}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, i.Close(ctx))
+
+	body, err := json.Marshal(new(types.ActionResponse))
+	require.NoError(t, err)
+	req := httptest.NewRequest(http.MethodPost, "/result", bytes.NewReader(body))
+	require.NoError(t, i.resultH(httptest.NewRecorder(), req))
+
+	select {
+	case <-svc.stored:
+	default:
+		t.Fatal("resultH returned before the synchronous store completed")
+	}
+}

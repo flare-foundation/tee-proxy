@@ -209,15 +209,45 @@ func TestGCSStorageExpiredObjectIsDeleted(t *testing.T) {
 	require.ErrorIs(t, err, gcs.ErrObjectNotExist)
 }
 
-// TestGCSStorageDeleteGenerationSendsPrecondition verifies the expiry cleanup
-// attaches the generation precondition, which real GCS enforces server-side (412 on
-// mismatch) so a concurrent rewrite is never deleted. fake-gcs-server ignores
-// delete preconditions, so this asserts on the outgoing request instead.
-func TestGCSStorageDeleteGenerationSendsPrecondition(t *testing.T) {
+// TestGCSStorageExpiredGetDeletesReadGeneration verifies Get's expiry cleanup
+// deletes with a precondition on the generation it read, which real GCS enforces
+// server-side (412 on mismatch) so a concurrent rewrite is never deleted.
+// fake-gcs-server ignores delete preconditions, so this asserts on the outgoing
+// request instead.
+func TestGCSStorageExpiredGetDeletesReadGeneration(t *testing.T) {
 	var captured atomic.Value
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodDelete {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("X-Goog-Generation", "987")
+			_, _ = w.Write([]byte(`{"data":"e30=","expiresAt":"2000-01-01T00:00:00Z"}`))
+		case http.MethodDelete:
 			captured.Store(r.URL.Query().Get("ifGenerationMatch"))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{}"))
+		}
+	}))
+	t.Cleanup(stub.Close)
+
+	client, err := NewGCSClient(t.Context(), "", stub.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	s := NewGCSStorage[TestStruct](client, testBucket, "gen")
+	_, err = s.Get(t.Context(), "1")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	require.Equal(t, "987", captured.Load())
+}
+
+// TestGCSStorageWriteRetriesTransientError pins the RetryAlways policy: a transient
+// 503 on an upload must be retried, not surface as a lost write.
+func TestGCSStorageWriteRetriesTransientError(t *testing.T) {
+	var uploads atomic.Int32
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && uploads.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte("{}"))
@@ -228,10 +258,9 @@ func TestGCSStorageDeleteGenerationSendsPrecondition(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })
 
-	s := NewGCSStorage[TestStruct](client, testBucket, "gen")
-	s.deleteGeneration(t.Context(), "1", 42)
-
-	require.Equal(t, "42", captured.Load())
+	s := NewGCSStorage[TestStruct](client, testBucket, "retry")
+	require.NoError(t, s.Set(t.Context(), "1", TestStruct{ID: "1", Name: "Test"}))
+	require.GreaterOrEqual(t, uploads.Load(), int32(2))
 }
 
 // TestGCSStorageCorruptEnvelope verifies undecodable stored bytes surface as a
