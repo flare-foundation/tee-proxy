@@ -80,6 +80,9 @@ func Run(ctx context.Context, cfgPath string) {
 	)
 
 	if cfg.GCS.Bucket != "" {
+		if cfg.GCS.URL != "" {
+			logger.Warnf("GCS endpoint override %q is active: the connection is UNAUTHENTICATED (emulator mode, not for production)", cfg.GCS.URL)
+		}
 		gcsClient, err := storage.NewGCSClient(ctx, cfg.GCS.CredentialsFile, cfg.GCS.URL)
 		if err != nil {
 			logger.Panicf("connecting to Google Cloud Storage: %v", err)
@@ -92,10 +95,12 @@ func Run(ctx context.Context, cfgPath string) {
 		resultStore = storage.NewGCSStorage[*types.ActionResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "results"))
 		backupStore = storage.NewGCSStorage[*teewallets.TEEBackupResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backups"))
 		backupIndex = storage.NewGCSStorage[common.Hash](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backupIndex"))
+		logger.Infof("persistent storage backend: GCS bucket %q prefix %q", cfg.GCS.Bucket, cfg.GCS.Prefix)
 	} else {
 		resultStore = storage.NewRedisStorage[*types.ActionResponse]("results", redisClient)
 		backupStore = storage.NewRedisStorage[*teewallets.TEEBackupResponse]("backups", redisClient)
 		backupIndex = storage.NewRedisStorage[common.Hash]("backupIndex", redisClient)
+		logger.Info("persistent storage backend: Redis (gcs bucket not configured)")
 	}
 
 	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
