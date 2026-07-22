@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -43,6 +44,9 @@ type Internal struct {
 
 	resultService ResultService
 	server        *http.Server
+
+	// resultWrites tracks detached result-store goroutines so Close can wait for them.
+	resultWrites sync.WaitGroup
 
 	lHandlers livenessHandlers
 }
@@ -88,9 +92,23 @@ func (i *Internal) Serve() error {
 	return i.server.ListenAndServe()
 }
 
-// Close gracefully closes the server.
+// Close gracefully closes the server, then waits (bounded by ctx) for detached
+// result writes so acked results are durable before the storage client closes.
 func (i *Internal) Close(ctx context.Context) error {
-	return i.server.Shutdown(ctx)
+	err := i.server.Shutdown(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		i.resultWrites.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		logger.Warn("shutdown deadline reached with result writes still in flight")
+	}
+
+	return err
 }
 
 func (i *Internal) registerRoutes() {
@@ -118,7 +136,7 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 
 	logger.Debugf("received response for %v tag: %v, status %v", response.Result.ID, response.Result.SubmissionTag, response.Result.Status)
 
-	go func() {
+	i.resultWrites.Go(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
 		defer cancel()
 
@@ -131,7 +149,7 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 				op.HashToOPCommand(response.Result.OPCommand),
 				err)
 		}
-	}()
+	})
 
 	return nil
 }
