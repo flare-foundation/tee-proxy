@@ -185,6 +185,10 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "result_channel_dropped_total",
 			Help: "Result fan-out messages dropped because the target channel was full, by channel.",
 		}, []string{"channel"})
+		// Pre-initialize so the drop alert fires on the first occurrence.
+		for _, channel := range []string{"key_actions", "backups", "backup_trigger"} {
+			m.resultChannelDropped.WithLabelValues(channel).Add(0)
+		}
 	}
 
 	if cfg.Wallet {
@@ -192,6 +196,10 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Subsystem: "wallet", Name: "sync_total",
 			Help: "Wallet key/proof sync cycles by result.",
 		}, []string{"result"})
+		// Pre-initialize so the [3h]>=3 sustained/wedged alerts count from the first failure (a series born at 1 undercounts).
+		for _, result := range []string{"success", "enqueue_error", "parse_error", "skipped"} {
+			m.walletSyncTotal.WithLabelValues(result).Add(0)
+		}
 		m.walletKeyUpdateFailed = f.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace, Subsystem: "wallet", Name: "key_update_failed_total",
 			Help: "Signed KEY_* results from the node that failed to apply to the key cache.",
@@ -244,6 +252,13 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "action_enqueue_total",
 			Help: "Action enqueue attempts by queue and result.",
 		}, []string{"queue", "result"})
+		// Pre-initialize the alertable error series so the enqueue-failure/orphaned-action warnings fire on the first event.
+		for _, queue := range []string{"main", "direct", "backup"} {
+			m.actionEnqueued.WithLabelValues(queue, "store_error").Add(0)
+			m.actionEnqueued.WithLabelValues(queue, "queue_error").Add(0)
+			m.actionDequeued.WithLabelValues(queue, "error").Add(0)
+			m.actionDequeued.WithLabelValues(queue, "action_not_found").Add(0)
+		}
 		m.queueDepthReadFailures = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "action_queue_depth_read_failures_total",
 			Help: "Scrape-time queue-depth (LLEN) read failures by queue; while nonzero the depth gauge reports 0 and the backpressure alert is masked.",
@@ -299,6 +314,10 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Subsystem: "machinepath", Name: "poll_total",
 			Help: "Machine-path poll cycles by result (including a node rejection as result=\"rejected\"); the node-wait leg is covered separately by node_response_wait_total.",
 		}, []string{"result"})
+		// Pre-initialize so the poll-error/rejected warnings fire on the first occurrence.
+		for _, result := range []string{"fetch_error", "no_change", "build_error", "enqueue_error", "rejected", "confirmed"} {
+			m.machinepathPollTotal.WithLabelValues(result).Add(0)
+		}
 	}
 
 	if cfg.Policy {
@@ -314,6 +333,14 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "policy_update_total",
 			Help: "Signing-policy update-loop iterations by outcome.",
 		}, []string{"result"})
+		// Pre-initialize so the page-now pubkey_mismatch alert fires on the first occurrence (a series born at 1 never satisfies increase>0).
+		for _, result := range []string{
+			"empty", "fetch_error", "reconciled", "reconcile_error", "build_failed",
+			"pubkey_mismatch", "sig_deadline", "indexer", "not_consecutive",
+			"enqueue_failed", "await_failed", "rejected", "applied",
+		} {
+			m.policyUpdate.WithLabelValues(result).Add(0)
+		}
 	}
 
 	if cfg.Liveness {
@@ -603,8 +630,7 @@ func (m *Metrics) SetPolicyFetched() {
 }
 
 // PolicyUpdate records one signing-policy update-loop iteration under a bounded result
-// ("empty"/"fetch_error"/"reconciled"/"reconcile_error"/"build_failed"/"enqueue_failed"/
-// "await_failed"/"rejected"/"applied").
+// (see METRICS.md; build-failure reasons come from policy.UpdateFailureReason).
 func (m *Metrics) PolicyUpdate(result string) {
 	if m == nil || m.policyUpdate == nil {
 		return

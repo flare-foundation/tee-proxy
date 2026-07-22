@@ -87,7 +87,13 @@ func TestActionQueuesRecordsMetrics(t *testing.T) {
 	const expected = `
 # HELP teeproxy_action_dequeue_total Action dequeue attempts by queue and result: success returned a body; empty found nothing queued; action_not_found and error consumed a queue ID whose body could not be fetched (an orphaned/lost action).
 # TYPE teeproxy_action_dequeue_total counter
+teeproxy_action_dequeue_total{queue="backup",result="action_not_found"} 0
+teeproxy_action_dequeue_total{queue="backup",result="error"} 0
+teeproxy_action_dequeue_total{queue="direct",result="action_not_found"} 0
+teeproxy_action_dequeue_total{queue="direct",result="error"} 0
+teeproxy_action_dequeue_total{queue="main",result="action_not_found"} 0
 teeproxy_action_dequeue_total{queue="main",result="empty"} 1
+teeproxy_action_dequeue_total{queue="main",result="error"} 0
 teeproxy_action_dequeue_total{queue="main",result="success"} 1
 `
 	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_action_dequeue_total"))
@@ -135,7 +141,12 @@ func TestDequeueMissingAction(t *testing.T) {
 	const expected = `
 # HELP teeproxy_action_dequeue_total Action dequeue attempts by queue and result: success returned a body; empty found nothing queued; action_not_found and error consumed a queue ID whose body could not be fetched (an orphaned/lost action).
 # TYPE teeproxy_action_dequeue_total counter
+teeproxy_action_dequeue_total{queue="backup",result="action_not_found"} 0
+teeproxy_action_dequeue_total{queue="backup",result="error"} 0
+teeproxy_action_dequeue_total{queue="direct",result="action_not_found"} 0
+teeproxy_action_dequeue_total{queue="direct",result="error"} 0
 teeproxy_action_dequeue_total{queue="main",result="action_not_found"} 1
+teeproxy_action_dequeue_total{queue="main",result="error"} 0
 `
 	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_action_dequeue_total"))
 }
@@ -178,6 +189,11 @@ func TestEnqueueRecordsMetrics(t *testing.T) {
 	const expected = `
 # HELP teeproxy_action_enqueue_total Action enqueue attempts by queue and result.
 # TYPE teeproxy_action_enqueue_total counter
+teeproxy_action_enqueue_total{queue="backup",result="queue_error"} 0
+teeproxy_action_enqueue_total{queue="backup",result="store_error"} 0
+teeproxy_action_enqueue_total{queue="direct",result="queue_error"} 0
+teeproxy_action_enqueue_total{queue="direct",result="store_error"} 0
+teeproxy_action_enqueue_total{queue="main",result="queue_error"} 0
 teeproxy_action_enqueue_total{queue="main",result="store_error"} 1
 teeproxy_action_enqueue_total{queue="main",result="success"} 1
 teeproxy_action_enqueue_total{queue="other",result="invalid_queue"} 1

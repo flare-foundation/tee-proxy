@@ -234,7 +234,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		action, newPolicy, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
 		if err != nil {
 			logUpdateFailure(target, attempts, "building UPDATE_POLICY action", err)
-			s.metrics.PolicyUpdate("build_failed")
+			s.metrics.PolicyUpdate(policy.UpdateFailureReason(err))
 			if !wait(ctx, updateRetryDelay) {
 				return
 			}
