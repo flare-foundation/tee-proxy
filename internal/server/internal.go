@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -43,6 +44,12 @@ type Internal struct {
 
 	resultService ResultService
 	server        *http.Server
+
+	// resultWrites tracks detached result-store goroutines so Close can wait for them.
+	resultWrites sync.WaitGroup
+	// mu guards draining; once set, resultH stores synchronously so no Add can race Wait.
+	mu       sync.Mutex
+	draining bool
 
 	lHandlers livenessHandlers
 }
@@ -88,9 +95,27 @@ func (i *Internal) Serve() error {
 	return i.server.ListenAndServe()
 }
 
-// Close gracefully closes the server.
+// Close gracefully closes the server, then waits (bounded by ctx) for detached
+// result writes so acked results are durable before the storage client closes.
 func (i *Internal) Close(ctx context.Context) error {
-	return i.server.Shutdown(ctx)
+	i.mu.Lock()
+	i.draining = true
+	i.mu.Unlock()
+
+	err := i.server.Shutdown(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		i.resultWrites.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		logger.Warn("shutdown deadline reached with result writes still in flight")
+	}
+
+	return err
 }
 
 func (i *Internal) registerRoutes() {
@@ -118,22 +143,35 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 
 	logger.Debugf("received response for %v tag: %v, status %v", response.Result.ID, response.Result.SubmissionTag, response.Result.Status)
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
-		defer cancel()
-
-		if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
-			// Body has been acked to the TEE node; a failure here means the result is lost.
-			logger.Errorf("result lost id=%s tag=%s opType=%s opCommand=%s: %v",
-				response.Result.ID,
-				response.Result.SubmissionTag,
-				op.HashToOPType(response.Result.OPType),
-				op.HashToOPCommand(response.Result.OPCommand),
-				err)
-		}
-	}()
+	i.mu.Lock()
+	draining := i.draining
+	if !draining {
+		i.resultWrites.Go(func() { i.storeResult(response) })
+	}
+	i.mu.Unlock()
+	if draining {
+		// Close may already be waiting on the group; store synchronously instead,
+		// which also keeps Shutdown draining this handler.
+		i.storeResult(response)
+	}
 
 	return nil
+}
+
+// storeResult persists a result already acked to the TEE node; a failure means the
+// result is lost.
+func (i *Internal) storeResult(response *types.ActionResponse) {
+	ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
+	defer cancel()
+
+	if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
+		logger.Errorf("result lost id=%s tag=%s opType=%s opCommand=%s: %v",
+			response.Result.ID,
+			response.Result.SubmissionTag,
+			op.HashToOPType(response.Result.OPType),
+			op.HashToOPCommand(response.Result.OPCommand),
+			err)
+	}
 }
 
 // queueH serves "/queue/{queueID}" endpoint.

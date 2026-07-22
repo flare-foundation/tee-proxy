@@ -18,12 +18,13 @@ import (
 // If url is non-empty, it is used as the endpoint without authentication —
 // intended for emulators (e.g. fake-gcs-server) in tests.
 func NewGCSClient(ctx context.Context, credentialsFile, url string) (*gcs.Client, error) {
-	opts := make([]option.ClientOption, 0, 2)
+	opts := make([]option.ClientOption, 0, 3)
 	if credentialsFile != "" {
 		opts = append(opts, option.WithAuthCredentialsFile(option.ServiceAccount, credentialsFile))
 	}
 	if url != "" {
-		opts = append(opts, option.WithEndpoint(url), option.WithoutAuthentication())
+		// The default XML download API 404s on emulators; force JSON reads.
+		opts = append(opts, option.WithEndpoint(url), option.WithoutAuthentication(), gcs.WithJSONReads())
 	}
 
 	return gcs.NewClient(ctx, opts...)
@@ -47,8 +48,10 @@ type GCSStorage[T any] struct {
 
 // NewGCSStorage creates a new GCSStorage[T] storing objects as <prefix>/<key> in bucket.
 func NewGCSStorage[T any](client *gcs.Client, bucket, prefix string) *GCSStorage[T] {
+	// RetryAlways: writes are last-writer-wins envelopes, safe to retry; the default
+	// policy would never retry unconditioned uploads.
 	return &GCSStorage[T]{
-		bucket: client.Bucket(bucket),
+		bucket: client.Bucket(bucket).Retryer(gcs.WithPolicy(gcs.RetryAlways)),
 		prefix: prefix,
 	}
 }
@@ -88,8 +91,7 @@ func (s *GCSStorage[T]) Get(ctx context.Context, key string) (T, error) {
 	}
 
 	if !doc.ExpiresAt.IsZero() && time.Now().After(doc.ExpiresAt) {
-		// Best-effort cleanup; safe to retry on next Get.
-		_ = s.object(key).Delete(ctx)
+		s.deleteGeneration(ctx, key, reader.Attrs.Generation)
 		return zero, ErrNotFound
 	}
 
@@ -99,6 +101,12 @@ func (s *GCSStorage[T]) Get(ctx context.Context, key string) (T, error) {
 	}
 
 	return value, nil
+}
+
+// deleteGeneration best-effort deletes only the read generation of key, sparing a
+// concurrently written fresh value.
+func (s *GCSStorage[T]) deleteGeneration(ctx context.Context, key string, generation int64) {
+	_ = s.object(key).If(gcs.Conditions{GenerationMatch: generation}).Delete(ctx)
 }
 
 func (s *GCSStorage[T]) Remove(ctx context.Context, key string) error {

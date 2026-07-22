@@ -1,9 +1,13 @@
 package storage
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	gcs "cloud.google.com/go/storage"
 	"github.com/fsouza/fake-gcs-server/fakestorage"
 	"github.com/stretchr/testify/require"
 )
@@ -160,4 +164,124 @@ func TestGCSStorageLargeValue(t *testing.T) {
 	got, err := s.Get(t.Context(), "blob")
 	require.NoError(t, err)
 	require.Equal(t, big, got)
+}
+
+// TestGCSClientEndpointOverride verifies the config `url` branch of NewGCSClient
+// round-trips against a listening fake GCS server; the default XML download API
+// 404s on emulators (reads used to fail while writes succeeded).
+func TestGCSClientEndpointOverride(t *testing.T) {
+	server, err := fakestorage.NewServerWithOptions(fakestorage.Options{Scheme: "http", Port: 0})
+	require.NoError(t, err)
+	t.Cleanup(server.Stop)
+	server.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: testBucket})
+
+	client, err := NewGCSClient(t.Context(), "", server.URL()+"/storage/v1/")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	s := NewGCSStorage[TestStruct](client, testBucket, "override")
+
+	item := TestStruct{ID: "1", Name: "ViaEndpoint"}
+	require.NoError(t, s.Set(t.Context(), item.ID, item))
+
+	got, err := s.Get(t.Context(), item.ID)
+	require.NoError(t, err)
+	require.Equal(t, item, got)
+
+	require.NoError(t, s.Remove(t.Context(), item.ID))
+	_, err = s.Get(t.Context(), item.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// TestGCSStorageExpiredObjectIsDeleted verifies the lazy-expiry cleanup physically
+// removes the expired object, not just that Get reports not found.
+func TestGCSStorageExpiredObjectIsDeleted(t *testing.T) {
+	server := newFakeGCS(t)
+	s := NewGCSStorage[TestStruct](server.Client(), testBucket, "expiry")
+
+	item := TestStruct{ID: "1", Name: "Test"}
+	require.NoError(t, s.SetWithTTL(t.Context(), item.ID, item, -time.Second))
+
+	_, err := s.Get(t.Context(), item.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	_, err = server.Client().Bucket(testBucket).Object("expiry/1").Attrs(t.Context())
+	require.ErrorIs(t, err, gcs.ErrObjectNotExist)
+}
+
+// TestGCSStorageExpiredGetDeletesReadGeneration verifies Get's expiry cleanup
+// deletes with a precondition on the generation it read, which real GCS enforces
+// server-side (412 on mismatch) so a concurrent rewrite is never deleted.
+// fake-gcs-server ignores delete preconditions, so this asserts on the outgoing
+// request instead.
+func TestGCSStorageExpiredGetDeletesReadGeneration(t *testing.T) {
+	var captured atomic.Value
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("X-Goog-Generation", "987")
+			_, _ = w.Write([]byte(`{"data":"e30=","expiresAt":"2000-01-01T00:00:00Z"}`))
+		case http.MethodDelete:
+			captured.Store(r.URL.Query().Get("ifGenerationMatch"))
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte("{}"))
+		}
+	}))
+	t.Cleanup(stub.Close)
+
+	client, err := NewGCSClient(t.Context(), "", stub.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	s := NewGCSStorage[TestStruct](client, testBucket, "gen")
+	_, err = s.Get(t.Context(), "1")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	require.Equal(t, "987", captured.Load())
+}
+
+// TestGCSStorageWriteRetriesTransientError pins the RetryAlways policy: a transient
+// 503 on an upload must be retried, not surface as a lost write.
+func TestGCSStorageWriteRetriesTransientError(t *testing.T) {
+	var uploads atomic.Int32
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && uploads.Add(1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("{}"))
+	}))
+	t.Cleanup(stub.Close)
+
+	client, err := NewGCSClient(t.Context(), "", stub.URL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close() })
+
+	s := NewGCSStorage[TestStruct](client, testBucket, "retry")
+	require.NoError(t, s.Set(t.Context(), "1", TestStruct{ID: "1", Name: "Test"}))
+	require.GreaterOrEqual(t, uploads.Load(), int32(2))
+}
+
+// TestGCSStorageCorruptEnvelope verifies undecodable stored bytes surface as a
+// non-ErrNotFound error at both decode layers (envelope and inner value).
+func TestGCSStorageCorruptEnvelope(t *testing.T) {
+	server := newFakeGCS(t)
+	s := NewGCSStorage[TestStruct](server.Client(), testBucket, "corrupt")
+
+	server.CreateObject(fakestorage.Object{
+		ObjectAttrs: fakestorage.ObjectAttrs{BucketName: testBucket, Name: "corrupt/envelope"},
+		Content:     []byte("not json"),
+	})
+	_, err := s.Get(t.Context(), "envelope")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNotFound)
+
+	server.CreateObject(fakestorage.Object{
+		ObjectAttrs: fakestorage.ObjectAttrs{BucketName: testBucket, Name: "corrupt/inner"},
+		Content:     []byte(`{"data":"Imp1c3QgYSBzdHJpbmci","expiresAt":"0001-01-01T00:00:00Z"}`),
+	})
+	_, err = s.Get(t.Context(), "inner")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNotFound)
 }

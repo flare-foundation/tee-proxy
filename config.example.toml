@@ -63,6 +63,8 @@ backup_ttl = "192h"          # 8d — backups and backup index
 # Google Cloud Storage for persistent storage: all action results (including
 # transient submit-tagged ones) and wallet backups. Omit the section (or leave
 # bucket empty) to store them in Redis instead. Queues and pub/sub always use Redis.
+# TTLs are enforced lazily on read; add a bucket lifecycle rule (age >= your
+# [storage] TTLs) to garbage-collect objects that are never read again.
 [gcs]
 bucket = ""  # Bucket name; setting it enables GCS-backed storage.
 prefix = ""  # Optional object-name prefix namespacing this proxy's data.
