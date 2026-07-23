@@ -25,6 +25,12 @@ import (
 
 const maxBIPS = 10000
 
+// AddVote rejection sentinels classified by RejectReason; each wraps its HTTP status.
+var (
+	errNoRound          = fmt.Errorf("%w: no round", status.HTTP[404])
+	errInconsistentData = fmt.Errorf("%w: inconsistent data", status.HTTP[400])
+)
+
 type voterGroup uint8
 
 const (
@@ -217,12 +223,12 @@ func (s *Storage) AddVote(data *instruction.Data, signer common.Address, signatu
 
 	round, exists := s.Get(data.RewardEpochID)
 	if !exists {
-		return nil, fmt.Errorf("%w: no round %d", status.HTTP[404], data.RewardEpochID)
+		return nil, fmt.Errorf("%w %d", errNoRound, data.RewardEpochID)
 	}
 
 	err = s.meta.CheckConsistency(data, signer)
 	if err != nil {
-		return nil, fmt.Errorf("%w: inconsistent data: %v", status.HTTP[400], err)
+		return nil, fmt.Errorf("%w: %v", errInconsistentData, err)
 	}
 
 	var receipt voting.Receipt

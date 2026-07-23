@@ -2,7 +2,6 @@ package meta
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -89,28 +88,36 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 	return cosigners, threshold, nil
 }
 
+// Exported so voting.RejectReason can classify rejections into bounded metric labels.
 var (
-	errInvalidCosigners         = errors.New("invalid cosigners")
-	errInvalidCosignerThreshold = errors.New("invalid cosigner threshold")
+	// ErrCosignerMismatch reports a client-declared cosigner set that does not match the authoritative wallet/admin configuration.
+	ErrCosignerMismatch = fmt.Errorf("%w: invalid cosigners", status.HTTP[400])
+	// ErrCosignerThresholdMismatch reports a client-declared cosigner threshold that does not match the authoritative configuration.
+	ErrCosignerThresholdMismatch = fmt.Errorf("%w: invalid cosigner threshold", status.HTTP[400])
+	// ErrMalformedPayload reports an unparseable cosigner-resolution payload.
+	ErrMalformedPayload = fmt.Errorf("%w: malformed payload", status.HTTP[400])
 
-	errFDCThresholdTooLow    = fmt.Errorf("%w: FDC2 data provider threshold below minimum", status.HTTP[400])
-	errFDCThresholdBelowHalf = fmt.Errorf("%w: FDC2 data provider threshold below half requires cosigner threshold above half", status.HTTP[400])
-	errFDCThresholdTooHigh   = fmt.Errorf("%w: FDC2 data provider threshold too high", status.HTTP[400])
+	// ErrFDCThresholdTooLow reports an FDC2 PROVE data-provider threshold below the minimum the TEE accepts.
+	ErrFDCThresholdTooLow = fmt.Errorf("%w: FDC2 data provider threshold below minimum", status.HTTP[400])
+	// ErrFDCThresholdBelowHalf reports a below-half FDC2 PROVE threshold lacking the required cosigner majority.
+	ErrFDCThresholdBelowHalf = fmt.Errorf("%w: FDC2 data provider threshold below half requires cosigner threshold above half", status.HTTP[400])
+	// ErrFDCThresholdTooHigh reports an FDC2 PROVE data-provider threshold at or above the maximum.
+	ErrFDCThresholdTooHigh = fmt.Errorf("%w: FDC2 data provider threshold too high", status.HTTP[400])
 )
 
 func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Address]bool, threshold, expectedThreshold uint64) error {
 	if len(cosigners) != len(expectedCosigners) {
-		return errInvalidCosigners
+		return ErrCosignerMismatch
 	}
 
 	for _, cs := range cosigners {
 		if !expectedCosigners[cs] {
-			return errInvalidCosigners
+			return ErrCosignerMismatch
 		}
 	}
 
 	if threshold != expectedThreshold {
-		return errInvalidCosignerThreshold
+		return ErrCosignerThresholdMismatch
 	}
 
 	return nil
@@ -122,13 +129,13 @@ func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Addre
 	var walletBackupMetadata backup.WalletBackupMetaData
 	err := json.Unmarshal(data.AdditionalFixedMessage, &walletBackupMetadata)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: unmarshaling backup metadata: %v", ErrMalformedPayload, err)
 	}
 
 	for _, admin := range walletBackupMetadata.AdminsPublicKeys {
 		adminPub, err := types.ParsePubKey(admin)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("%w: parsing admin public key: %v", ErrMalformedPayload, err)
 		}
 		cosigners[crypto.PubkeyToAddress(*adminPub)] = true
 	}
@@ -142,7 +149,7 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Service) (map[common.
 
 	originalMessage, err := types.ParsePaymentInstruction(data)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("%w: parsing payment instruction: %v", ErrMalformedPayload, err)
 	}
 
 	wID := originalMessage.WalletId
@@ -228,11 +235,11 @@ func (*meta) ThresholdBIPS(data *instruction.DataFixed) (int, error) {
 func checkFDCThreshold(thresholdBIPS uint16, cosignersThreshold uint64, cosignerCount int) error {
 	switch {
 	case thresholdBIPS < fdcMinimumThresholdBIPS:
-		return errFDCThresholdTooLow
+		return ErrFDCThresholdTooLow
 	case thresholdBIPS < maxBIPS/2 && cosignersThreshold*2 <= uint64(cosignerCount):
-		return errFDCThresholdBelowHalf
+		return ErrFDCThresholdBelowHalf
 	case thresholdBIPS >= maxBIPS:
-		return errFDCThresholdTooHigh
+		return ErrFDCThresholdTooHigh
 	}
 
 	return nil

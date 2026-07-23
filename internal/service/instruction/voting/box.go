@@ -15,6 +15,8 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting/limiter"
+	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -387,8 +389,9 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 	}
 }
 
-// RejectReason maps an AddVote error to a bounded label for metrics.
-// Unmatched errors return "other".
+// RejectReason maps an AddVote error to a bounded label for instructions_rejected_total;
+// unmatched errors return "other". The label set is mirrored by the metrics pre-init
+// (metrics.New) — keep the two in sync.
 func RejectReason(err error) string {
 	switch {
 	case errors.Is(err, errInvalidVoter):
@@ -399,6 +402,33 @@ func RejectReason(err error) string {
 		return "duplicate_signature"
 	case errors.Is(err, errVotingBeforeEvent):
 		return "event_in_future"
+	case errors.Is(err, errNoRound):
+		return "no_round"
+	case errors.Is(err, errInconsistentData):
+		return "inconsistent"
+	case errors.Is(err, limiter.ErrLimitReached):
+		return "rate_limited"
+	case errors.Is(err, limiter.ErrCannotInitialize):
+		return "not_eligible"
+	case errors.Is(err, errInvalidCosignerThreshold):
+		return "invalid_cosigner_threshold"
+	case errors.Is(err, meta.ErrCosignerMismatch), errors.Is(err, meta.ErrCosignerThresholdMismatch):
+		return "invalid_cosigner_declaration"
+	case errors.Is(err, meta.ErrMalformedPayload):
+		return "malformed_payload"
+	case errors.Is(err, wallets.ErrWalletNotFound):
+		return "unknown_wallet"
+	case errors.Is(err, meta.ErrFDCThresholdTooLow),
+		errors.Is(err, meta.ErrFDCThresholdBelowHalf),
+		errors.Is(err, meta.ErrFDCThresholdTooHigh):
+		return "invalid_fdc_threshold"
+	case errors.Is(err, errTooManyCosigners),
+		errors.Is(err, errOriginalMessageTooBig),
+		errors.Is(err, errAdditionalMessageTooBig),
+		errors.Is(err, errAdditionalVariableTooBig):
+		return "oversized"
+	case errors.Is(err, errNonInstructionCommand):
+		return "non_instruction_command"
 	default:
 		return "other"
 	}

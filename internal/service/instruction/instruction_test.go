@@ -762,16 +762,15 @@ func TestServeInstructionRejectionMetrics(t *testing.T) {
 		},
 		{
 			// AddVote fails because the signer is not in the signing policy: the limiter
-			// returns ErrCannotInitialize, which is not one of voting.RejectReason's
-			// matched errors and so collapses to the bounded "other" label. This is the
-			// case that pins the bounded-label contract for the catch-all branch.
-			name: "AddVoteOther",
+			// returns ErrCannotInitialize, which voting.RejectReason maps to "not_eligible".
+			// This pins the bounded label for an AddVote error surfaced from the limiter.
+			name: "AddVoteNotEligible",
 			build: func(t *testing.T) *instruction.Instruction {
 				t.Helper()
-				iData := createBaseInstructionData("metrics_addvote_other", teeID)
+				iData := createBaseInstructionData("metrics_addvote_not_eligible", teeID)
 				return signInstruction(t, iData, invalidVoterKey)
 			},
-			wantReason:  "other",
+			wantReason:  "not_eligible",
 			otherReason: "invalid_signature",
 		},
 	}

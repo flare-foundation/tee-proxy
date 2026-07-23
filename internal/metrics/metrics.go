@@ -215,6 +215,18 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "instructions_rejected_total",
 			Help: "Instructions rejected, by reason.",
 		}, []string{"reason"})
+		// Pre-initialize all reasons to 0 for a stable dashboard baseline.
+		// Source of truth: instruction.go (wrong_tee_id/invalid_op/invalid_signature) and
+		// voting.RejectReason (the rest) — keep in sync.
+		for _, reason := range []string{
+			"wrong_tee_id", "invalid_op", "invalid_signature",
+			"invalid_voter", "voting_ended", "duplicate_signature", "event_in_future",
+			"no_round", "inconsistent", "rate_limited", "not_eligible",
+			"invalid_cosigner_threshold", "invalid_cosigner_declaration", "invalid_fdc_threshold",
+			"oversized", "non_instruction_command", "malformed_payload", "unknown_wallet", "other",
+		} {
+			m.instructionsRejected.WithLabelValues(reason).Add(0)
+		}
 		m.votingsStarted = f.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace, Name: "votings_started_total",
 			Help: "Votings opened (a new proposal box created).",

@@ -35,8 +35,10 @@ const (
 )
 
 var (
-	errKeyProofNotFound    = fmt.Errorf("%w: key proof not found", status.HTTP[404])
-	errWalletNotFound      = errors.New("wallet not found")
+	errKeyProofNotFound = fmt.Errorf("%w: key proof not found", status.HTTP[404])
+	// ErrWalletNotFound reports an instruction referencing a wallet the proxy does not manage;
+	// exported so voting.RejectReason can classify it as reason="unknown_wallet".
+	ErrWalletNotFound      = fmt.Errorf("%w: wallet not found", status.HTTP[404])
 	errKeyDataNotFound     = fmt.Errorf("%w: key data not found", status.HTTP[404])
 	errKeyUpdate           = errors.New("key update action not successful")
 	errInvalidActionResult = errors.New("invalid action result status")
@@ -221,7 +223,7 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 
 	keys, exists := s.KeysForWallet[walletID]
 	if !exists || len(keys) == 0 {
-		return nil, errWalletNotFound
+		return nil, ErrWalletNotFound
 	}
 
 	id := IDPair{WalletID: walletID, KeyID: keys[0]}
