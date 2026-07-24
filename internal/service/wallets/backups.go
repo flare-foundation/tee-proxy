@@ -114,14 +114,17 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	var b *wallets.TEEBackupResponse
 	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
+		s.metrics.WalletBackupApplyFailed()
 		return fmt.Errorf("unmarshaling backup response: %w", err)
 	}
 	if b == nil {
+		s.metrics.WalletBackupApplyFailed()
 		return errors.New("backup response is nil")
 	}
 
 	idHash, err := b.BackupID.Hash()
 	if err != nil {
+		s.metrics.WalletBackupApplyFailed()
 		return fmt.Errorf("hashing backup ID: %w", err)
 	}
 	idHashKey := hex.EncodeToString(idHash[:])

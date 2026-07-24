@@ -5,6 +5,7 @@ package machinepath
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -113,6 +114,10 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 	s.metrics.ObserveNodeWait("machinepath", time.Since(start), err)
 	if err != nil {
 		logger.Warnf("waiting for SET_MACHINE_PATH_LIST response for nonce %d: %v", nonce, err)
+		// a shutdown cancellation is not a poll failure
+		if !errors.Is(err, context.Canceled) {
+			s.metrics.MachinepathPollObserved("wait_error")
+		}
 		return
 	}
 	if response.Result.Status != 1 {

@@ -339,6 +339,10 @@ func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
 	s.metrics.ObserveNodeWait("wallet_key_info", time.Since(start), err)
 	if err != nil {
+		// a shutdown cancellation is not a sync failure
+		if !errors.Is(err, context.Canceled) {
+			s.metrics.WalletSyncObserved("wait_error")
+		}
 		return nil, err
 	}
 
@@ -428,6 +432,10 @@ func (s *Service) fetchKeyProofs(ctx context.Context, batch []IDPair) ([]*wallet
 	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyProofResponseTimeout)
 	s.metrics.ObserveNodeWait("wallet_key_proof", time.Since(start), err)
 	if err != nil {
+		// a shutdown cancellation is not a sync failure
+		if !errors.Is(err, context.Canceled) {
+			s.metrics.WalletSyncObserved("wait_error")
+		}
 		return nil, err
 	}
 

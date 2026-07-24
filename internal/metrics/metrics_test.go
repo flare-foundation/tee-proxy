@@ -423,6 +423,11 @@ func TestNodeWaitMetrics(t *testing.T) {
 	require.Equal(t, float64(1), testutil.ToFloat64(m.nodeWaitTotal.WithLabelValues("wallet_key_proof", "timeout")))
 	require.Equal(t, float64(1), testutil.ToFloat64(m.nodeWaitTotal.WithLabelValues("machinepath", "error")))
 	require.Equal(t, 3, testutil.CollectAndCount(m.nodeWaitDuration))
+
+	// 5 paths x {timeout,error} pre-initialized (so increase()>0 alerts fire on a first,
+	// one-shot wait failure) + the one observed ok series above.
+	require.Equal(t, 11, testutil.CollectAndCount(m.nodeWaitTotal), "timeout/error series must exist at 0 for every path")
+	require.Equal(t, float64(0), testutil.ToFloat64(m.nodeWaitTotal.WithLabelValues("policy_update", "timeout")))
 }
 
 // TestNodeWaitPolicyUpdatePath pins policy_update as a valid bounded path label value on
@@ -458,7 +463,12 @@ func TestNodeDisabledIsNoOp(t *testing.T) {
 func TestMachinepathPollMetrics(t *testing.T) {
 	m := New(Config{Enable: true, Node: true})
 
-	results := []string{"fetch_error", "build_error", "enqueue_error", "no_change", "confirmed", "rejected"}
+	results := []string{"fetch_error", "build_error", "enqueue_error", "wait_error", "no_change", "confirmed", "rejected"}
+
+	// All results pre-initialized at 0 so the poll-error warnings fire on the first occurrence.
+	require.Equal(t, len(results), testutil.CollectAndCount(m.machinepathPollTotal), "all results must be pre-initialized")
+	require.Equal(t, float64(0), testutil.ToFloat64(m.machinepathPollTotal.WithLabelValues("wait_error")))
+
 	for _, result := range results {
 		m.MachinepathPollObserved(result)
 	}
@@ -708,14 +718,18 @@ func TestWalletSyncMetrics(t *testing.T) {
 	m := New(Config{Enable: true, Wallet: true})
 	require.True(t, m.WalletEnabled())
 
-	for _, result := range []string{"success", "enqueue_error", "parse_error", "skipped"} {
+	// All results pre-initialized at 0 — the [3h]>=3 sustained alert undercounts a series born at 1.
+	require.Equal(t, 5, testutil.CollectAndCount(m.walletSyncTotal), "all results must be pre-initialized")
+	require.Equal(t, float64(0), testutil.ToFloat64(m.walletSyncTotal.WithLabelValues("wait_error")))
+
+	for _, result := range []string{"success", "enqueue_error", "wait_error", "parse_error", "skipped"} {
 		m.WalletSyncObserved(result)
 	}
 
-	for _, result := range []string{"success", "enqueue_error", "parse_error", "skipped"} {
+	for _, result := range []string{"success", "enqueue_error", "wait_error", "parse_error", "skipped"} {
 		require.Equalf(t, float64(1), testutil.ToFloat64(m.walletSyncTotal.WithLabelValues(result)), "result %q", result)
 	}
-	require.Equal(t, 4, testutil.CollectAndCount(m.walletSyncTotal), "each result must be its own series")
+	require.Equal(t, 5, testutil.CollectAndCount(m.walletSyncTotal), "each result must be its own series")
 }
 
 func TestWalletKeyUpdateFailedCounter(t *testing.T) {
@@ -726,6 +740,15 @@ func TestWalletKeyUpdateFailedCounter(t *testing.T) {
 
 	require.Equal(t, float64(2), testutil.ToFloat64(m.walletKeyUpdateFailed))
 	require.Contains(t, gatheredNames(t, m), "teeproxy_wallet_key_update_failed_total")
+}
+
+func TestWalletBackupApplyFailedCounter(t *testing.T) {
+	m := New(Config{Enable: true, Wallet: true})
+
+	m.WalletBackupApplyFailed()
+
+	require.Equal(t, float64(1), testutil.ToFloat64(m.walletBackupApplyFailed))
+	require.Contains(t, gatheredNames(t, m), "teeproxy_wallet_backup_apply_failed_total")
 }
 
 func TestWalletKeysCachedGauge(t *testing.T) {
@@ -759,6 +782,7 @@ func TestWalletDisabledIsNoOp(t *testing.T) {
 	require.NotPanics(t, func() {
 		m.WalletSyncObserved("success")
 		m.WalletKeyUpdateFailed()
+		m.WalletBackupApplyFailed()
 		m.RegisterWalletKeysCached(func() float64 { return 1 })
 	})
 }

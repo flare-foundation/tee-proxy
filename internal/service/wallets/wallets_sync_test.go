@@ -331,6 +331,85 @@ func TestFetchKeyInfoEnqueueErrorIncrementsWalletSync(t *testing.T) {
 	require.Equal(t, float64(0), walletSyncCount(t, m, "skipped"))
 }
 
+// TestFetchKeyInfoWaitErrorIncrementsWalletSync guards fetchKeyInfo's wait-error
+// accounting: a node wait that runs out its deadline (no response ever stored) increments
+// wallet_sync_total{result="wait_error"} exactly once, so the sync-failure alerts see the
+// node-not-answering mode.
+func TestFetchKeyInfoWaitErrorIncrementsWalletSync(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(aq, rs, nil, nil, time.Hour, m)
+
+	// No fake node consumes the action, so the wait can only end on the ctx deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	err := svc.sync(ctx)
+	require.Error(t, err)
+
+	require.Equal(t, float64(1), walletSyncCount(t, m, "wait_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "parse_error"))
+}
+
+// TestFetchKeyProofsWaitErrorIncrementsWalletSync guards fetchKeyProofs' wait-error
+// accounting: the fake node answers KEY_INFO then goes silent, so the KEY_PROOF wait runs
+// out the ctx deadline and must record wallet_sync_total{result="wait_error"} exactly once.
+func TestFetchKeyProofsWaitErrorIncrementsWalletSync(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(aq, rs, nil, nil, time.Hour, m)
+
+	k0Wallet := common.BytesToHash([]byte("wallet-proof-wait-error"))
+	remoteInfo := []types.KeyInfo{{WalletID: k0Wallet, KeyID: 0, Nonce: 0}}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() {
+		for {
+			action, err := dequeueDirect(ctx, aq)
+			if err != nil {
+				return
+			}
+
+			var di types.DirectInstruction
+			if err := json.Unmarshal(action.Data.Message, &di); err != nil {
+				return
+			}
+			if di.OPCommand != op.KeyInfo.Hash() {
+				// The KEY_PROOF action is consumed but never answered.
+				return
+			}
+
+			data, err := json.Marshal(remoteInfo)
+			if err != nil {
+				return
+			}
+			if err := storeGetResponse(ctx, rs, action, op.KeyInfo, data); err != nil {
+				return
+			}
+		}
+	}()
+
+	err := svc.sync(ctx)
+	require.Error(t, err)
+
+	require.Equal(t, float64(1), walletSyncCount(t, m, "wait_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), walletSyncCount(t, m, "parse_error"))
+}
+
 // TestTriggerSyncSkippedIncrementsWalletSync guards triggerSync's skip path: calling it
 // while a sync is already in progress must not start a second sync, must leave syncing
 // untouched, and must increment wallet_sync_total{result="skipped"} exactly once.

@@ -239,6 +239,34 @@ func TestPollEnqueueErrorIncrementsMachinepathPoll(t *testing.T) {
 	require.Zero(t, s.lastNonce, "lastNonce must not advance until the node confirms the action")
 }
 
+// TestPollWaitErrorIncrementsMachinepathPoll guards the confirmation-wait error path: a
+// successfully enqueued action whose node confirmation never arrives (the wait runs out
+// the ctx deadline) must increment machinepath_poll_total{result="wait_error"} and leave
+// lastNonce unchanged so the next poll retries the same list.
+func TestPollWaitErrorIncrementsMachinepathPoll(t *testing.T) {
+	fx := newSignedListFixture(t, "machinepath-wait-error")
+
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	n := storage.NewNotifier(c)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), n, time.Hour, time.Hour)
+
+	m := metrics.New(metrics.Config{Enable: true, Node: true})
+	s := NewService(aq, rs, fx.managerAddress, types.Governance{}, fx.extensionID, fx.chainID, 0, m)
+
+	// No fake node ever responds, so the confirmation wait ends on the ctx deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	s.poll(ctx, fx.db)
+
+	require.Equal(t, float64(1), machinepathPollCount(t, m, "wait_error"))
+	require.Equal(t, float64(0), machinepathPollCount(t, m, "enqueue_error"))
+	require.Equal(t, float64(0), machinepathPollCount(t, m, "confirmed"))
+	require.Zero(t, s.lastNonce, "lastNonce must not advance until the node confirms the action")
+}
+
 // TestPollConfirmedAdvancesLastNonce guards the success path that none of the other poll
 // tests reach: once the TEE node confirms the SET_MACHINE_PATH_LIST action (Status 1),
 // poll must record "confirmed" and advance lastNonce so the next poll does not resubmit

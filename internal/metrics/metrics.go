@@ -85,8 +85,9 @@ type Metrics struct {
 	resultsRejected      *prometheus.CounterVec
 	resultChannelDropped *prometheus.CounterVec
 
-	walletSyncTotal       *prometheus.CounterVec
-	walletKeyUpdateFailed prometheus.Counter
+	walletSyncTotal         *prometheus.CounterVec
+	walletKeyUpdateFailed   prometheus.Counter
+	walletBackupApplyFailed prometheus.Counter
 
 	instructionsReceived    prometheus.Counter
 	instructionsRejected    *prometheus.CounterVec
@@ -197,12 +198,16 @@ func New(cfg Config) *Metrics {
 			Help: "Wallet key/proof sync cycles by result.",
 		}, []string{"result"})
 		// Pre-initialize so the [3h]>=3 sustained/wedged alerts count from the first failure (a series born at 1 undercounts).
-		for _, result := range []string{"success", "enqueue_error", "parse_error", "skipped"} {
+		for _, result := range []string{"success", "enqueue_error", "wait_error", "parse_error", "skipped"} {
 			m.walletSyncTotal.WithLabelValues(result).Add(0)
 		}
 		m.walletKeyUpdateFailed = f.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace, Subsystem: "wallet", Name: "key_update_failed_total",
 			Help: "Signed KEY_* results from the node that failed to apply to the key cache.",
+		})
+		m.walletBackupApplyFailed = f.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace, Subsystem: "wallet", Name: "backup_apply_failed_total",
+			Help: "Signed TEE_BACKUP results from the node that failed to decode before storage.",
 		})
 	}
 
@@ -323,12 +328,18 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Subsystem: "node", Name: "response_wait_total",
 			Help: "TEE-node response waits by path and outcome.",
 		}, []string{"path", "result"})
+		// Pre-initialize the alertable series so a first, possibly one-shot wait failure satisfies increase()>0.
+		for _, path := range []string{"info", "machinepath", "wallet_key_info", "wallet_key_proof", "policy_update"} {
+			for _, result := range []string{"timeout", "error"} {
+				m.nodeWaitTotal.WithLabelValues(path, result).Add(0)
+			}
+		}
 		m.machinepathPollTotal = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Subsystem: "machinepath", Name: "poll_total",
-			Help: "Machine-path poll cycles by result (including a node rejection as result=\"rejected\"); the node-wait leg is covered separately by node_response_wait_total.",
+			Help: "Machine-path poll cycles by result (including a node rejection as result=\"rejected\" and a failed or timed-out confirmation wait as result=\"wait_error\"); wait latency is in node_response_wait_total.",
 		}, []string{"result"})
 		// Pre-initialize so the poll-error/rejected warnings fire on the first occurrence.
-		for _, result := range []string{"fetch_error", "no_change", "build_error", "enqueue_error", "rejected", "confirmed"} {
+		for _, result := range []string{"fetch_error", "no_change", "build_error", "enqueue_error", "wait_error", "rejected", "confirmed"} {
 			m.machinepathPollTotal.WithLabelValues(result).Add(0)
 		}
 	}
@@ -615,9 +626,9 @@ func nodeWaitResult(err error) string {
 }
 
 // MachinepathPollObserved records one machine-path poll-loop outcome under a bounded result
-// ("fetch_error"/"build_error"/"enqueue_error"/"no_change"/"rejected"/"confirmed"); "rejected"
-// is a node status!=1 rejection (err==nil, so invisible to node_response_wait_total). The
-// node-wait leg itself is covered separately by node_response_wait_total.
+// ("fetch_error"/"build_error"/"enqueue_error"/"wait_error"/"no_change"/"rejected"/"confirmed");
+// "rejected" is a node status!=1 rejection (err==nil, so invisible to node_response_wait_total),
+// "wait_error" a failed or timed-out confirmation wait (shutdown cancellations excluded).
 func (m *Metrics) MachinepathPollObserved(result string) {
 	if m == nil || m.machinepathPollTotal == nil {
 		return
@@ -782,7 +793,7 @@ func (m *Metrics) WalletEnabled() bool {
 }
 
 // WalletSyncObserved records one wallet key/proof sync-cycle outcome under a bounded
-// result ("success"/"enqueue_error"/"parse_error"/"skipped").
+// result ("success"/"enqueue_error"/"wait_error"/"parse_error"/"skipped").
 func (m *Metrics) WalletSyncObserved(result string) {
 	if m == nil || m.walletSyncTotal == nil {
 		return
@@ -797,6 +808,16 @@ func (m *Metrics) WalletKeyUpdateFailed() {
 		return
 	}
 	m.walletKeyUpdateFailed.Inc()
+}
+
+// WalletBackupApplyFailed records a signed TEE_BACKUP result from the node that failed to
+// decode before storage — the backup sibling of WalletKeyUpdateFailed. The storage legs are
+// counted separately by storage_operations_total.
+func (m *Metrics) WalletBackupApplyFailed() {
+	if m == nil || m.walletBackupApplyFailed == nil {
+		return
+	}
+	m.walletBackupApplyFailed.Inc()
 }
 
 // RegisterWalletKeysCached registers a scrape-time gauge reporting count(), the key proofs

@@ -29,7 +29,7 @@ For the histograms, use `histogram_quantile(0.95, rate(<name>_bucket[5m]))` for 
 | `voting`        | instruction and votings-started counters, threshold-duration histogram                                                 |
 | `active_voters` | per-epoch participant gauges                                                                                           |
 | `result`        | result throughput, lost, discarded, and rejected counters                                                              |
-| `wallet`        | wallet sync-cycle outcome counter and cached-key gauge                                                                 |
+| `wallet`        | wallet sync-cycle outcome counter, key-update/backup-apply failure counters, and cached-key gauge                      |
 | `info`          | TEE info refresh duration and per-stage failures                                                                       |
 | `attestation`   | attestation verify outcomes                                                                                            |
 | `policy`        | active/node-applied/consensus/resident reward-epoch gauges, fetch-loop staleness timestamp, and update-outcome counter |
@@ -84,10 +84,10 @@ Sustained degradation — pages after the condition persists (most have a warnin
 | `TeeProxyStorageErrorsSustained`        | `rate(teeproxy_storage_operations_total{outcome=~"error\|timeout"}[5m]) > 0` for 10m      | Redis/GCS erroring or timing out continuously (`namespace="backups"` is silent recovery-data loss). |
 | `TeeProxyActionEnqueueFailingSustained` | `rate(teeproxy_action_enqueue_total{result=~"store_error\|queue_error"}[5m]) > 0` for 10m | Ingest path cannot persist actions.                                                         |
 | `TeeProxyActionOrphanedSustained`       | `rate(teeproxy_action_dequeue_total{result=~"error\|action_not_found"}[5m]) > 0` for 15m  | Systematic loss of queued (main-queue: finalized) work.                                     |
-| `TeeProxyWalletSyncFailingSustained`    | `sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|parse_error"}[3h])) >= 3`     | Key/proof cache not refreshed across 3+ hourly cycles.                                      |
+| `TeeProxyWalletSyncFailingSustained`    | `sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|wait_error\|parse_error"}[3h])) >= 3` | Key/proof cache not refreshed across 3+ hourly cycles.                             |
 | `TeeProxyWalletSyncWedged`              | `increase(teeproxy_wallet_sync_total{result="skipped"}[3h]) >= 3`                         | `syncing` flag wedged 3+ hours.                                                             |
 
-These counters are pre-initialized to 0 at startup (when their group is enabled) so the first, possibly one-shot, event satisfies `increase(...) > 0`: `teeproxy_results_rejected_total`, `teeproxy_finalized_action_lost_total`, `teeproxy_attestation_verify_total`, `teeproxy_info_refresh_failures_total`, `teeproxy_policy_update_total`, `teeproxy_wallet_sync_total`, `teeproxy_action_enqueue_total`, `teeproxy_action_dequeue_total`, `teeproxy_machinepath_poll_total`, and `teeproxy_result_channel_dropped_total`.
+These counters are pre-initialized to 0 at startup (when their group is enabled) so the first, possibly one-shot, event satisfies `increase(...) > 0`: `teeproxy_results_rejected_total`, `teeproxy_finalized_action_lost_total`, `teeproxy_attestation_verify_total`, `teeproxy_info_refresh_failures_total`, `teeproxy_policy_update_total`, `teeproxy_wallet_sync_total`, `teeproxy_action_enqueue_total`, `teeproxy_action_dequeue_total`, `teeproxy_machinepath_poll_total`, `teeproxy_node_response_wait_total`, and `teeproxy_result_channel_dropped_total`.
 `teeproxy_http_requests_total` (dynamic route label) and `teeproxy_storage_operations_total` (backend/namespace fixed at wiring time) are not pre-initialized, so their warnings fire on the second occurrence of a brand-new label series.
 Any future counter feeding an `increase(...) > 0` alert must be pre-initialized the same way — a `CounterVec` series born at 1 never fires `increase > 0`.
 
@@ -101,7 +101,7 @@ First-occurrence awareness for the escalating pairs (each has a `…Sustained`/c
 | `TeeProxyStorageErrors`        | `sum by (backend, namespace) (increase(teeproxy_storage_operations_total{outcome=~"error\|timeout"}[5m])) > 0` | Any Redis/GCS error or consumed time budget; escalates via `TeeProxyStorageErrorsSustained`.        |
 | `TeeProxyActionEnqueueFailing` | `sum by (queue) (increase(teeproxy_action_enqueue_total{result=~"store_error\|queue_error"}[5m])) > 0`        | Any ingest enqueue error; escalates via `…Sustained`.                                                     |
 | `TeeProxyActionOrphaned`       | `sum by (queue) (increase(teeproxy_action_dequeue_total{result=~"error\|action_not_found"}[5m])) > 0`         | An orphaned action (body unfetchable); a single one can be benign TTL expiry. Escalates via `…Sustained`. |
-| `TeeProxyWalletSyncFailing`    | `increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|parse_error"}[15m]) > 0`                         | A sync cycle failed; escalates via `…Sustained`.                                                          |
+| `TeeProxyWalletSyncFailing`    | `increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|wait_error\|parse_error"}[15m]) > 0`             | A sync cycle failed; escalates via `…Sustained`.                                                          |
 | `TeeProxyInfoRefreshFailing`   | `sum(increase(teeproxy_info_refresh_failures_total{stage!~"verify_signature\|verify_attestation"}[10m])) > 0` | An operational refresh stage failed; sustained failure escalates via `TeeProxyInfoStale`.                 |
 
 Other warnings (lead time / degradation that self-heals):
@@ -110,8 +110,8 @@ Other warnings (lead time / degradation that self-heals):
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | `TeeProxyInfoStaleWarning`                          | `teeproxy_info_service_delay_seconds > 70` for 1m                                                                                          | Half the 140s tolerance — lead time before readiness flips.                                        |
 | `TeeProxyCChainDelayWarning`                        | `teeproxy_cchain_indexer_delay_seconds > 70` for 1m                                                                                        | Half the 140s c-chain tolerance — lead time before readiness flips.                                |
-| `TeeProxyNodeWaitTimeouts`                          | `sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0` for 10m                                               | TEE node slow or unreachable on a path.                                                            |
-| `TeeProxyMachinepathPollErrors`                     | `increase(teeproxy_machinepath_poll_total{result=~"fetch_error\|build_error\|enqueue_error"}[15m]) > 0`                                    | A machine-path poll cycle failed before the node saw the action.                                   |
+| `TeeProxyNodeWaitTimeouts`                          | `sum by (path) (increase(teeproxy_node_response_wait_total{result="timeout"}[15m])) > 0`                                                   | TEE node slow or unreachable on a path; `increase()` with no `for:` so it fires at any path cadence (a `rate>0` dwell can never complete on the hourly wallet paths). |
+| `TeeProxyMachinepathPollErrors`                     | `increase(teeproxy_machinepath_poll_total{result=~"fetch_error\|build_error\|enqueue_error\|wait_error"}[15m]) > 0`                        | A machine-path poll cycle failed before the node saw the action, or waiting for its confirmation.  |
 | `TeeProxyActionDequeueFailing`                      | `sum by (queue) (increase(teeproxy_action_dequeue_total{result="dequeue_error"}[5m])) > 0`                                                 | Dequeue pops failing at Redis (no ID consumed, nothing lost); node-poll-driven, so traffic-independent. |
 | `TeeProxyMachinepathRejected`                       | `increase(teeproxy_machinepath_poll_total{result="rejected"}[15m]) > 0`                                                                    | Node returned a non-success status for the machine-path action.                                    |
 | `TeeProxyConsensusStall`                            | votings started but none finalized in 15m                                                                                                  | Offline voters / mis-set threshold / partition.                                                    |
@@ -123,6 +123,7 @@ Other warnings (lead time / degradation that self-heals):
 | `TeeProxyQueueDepthReadFailing`                     | `sum(rate(teeproxy_action_queue_depth_read_failures_total[5m])) > 0` for 10m                                                               | Scrape-time depth reads failing — depth gauge reads 0, backpressure alerts blind.                  |
 | `TeeProxyResultChannelDropped`                      | `increase(teeproxy_result_channel_dropped_total{channel=~"key_actions\|backups"}[15m]) > 0`                                                | Wallet event loop stalled; drops self-heal at the next sync/trigger.                               |
 | `TeeProxyWalletKeyUpdateFailed`                     | `increase(teeproxy_wallet_key_update_failed_total[15m]) > 0`                                                                               | Signed KEY\_\* result failed to apply — cache stale until the next hourly sync.                    |
+| `TeeProxyWalletBackupApplyFailed`                   | `increase(teeproxy_wallet_backup_apply_failed_total[15m]) > 0`                                                                             | Signed TEE_BACKUP result failed to decode before storage — recovery data not persisted.            |
 | `TeeProxyAttestationMetricsMissing`                 | `absent(teeproxy_attestation_verify_total)` for 15m                                                                                        | The `attestation` group is disabled, so its page-now rules are inert.                              |
 | `TeeProxyResultMetricsMissing`                      | `absent(teeproxy_results_rejected_total)` for 15m                                                                                          | The `result` group is disabled, so `TeeProxyResultWrongTeeID`/`BadSigner` are inert.               |
 
@@ -223,16 +224,19 @@ A drop here means a finalized-consensus side effect (key materialization or back
 
 ## `wallet`
 
-| Metric                        | Type                | Labels   | Description                                                |
-| ----------------------------- | ------------------- | -------- | ---------------------------------------------------------- |
-| `teeproxy_wallet_sync_total`  | counter             | `result` | Wallet key/proof sync cycles by result.                    |
-| `teeproxy_wallet_keys_cached` | gauge (scrape-time) | —        | Key proofs cached in the wallet service's in-memory store. |
+| Metric                                      | Type                | Labels   | Description                                                                |
+| ------------------------------------------- | ------------------- | -------- | -------------------------------------------------------------------------- |
+| `teeproxy_wallet_sync_total`                | counter             | `result` | Wallet key/proof sync cycles by result.                                    |
+| `teeproxy_wallet_key_update_failed_total`   | counter             | —        | Signed KEY\_\* results from the node that failed to apply to the key cache. |
+| `teeproxy_wallet_backup_apply_failed_total` | counter             | —        | Signed TEE_BACKUP results from the node that failed to decode before storage. |
+| `teeproxy_wallet_keys_cached`               | gauge (scrape-time) | —        | Key proofs cached in the wallet service's in-memory store.                 |
 
-Label values: `result` is `success`/`enqueue_error`/`parse_error`/`skipped`.
-Node-wait failures during sync are already counted in `teeproxy_node_response_wait_total{path="wallet_key_info"|"wallet_key_proof"}` and are not duplicated here.
+Label values: `result` is `success`/`enqueue_error`/`wait_error`/`parse_error`/`skipped`.
 `enqueue_error` covers action-build/marshal/enqueue failures before the node wait.
+`wait_error` covers a node wait that timed out or failed (shutdown cancellations are not counted); the wait's latency and outcome detail are in `teeproxy_node_response_wait_total{path="wallet_key_info"|"wallet_key_proof"}`.
 `parse_error` covers a node wait that returned OK but whose response failed to decode.
 `skipped` fires when a sync trigger arrives while a previous sync is still in progress — a wedged `syncing` flag shows as a sustained run of `skipped`.
+`key_update_failed` and `backup_apply_failed` count signed node results that could not be decoded/applied — protocol invariant breaks (node bug or version skew); the backup counter covers only the pre-storage legs, the storage writes themselves are in `storage_operations_total{namespace=~"backups|backupIndex"}`.
 
 ## `info`
 
@@ -306,11 +310,12 @@ It gives lead time before the 140s readiness cutoff and attributes a readiness f
 | `teeproxy_node_response_wait_total`            | counter   | `path`, `result` | TEE-node response waits by path and outcome.       |
 | `teeproxy_machinepath_poll_total`              | counter   | `result`         | Machine-path poll cycles by result.                |
 
-Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`enqueue_error`/`no_change`/`rejected`/`confirmed`.
+Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`enqueue_error`/`wait_error`/`no_change`/`rejected`/`confirmed`.
+The `timeout` and `error` node-wait series are pre-initialized to 0 for every path so a first, possibly one-shot wait failure satisfies `increase(...) > 0`.
 `policy_update` is the `UPDATE_POLICY` confirmation wait (2m timeout), fired roughly once per reward epoch during a signing-policy rollover.
 This is the proxy's synchronous round-trip to the TEE node (the wait inside `WaitOnResponse`).
 A rising `timeout` share, or a p99 approaching the per-path response timeout (2–3 minutes), is the leading signal that the node is slow or unreachable — and the `path` label localizes partial degradation (e.g. `wallet_key_proof` slow while `info` is fine).
-`machinepath_poll_total` covers the poll loop's pre-delivery legs (`fetch_error`/`build_error`/`enqueue_error`/`no_change`) and its post-wait outcomes (`rejected`/`confirmed`); the node-wait leg itself is `teeproxy_node_response_wait_total{path="machinepath"}`.
+`machinepath_poll_total` covers the poll loop's pre-delivery legs (`fetch_error`/`build_error`/`enqueue_error`/`no_change`), its wait leg (`wait_error`, a failed or timed-out confirmation wait; shutdown cancellations are not counted), and its post-wait outcomes (`rejected`/`confirmed`); wait latency is in `teeproxy_node_response_wait_total{path="machinepath"}`.
 `rejected` is a node `status != 1` rejection — `WaitOnResponse` returns `err == nil` for it, so the node-wait metric records it as `result="ok"`, and only this counter (and `teeproxy_results_processed_total{op_command="SET_MACHINE_PATH_LIST"}`) distinguishes it.
 
 ## `runtime`
@@ -340,8 +345,8 @@ These carry a unique signal that no alert currently consumes: `action_dequeue_to
 ### Coverage gaps
 
 Closed by this change: node/proxy signing-policy epoch divergence → `node_applied_policy_epoch`; a forge-proof consensus-derived epoch witness → `consensus_max_reward_epoch`; c-chain indexer staleness attribution and lead time → `cchain_indexer_delay_seconds`.
-Done since: split `instructions_rejected_total{reason="other"}` into bounded reasons (`rate_limited`/`not_eligible`/`oversized`/`no_round` plus `inconsistent`/`invalid_cosigner_threshold`/`invalid_cosigner_declaration`/`invalid_fdc_threshold`/`non_instruction_command`) — see the `voting` section.
-Still open, highest value first: add `absent()` meta-alerts for the `info`/`voting`/`liveness` groups; count handler panics distinctly from handled 5xx; count Direct/Backup post-dequeue send loss (only Main is counted today); count `wallet_backup_apply_failed` before storage; add an end-to-end finalized→result latency histogram.
+Done since: split `instructions_rejected_total{reason="other"}` into bounded reasons (`rate_limited`/`not_eligible`/`oversized`/`no_round` plus `inconsistent`/`invalid_cosigner_threshold`/`invalid_cosigner_declaration`/`invalid_fdc_threshold`/`non_instruction_command`) — see the `voting` section; count `wallet_backup_apply_failed` before storage — see the `wallet` section.
+Still open, highest value first: add `absent()` meta-alerts for the `info`/`voting`/`liveness` groups; count handler panics distinctly from handled 5xx; count Direct/Backup post-dequeue send loss (only Main is counted today); add an end-to-end finalized→result latency histogram.
 
 ### Doc accuracy fixed here
 

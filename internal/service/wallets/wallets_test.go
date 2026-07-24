@@ -256,3 +256,36 @@ func TestSyncNodeWaitLabels(t *testing.T) {
 		require.Equal(t, float64(0), nodeWaitCount(t, m, "wallet_key_info", "error"))
 	})
 }
+
+// counterValue reads the single-series counter name from m's registry, returning 0 if the
+// family is absent.
+func counterValue(t *testing.T, m *metrics.Metrics, name string) float64 {
+	t.Helper()
+
+	fams, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	for _, f := range fams {
+		if f.GetName() == name {
+			return f.GetMetric()[0].GetCounter().GetValue()
+		}
+	}
+
+	return 0
+}
+
+// TestCreateNewBackupDecodeFailureCounts guards the pre-storage failure accounting: an
+// undecodable or nil TEE_BACKUP result increments wallet_backup_apply_failed_total, so
+// backup-pipeline breakage (node bug or version skew) is visible to alerting.
+func TestCreateNewBackupDecodeFailureCounts(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, Wallet: true})
+	svc := NewService(nil, nil, nil, nil, time.Hour, m)
+
+	err := svc.createNewBackup(context.Background(), &types.ActionResult{Data: []byte("not json")})
+	require.Error(t, err)
+
+	err = svc.createNewBackup(context.Background(), &types.ActionResult{Data: []byte("null")})
+	require.Error(t, err)
+
+	require.Equal(t, float64(2), counterValue(t, m, "teeproxy_wallet_backup_apply_failed_total"))
+}

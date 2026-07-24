@@ -270,27 +270,33 @@ groups:
             the c-chain leg specifically, which the composite TeeProxyNotReady cannot. Requires the
             `liveness` metric group.
 
+      # increase() with no for:, because the low-frequency paths emit too rarely for a rate>0
+      # condition to hold through a dwell (wallet sync waits are hourly: one increment keeps
+      # rate[10m]>0 for under 10m, so a for: 10m clock could never complete).
       - alert: TeeProxyNodeWaitTimeouts
-        expr: sum by (path) (rate(teeproxy_node_response_wait_total{result="timeout"}[10m])) > 0
-        for: 10m
+        expr: sum by (path) (increase(teeproxy_node_response_wait_total{result="timeout"}[15m])) > 0
         labels:
           severity: warning
         annotations:
           summary: "TEE node response-wait timeouts on {{ $labels.path }}"
           description: >-
-            The proxy is timing out waiting for TEE-node responses on this path — node slow or
-            unreachable. Requires the `node` metric group.
+            The proxy timed out waiting for a TEE-node response on this path — node slow or
+            unreachable. The alertable series are pre-initialized, so this fires on the first
+            occurrence at any cadence. Non-timeout wait failures surface through each loop's own
+            counter (wallet_sync_total / machinepath_poll_total wait_error, info_refresh_failures
+            wait_response, policy_update_total await_failed). Requires the `node` metric group.
 
       - alert: TeeProxyMachinepathPollErrors
-        expr: increase(teeproxy_machinepath_poll_total{result=~"fetch_error|build_error|enqueue_error"}[15m]) > 0
+        expr: increase(teeproxy_machinepath_poll_total{result=~"fetch_error|build_error|enqueue_error|wait_error"}[15m]) > 0
         labels:
           severity: warning
         annotations:
           summary: "Machine-path poll cycle failing"
           description: >-
             A machine-path poll cycle failed before the node ever saw the action (fetching the
-            signed list, building the action, or enqueueing it) — the node-wait leg is separately
-            covered by teeproxy_node_response_wait_total{path="machinepath"}. Requires the `node`
+            signed list, building the action, or enqueueing it), or failed/timed out waiting for
+            the node's confirmation (wait_error; wait latency is in
+            teeproxy_node_response_wait_total{path="machinepath"}). Requires the `node`
             metric group.
 
       - alert: TeeProxyMachinepathRejected
@@ -616,28 +622,30 @@ groups:
   - name: tee-proxy.wallet
     rules:
       - alert: TeeProxyWalletSyncFailing
-        expr: increase(teeproxy_wallet_sync_total{result=~"enqueue_error|parse_error"}[15m]) > 0
+        expr: increase(teeproxy_wallet_sync_total{result=~"enqueue_error|wait_error|parse_error"}[15m]) > 0
         labels:
           severity: warning
         annotations:
           summary: "Wallet key/proof sync cycle failing"
           description: >-
-            A wallet sync cycle failed before enqueueing to the node (enqueue_error) or after a node
-            wait that returned OK but did not decode (parse_error). Awareness only; a sustained
-            condition escalates via TeeProxyWalletSyncFailingSustained. Node-wait failures are
-            covered by teeproxy_node_response_wait_total{path=~"wallet_key_info|wallet_key_proof"}.
+            A wallet sync cycle failed before enqueueing to the node (enqueue_error), waiting on
+            the node's response (wait_error — timeout or wait failure; shutdown cancellations are
+            not counted), or decoding an OK response (parse_error). Awareness only; a sustained
+            condition escalates via TeeProxyWalletSyncFailingSustained. Wait latency is in
+            teeproxy_node_response_wait_total{path=~"wallet_key_info|wallet_key_proof"}.
             Requires the `wallet` metric group.
 
       - alert: TeeProxyWalletSyncFailingSustained
-        expr: sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error|parse_error"}[3h])) >= 3
+        expr: sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error|wait_error|parse_error"}[3h])) >= 3
         labels:
           severity: critical
         annotations:
           summary: "Wallet sync failing across multiple cycles"
           description: >-
             3+ wallet sync cycles failed within 3h. At the 1h sync cadence (walletSyncPeriod) the
-            key/proof cache has not refreshed in hours and is drifting from the node. Requires the
-            `wallet` metric group.
+            key/proof cache has not refreshed in hours and is drifting from the node. Includes
+            cycles that failed waiting on the node (wait_error), the dominant failure mode when
+            the node's wallet subsystem stops answering. Requires the `wallet` metric group.
 
       - alert: TeeProxyWalletSyncWedged
         expr: increase(teeproxy_wallet_sync_total{result="skipped"}[3h]) >= 3
@@ -662,3 +670,17 @@ groups:
             applied — a protocol invariant break (tee-node bug or proxy/node version skew). The
             cache is left stale until the hourly sync reconciles it; the decode error is in the proxy
             log line "wallet key update". Requires the `wallet` metric group.
+
+      - alert: TeeProxyWalletBackupApplyFailed
+        expr: increase(teeproxy_wallet_backup_apply_failed_total[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Signed TEE_BACKUP result failed to decode"
+          description: >-
+            A signature-verified TEE_BACKUP result from the trusted TEE node could not be decoded
+            before storage — the backup sibling of TeeProxyWalletKeyUpdateFailed (tee-node bug or
+            proxy/node version skew). The backup was not persisted; if every backup result fails
+            this way, wallet-recovery data silently stops updating. Storage-leg failures are
+            covered separately by TeeProxyStorageErrors. The decode error is in the proxy log line
+            "storing backup result". Requires the `wallet` metric group.
