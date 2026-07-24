@@ -499,7 +499,10 @@ groups:
             Main queue depth above 100 (queue.go queueDepthWarnThreshold) for 10m — the TEE node is
             not draining actions. During Redis degradation the LLEN read fails and the depth gauge
             reads 0 (see teeproxy_action_queue_depth_read_failures_total), so this alert is masked;
-            TeeProxyStorageErrors is then authoritative. Requires the `queue` metric group.
+            the authoritative Redis-outage signals are then TeeProxyActionDequeueFailing /
+            TeeProxyActionEnqueueFailing and TeeProxyNotReady (readiness pings Redis) —
+            teeproxy_storage_operations_total does not cover the Redis-backed queues. Requires the
+            `queue` metric group.
 
       - alert: TeeProxyQueueBackpressureDirect
         expr: teeproxy_action_queue_depth{queue="direct"} > 100
@@ -545,6 +548,20 @@ groups:
             Actions have been failing to enqueue continuously for 10m — the ingest path cannot
             persist or append actions. Requires the `queue` metric group.
 
+      # dequeue_error is the pop itself failing (no queue ID consumed, nothing orphaned) — kept
+      # out of the orphan alerts below so a plain Redis outage cannot page as data loss.
+      - alert: TeeProxyActionDequeueFailing
+        expr: sum by (queue) (increase(teeproxy_action_dequeue_total{result="dequeue_error"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Action dequeue failing on {{ $labels.queue }}"
+          description: >-
+            The node's dequeue polls are failing at the Redis pop itself — Redis degraded or
+            unreachable. No queue ID is consumed, so nothing is lost yet. Driven by the node's
+            own polling, so it fires without client traffic; a sustained Redis outage pages via
+            TeeProxyNotReady (readiness pings Redis). Requires the `queue` metric group.
+
       - alert: TeeProxyActionOrphaned
         expr: sum by (queue) (increase(teeproxy_action_dequeue_total{result=~"error|action_not_found"}[5m])) > 0
         labels:
@@ -577,8 +594,10 @@ groups:
           summary: "Queue-depth reads failing — backpressure alert blind"
           description: >-
             Scrape-time queue-depth (LLEN) reads are failing, so the depth gauge reports 0 and
-            TeeProxyQueueBackpressure cannot fire. Treat TeeProxyStorageErrors as authoritative
-            until reads recover. Requires the `queue` metric group.
+            TeeProxyQueueBackpressure cannot fire. Treat TeeProxyActionDequeueFailing /
+            TeeProxyActionEnqueueFailing and TeeProxyNotReady as authoritative until reads recover
+            (the storage metrics cover only the results/backups stores, not the Redis queues).
+            Requires the `queue` metric group.
 
       - alert: TeeProxyResultChannelDropped
         expr: increase(teeproxy_result_channel_dropped_total{channel=~"key_actions|backups"}[15m]) > 0

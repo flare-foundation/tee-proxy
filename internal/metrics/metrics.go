@@ -258,18 +258,19 @@ func New(cfg Config) *Metrics {
 	if cfg.Queue {
 		m.actionDequeued = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "action_dequeue_total",
-			Help: "Action dequeue attempts by queue and result: success returned a body; empty found nothing queued; action_not_found and error consumed a queue ID whose body could not be fetched (an orphaned/lost action).",
+			Help: "Action dequeue attempts by queue and result: success returned a body; empty found nothing queued; dequeue_error failed the pop itself and cancelled is a caller-side cancellation during it (no queue ID consumed, nothing lost); action_not_found and error consumed a queue ID whose body could not be fetched (an orphaned/lost action).",
 		}, []string{"queue", "result"})
 		m.actionEnqueued = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "action_enqueue_total",
 			Help: "Action enqueue attempts by queue and result.",
 		}, []string{"queue", "result"})
-		// Pre-initialize the alertable error series so the enqueue-failure/orphaned-action warnings fire on the first event.
+		// Pre-initialize the alertable error series so the enqueue/dequeue-failure/orphaned-action warnings fire on the first event.
 		for _, queue := range []string{"main", "direct", "backup"} {
 			m.actionEnqueued.WithLabelValues(queue, "store_error").Add(0)
 			m.actionEnqueued.WithLabelValues(queue, "queue_error").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "error").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "action_not_found").Add(0)
+			m.actionDequeued.WithLabelValues(queue, "dequeue_error").Add(0)
 		}
 		m.queueDepthReadFailures = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "action_queue_depth_read_failures_total",

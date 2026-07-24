@@ -177,10 +177,15 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 
 	storingID, err := queue.Dequeue(ctx)
 	if err != nil {
-		if errors.Is(err, storage.ErrEmptyQueue) {
+		switch {
+		case errors.Is(err, storage.ErrEmptyQueue):
 			as.metrics.ActionDequeued(ql, "empty")
-		} else {
-			as.metrics.ActionDequeued(ql, "error")
+		case errors.Is(err, context.Canceled):
+			// caller went away mid-poll; no ID consumed, nothing orphaned
+			as.metrics.ActionDequeued(ql, "cancelled")
+		default:
+			// the pop itself failed; no ID consumed, so distinct from the orphan-signalling "error"
+			as.metrics.ActionDequeued(ql, "dequeue_error")
 		}
 		return nil, fmt.Errorf("dequeuing %v: %w", queueID, err)
 	}
