@@ -16,6 +16,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/safe"
 	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	cmpaths "github.com/flare-foundation/go-flare-common/pkg/tee/structs/machinepath"
@@ -37,20 +38,24 @@ const (
 
 var (
 	errNoPaths       = errors.New("no machine paths found for list")
-	errNoSignatures  = errors.New("no governance signatures found for list")
-	errInvalidInputs = errors.New("invalid signMachinePathList inputs")
+	errNoSignatures  = errors.New("no governance signatures or safe approvals found for list")
+	errInvalidInputs = errors.New("invalid calldata inputs")
 )
 
 // SetMachinePathListAction builds the SET_MACHINE_PATH_LIST direct action for
-// the governance-signed list identified by (extensionID, nonce). It reconstructs
-// the canonical path order from MachinePathsAdded events and collects the
-// governance signatures from successful signMachinePathList transactions up to
-// toBlock. The TEE node re-verifies the signatures against its own governance
-// set and threshold.
+// the governance-approved list identified by (extensionID, nonce). It
+// reconstructs the canonical path order from MachinePathsAdded events and
+// collects the governance authorization for it: the governance signatures
+// from successful signMachinePathList transactions up to toBlock, and — when
+// the node's governance is Safe-backed (gov.Safe nonzero) — one locally
+// pre-verified approveMachinePathList Safe transaction. At least one form
+// must be found. The TEE node re-verifies either against its own governance
+// set and threshold; gov is that same snapshot, as reported by the node.
 func SetMachinePathListAction(
 	ctx context.Context,
 	db *gorm.DB,
 	managerAddress common.Address,
+	gov types.Governance,
 	extensionID common.Hash,
 	chainID uint64,
 	nonce uint64,
@@ -75,10 +80,23 @@ func SetMachinePathListAction(
 		return nil, fmt.Errorf("collecting governance signatures: %w", err)
 	}
 
+	var approval *safe.Approval
+	if gov.Safe != (common.Address{}) {
+		approval, err = collectSafeApproval(ctx, db, gov, managerAddress, extensionID, nonce, hash, chainID, int64(fromBlock)-1, int64(toBlock))
+		if err != nil {
+			return nil, fmt.Errorf("collecting safe approval: %w", err)
+		}
+	}
+
+	if len(sigs) == 0 && approval == nil {
+		return nil, errNoSignatures
+	}
+
 	req := types.SetMachinePathListRequest{
-		Paths:      paths,
-		Nonce:      nonce,
-		Signatures: sigs,
+		Paths:        paths,
+		Nonce:        nonce,
+		Signatures:   sigs,
+		SafeApproval: approval,
 	}
 
 	msg, err := json.Marshal(req)
@@ -200,7 +218,9 @@ func fetchPaths(
 // (extensionID, nonce) from successful signMachinePathList transactions in the
 // block range (fromBlock, toBlock]. Each signature is recovered against hash to
 // deduplicate signers; only transactions that succeeded on chain are
-// considered, so every recovered signer is a valid governance signer.
+// considered, so every recovered signer is a valid governance signer. An empty
+// result is not an error — the caller decides whether other authorization
+// evidence (a Safe approval) covers the list.
 func collectSignatures(
 	ctx context.Context,
 	db *gorm.DB,
@@ -250,10 +270,6 @@ func collectSignatures(
 
 		seen[signer] = true
 		sigs = append(sigs, serialized)
-	}
-
-	if len(sigs) == 0 {
-		return nil, errNoSignatures
 	}
 
 	return sigs, nil

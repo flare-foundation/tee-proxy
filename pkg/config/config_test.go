@@ -196,3 +196,38 @@ func TestValidateGCS(t *testing.T) {
 		})
 	}
 }
+
+func TestGovernanceValidate(t *testing.T) {
+	s := []common.Address{
+		common.HexToAddress("0x1111111111111111111111111111111111111111"),
+		common.HexToAddress("0x2222222222222222222222222222222222222222"),
+	}
+	safe := common.HexToAddress("0x5afe5afe5afe5afe5afe5afe5afe5afe5afe5afe")
+	mgr := common.HexToAddress("0x1a9C4A0f9D76c0b1D91d22E24E573a9b377618aE")
+
+	tests := []struct {
+		name    string
+		gov     Governance
+		wantErr bool
+	}{
+		{"unset is valid (legacy path)", Governance{}, false},
+		{"plain valid", Governance{Signers: s, Threshold: 2}, false},
+		{"safe valid", Governance{Signers: s, Threshold: 2, Safe: safe, TeeManager: mgr}, false},
+		{"signers without threshold", Governance{Signers: s}, true},
+		{"threshold without signers", Governance{Threshold: 1}, true},
+		{"threshold exceeds signers", Governance{Signers: s, Threshold: 3}, true},
+		{"zero signer", Governance{Signers: []common.Address{{}}, Threshold: 1}, true},
+		{"safe without tee manager", Governance{Signers: s, Threshold: 2, Safe: safe}, true},
+		{"tee manager without safe", Governance{Signers: s, Threshold: 2, TeeManager: mgr}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.gov.validate()
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

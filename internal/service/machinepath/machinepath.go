@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
+	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/machinepath"
@@ -28,6 +29,7 @@ type Service struct {
 	aq             *queue.ActionQueues
 	responses      *result.ResultStorage
 	managerAddress common.Address
+	governance     types.Governance
 	extensionID    common.Hash
 	chainID        uint64
 
@@ -36,12 +38,17 @@ type Service struct {
 
 // NewService creates a machine path list service for the given extension. The
 // manager address must be nonzero; the caller is responsible for skipping
-// service creation when the feature is disabled.
-func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, extensionID common.Hash, chainID uint64, initialNonce uint64) *Service {
+// service creation when the feature is disabled. governance is the node's
+// governance snapshot as reported in its TEE info; when it is Safe-backed
+// (Safe nonzero), approveMachinePathList Safe transactions are collected and
+// pre-verified as authorization evidence alongside direct governance
+// signatures.
+func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, governance types.Governance, extensionID common.Hash, chainID uint64, initialNonce uint64) *Service {
 	return &Service{
 		aq:             aq,
 		responses:      responses,
 		managerAddress: managerAddress,
+		governance:     governance,
 		extensionID:    extensionID,
 		chainID:        chainID,
 		lastNonce:      initialNonce,
@@ -80,7 +87,7 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 		return
 	}
 
-	action, err := machinepath.SetMachinePathListAction(ctx, db, s.managerAddress, s.extensionID, s.chainID, nonce, toBlock)
+	action, err := machinepath.SetMachinePathListAction(ctx, db, s.managerAddress, s.governance, s.extensionID, s.chainID, nonce, toBlock)
 	if err != nil {
 		logger.Errorf("creating SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
 		return

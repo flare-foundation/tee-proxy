@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -63,6 +64,10 @@ var (
 	errDirectMaxBodySizeNegative            = errors.New("direct max_body_size must be non-negative")
 	errGCSBucketNotSet                      = errors.New("gcs is configured but bucket is not set")
 	errGCSURLWithCredentials                = errors.New("gcs url (unauthenticated emulator endpoint) and credentials_file cannot both be set")
+	errGovernanceIncomplete                 = errors.New("governance: signers and threshold must be set together")
+	errGovernanceThresholdTooHigh           = errors.New("governance: threshold exceeds the number of signers")
+	errGovernanceZeroSigner                 = errors.New("governance: signer is the zero address")
+	errGovernanceSafePairing                = errors.New("governance: safe and tee_manager must be set together")
 )
 
 // GCS holds Google Cloud Storage connection configuration.
@@ -93,6 +98,7 @@ type Proxy struct {
 	GCS                          GCS             `toml:"gcs"`                              // Google Cloud Storage connection configuration.
 	ChainID                      uint64          `toml:"chain_id"`                         // EVM chain ID bound into TEE/FDC2 signed payloads. Must be a positive integer.
 	Addresses                    Addresses       `toml:"addresses"`                        // Smart contract addresses.
+	Governance                   Governance      `toml:"governance"`                       // Optional Safe-backed governance, enabling Safe machine-path-list approval pre-verification.
 	Ports                        Ports           `toml:"ports"`                            // Servers ports.
 	InfoTiming                   InfoTiming      `toml:"info_timing"`                      // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
 	Voting                       Voting          `toml:"voting"`                           // Instruction voting configurations.
@@ -263,6 +269,11 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
+	err = c.Governance.validate()
+	if err != nil {
+		return c, err
+	}
+
 	err = c.Ports.validate()
 	if err != nil {
 		return c, err
@@ -352,6 +363,60 @@ func (a Addresses) validate() error {
 		return errVoterRegistryAddressNotSet
 	}
 
+	return nil
+}
+
+// Governance is the extension's TEE governance, configured so the proxy can
+// pre-verify Safe machine-path-list approvals against the same signer set and
+// threshold the node enforces. It is entirely optional:
+//
+//   - unset: the proxy forwards direct governance signatures only (the legacy
+//     path) and does not collect or pre-verify Safe approvals; nothing is
+//     cross-checked against the node.
+//   - set: the proxy cross-checks it against the node's attested governance
+//     hash at startup (refusing to run on a mismatch) and, when Safe is given,
+//     pre-verifies Safe approvals.
+//
+// Signers and Threshold are the plain governance signer set / threshold, or —
+// for Safe-backed governance — the Safe owners' snapshot and threshold. Safe
+// and TeeManager are set together only for Safe-backed governance.
+type Governance struct {
+	Signers    []common.Address `toml:"signers"`
+	Threshold  uint64           `toml:"threshold"`
+	Safe       common.Address   `toml:"safe"`
+	TeeManager common.Address   `toml:"tee_manager"`
+}
+
+// IsSet reports whether any governance field was configured.
+func (g Governance) IsSet() bool {
+	zero := common.Address{}
+	return len(g.Signers) > 0 || g.Threshold != 0 || g.Safe != zero || g.TeeManager != zero
+}
+
+// SafeBacked reports whether the configured governance is Safe-backed.
+func (g Governance) SafeBacked() bool {
+	return g.Safe != (common.Address{})
+}
+
+// validate checks the internal consistency of a configured governance. An
+// unset governance is valid (the legacy path).
+func (g Governance) validate() error {
+	if !g.IsSet() {
+		return nil
+	}
+	if len(g.Signers) == 0 || g.Threshold == 0 {
+		return errGovernanceIncomplete
+	}
+	if g.Threshold > uint64(len(g.Signers)) {
+		return errGovernanceThresholdTooHigh
+	}
+	zero := common.Address{}
+	if slices.Contains(g.Signers, zero) {
+		return errGovernanceZeroSigner
+	}
+	if (g.Safe == zero) != (g.TeeManager == zero) {
+		return errGovernanceSafePairing
+	}
 	return nil
 }
 
