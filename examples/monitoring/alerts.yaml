@@ -337,28 +337,31 @@ groups:
             `http` metric group.
 
       - alert: TeeProxyStorageErrors
-        expr: sum by (backend, namespace) (increase(teeproxy_storage_operations_total{outcome="error"}[5m])) > 0
+        expr: sum by (backend, namespace) (increase(teeproxy_storage_operations_total{outcome=~"error|timeout"}[5m])) > 0
         labels:
           severity: warning
         annotations:
           summary: "Storage errors on {{ $labels.backend }}/{{ $labels.namespace }}"
           description: >-
-            A Redis/GCS operation errored. Awareness only; a sustained condition escalates via
-            TeeProxyStorageErrorsSustained. Storage is exercised by background loops, so this fires
-            regardless of client traffic. Requires the `storage` metric group.
+            A Redis/GCS operation errored or consumed its whole time budget (outcome="timeout" —
+            how a hung GCS endpoint surfaces under the client's retry policy; caller-side
+            cancellations are excluded as outcome="cancelled"). Awareness only; a sustained
+            condition escalates via TeeProxyStorageErrorsSustained. Storage is exercised by
+            background loops, so this fires regardless of client traffic. Requires the `storage`
+            metric group.
 
       - alert: TeeProxyStorageErrorsSustained
-        expr: sum by (backend, namespace) (rate(teeproxy_storage_operations_total{outcome="error"}[5m])) > 0
+        expr: sum by (backend, namespace) (rate(teeproxy_storage_operations_total{outcome=~"error|timeout"}[5m])) > 0
         for: 10m
         labels:
           severity: critical
         annotations:
           summary: "Sustained storage errors on {{ $labels.backend }}/{{ $labels.namespace }}"
           description: >-
-            Redis/GCS operations have errored continuously for 10m. Self-driven (background
-            loops keep exercising storage), so duration-based escalation is valid here. namespace
-            "backups" is silent wallet-recovery-data loss and worth a dedicated higher-priority
-            route. Requires the `storage` metric group.
+            Redis/GCS operations have errored or timed out continuously for 10m. Self-driven
+            (background loops keep exercising storage), so duration-based escalation is valid here.
+            namespace "backups" is silent wallet-recovery-data loss and worth a dedicated
+            higher-priority route. Requires the `storage` metric group.
 
       - alert: TeeProxyDown
         expr: up{job="tee-proxy"} == 0

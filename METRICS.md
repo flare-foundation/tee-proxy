@@ -81,7 +81,7 @@ Sustained degradation — pages after the condition persists (most have a warnin
 | Alert                                   | Condition                                                                                 | Why it pages                                                                                |
 | --------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `TeeProxyHttp5xxHigh`                   | 5xx ratio > 50% with a min-sample guard, for 10m                                          | Majority of requests 5xx (ratio, so volume-robust).                                         |
-| `TeeProxyStorageErrorsSustained`        | `rate(teeproxy_storage_operations_total{outcome="error"}[5m]) > 0` for 10m                | Redis/GCS erroring continuously (`namespace="backups"` is silent recovery-data loss). |
+| `TeeProxyStorageErrorsSustained`        | `rate(teeproxy_storage_operations_total{outcome=~"error\|timeout"}[5m]) > 0` for 10m      | Redis/GCS erroring or timing out continuously (`namespace="backups"` is silent recovery-data loss). |
 | `TeeProxyActionEnqueueFailingSustained` | `rate(teeproxy_action_enqueue_total{result=~"store_error\|queue_error"}[5m]) > 0` for 10m | Ingest path cannot persist actions.                                                         |
 | `TeeProxyActionOrphanedSustained`       | `rate(teeproxy_action_dequeue_total{result=~"error\|action_not_found"}[5m]) > 0` for 15m  | Systematic loss of queued (main-queue: finalized) work.                                     |
 | `TeeProxyWalletSyncFailingSustained`    | `sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|parse_error"}[3h])) >= 3`     | Key/proof cache not refreshed across 3+ hourly cycles.                                      |
@@ -98,7 +98,7 @@ First-occurrence awareness for the escalating pairs (each has a `…Sustained`/c
 | Alert                          | Condition                                                                                                     | Signal                                                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `TeeProxyHttp5xx`              | `sum by (server) (increase(teeproxy_http_requests_total{status_class="5xx"}[5m])) > 0`                        | Any 5xx (incl. handler panics); escalates via `TeeProxyHttp5xxHigh` / `TeeProxyNotReady`.                 |
-| `TeeProxyStorageErrors`        | `sum by (backend, namespace) (increase(teeproxy_storage_operations_total{outcome="error"}[5m])) > 0`          | Any Redis/GCS error; escalates via `TeeProxyStorageErrorsSustained`.                                |
+| `TeeProxyStorageErrors`        | `sum by (backend, namespace) (increase(teeproxy_storage_operations_total{outcome=~"error\|timeout"}[5m])) > 0` | Any Redis/GCS error or consumed time budget; escalates via `TeeProxyStorageErrorsSustained`.        |
 | `TeeProxyActionEnqueueFailing` | `sum by (queue) (increase(teeproxy_action_enqueue_total{result=~"store_error\|queue_error"}[5m])) > 0`        | Any ingest enqueue error; escalates via `…Sustained`.                                                     |
 | `TeeProxyActionOrphaned`       | `sum by (queue) (increase(teeproxy_action_dequeue_total{result=~"error\|action_not_found"}[5m])) > 0`         | An orphaned action (body unfetchable); a single one can be benign TTL expiry. Escalates via `…Sustained`. |
 | `TeeProxyWalletSyncFailing`    | `increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|parse_error"}[15m]) > 0`                         | A sync cycle failed; escalates via `…Sustained`.                                                          |
@@ -128,7 +128,7 @@ Other warnings (lead time / degradation that self-heals):
 `TeeProxyConsensusStall` has up to ~30m worst-case detection latency: a 15m `increase(...)==0` window sits under a 15m `for`, and both are deliberately conservative to avoid false positives during naturally quiet, block-paced periods.
 Operators who need faster paging should first shorten `for` — the `increase[15m]==0` clause already supplies most of the dwell time — and weigh that against the higher false-positive risk before also considering escalating a sustained full stall to critical.
 
-Storage errors escalate from `TeeProxyStorageErrors` (warning, any error) to `TeeProxyStorageErrorsSustained` (critical, erroring for 10m), both label-distinguished by `backend` (`redis`/`gcs`) and `namespace` (`results`/`backups`/`backupIndex`).
+Storage errors escalate from `TeeProxyStorageErrors` (warning, any error or timeout) to `TeeProxyStorageErrorsSustained` (critical, erroring or timing out for 10m), both label-distinguished by `backend` (`redis`/`gcs`) and `namespace` (`results`/`backups`/`backupIndex`).
 Because `namespace="backups"` is silent wallet-recovery-data loss, operators may route that label to a higher-priority destination — severity tuning on an existing signal, not new coverage.
 
 ## `http`
@@ -148,9 +148,10 @@ A handler panic is recorded once with `status_class` `5xx` and a duration sample
 | `teeproxy_storage_operations_total`           | counter   | `backend`, `namespace`, `operation`, `outcome` | Storage operations by backend, namespace, operation, and outcome. |
 | `teeproxy_storage_operation_duration_seconds` | histogram | `backend`, `namespace`, `operation`            | Storage operation latency by backend, namespace, and operation.   |
 
-Label values: `backend` is `redis` or `gcs`; `namespace` is `results`/`backups`/`backupIndex`; `operation` is `set`/`set_with_ttl`/`get`/`remove`; `outcome` is `success`/`not_found`/`cancelled`/`error`.
+Label values: `backend` is `redis` or `gcs`; `namespace` is `results`/`backups`/`backupIndex`; `operation` is `set`/`set_with_ttl`/`get`/`remove`; `outcome` is `success`/`not_found`/`cancelled`/`timeout`/`error`.
 Of the `operation` values only `get` and `set_with_ttl` are emitted by the wired namespaces; `set` and `remove` do not currently appear.
-`cancelled` is a caller-side context expiry or cancellation (e.g. the post-timeout "hopeful" result fetch after a TEE-node stall, or a write aborted by shutdown) — the backend was not necessarily at fault, so it is excluded from the storage error alerts.
+`cancelled` is a caller-side cancellation, or a deadline that was already spent before the operation started (e.g. the post-timeout "hopeful" result fetch after a TEE-node stall, or a write aborted by shutdown) — the backend was not necessarily at fault, so it is excluded from the storage error alerts.
+`timeout` is a deadline the operation consumed itself (the 10s result/backup write budgets): a hung or degraded backend, which under the GCS client's retry-until-deadline policy only ever surfaces this way, so it is included in the storage error alerts alongside `error`.
 
 ## `queue`
 
