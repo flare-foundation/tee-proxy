@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
@@ -72,6 +73,7 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.
 			defer cancel()
 			state, err := database.FetchState(ctx, db, nil)
 			if err != nil {
+				logger.Warnf("cchain delay gauge: reading indexer state: %v", err)
 				return 0
 			}
 			return time.Since(time.Unix(int64(state.BlockTimestamp), 0)).Seconds()

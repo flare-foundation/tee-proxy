@@ -202,6 +202,8 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 		err = utils.VerifySignature(signingHash[:], response.Signature, teeID)
 		if err != nil {
 			s.metrics.InfoRefreshFailed("verify_signature")
+			// set-site Warn: the alert pages on one occurrence, but Run() Debug-logs one-shot failures
+			logger.Warnf("TEE info response signature verification failed: %v", err)
 			return common.Hash{}, fmt.Errorf("verifying response signature: %w", err)
 		}
 

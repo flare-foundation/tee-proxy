@@ -53,7 +53,9 @@ groups:
           description: >-
             Consensus reached threshold but the finalized action could not be enqueued to the
             main queue (enqueue failures only; build/send losses are counted separately by
-            teeproxy_finalized_action_lost_total). Requires the `voting` metric group.
+            teeproxy_finalized_action_lost_total). The action ID is in the proxy log line
+            "enqueuing finalized action ... failed, action lost". Requires the `voting` metric
+            group.
 
       - alert: TeeProxyFinalizedActionLost
         expr: increase(teeproxy_finalized_action_lost_total{reason="build_error"}[5m]) > 0

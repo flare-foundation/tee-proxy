@@ -157,7 +157,7 @@ func (s *Service) Forward(ctx context.Context) error {
 			err := s.aq.Enqueue(ctx, action, processorutils.Main)
 			if err != nil {
 				s.metrics.FinalizedActionEnqueueFailed()
-				logger.Warnf("enqueuing instruction action: %v", err)
+				logger.Warnf("enqueuing finalized action %v (tag %v) failed, action lost: %v", action.Data.ID, action.Data.SubmissionTag, err)
 				continue
 			}
 		}
