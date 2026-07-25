@@ -39,6 +39,11 @@ import (
 	pkgwallets "github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
 
+// TestChainID is used to bind FDC message hashes in integration tests, which
+// run against mocked storage rather than a real chain, so any fixed value
+// consistently used on both the signing and verifying side is valid.
+const TestChainID uint64 = 114
+
 type ProxyConfig struct {
 	ExtPort     uint
 	IntPort     uint
@@ -105,7 +110,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	// Setup action and result services
 	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
 	backupIndex := testutil.NewMemStorage[common.Hash]()
-	resultService := result.NewService(rs)
+	resultService := result.NewService(rs, TestChainID)
 	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
 
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
@@ -138,7 +143,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	err = resultService.SetIdentity(teeID)
 	require.NoError(t, err)
 
-	metaObj := meta.New(walletStorage)
+	metaObj := meta.New(walletStorage, TestChainID)
 
 	vc := (&config.Voting{
 		ProposalExpiration: 600 * time.Millisecond,
@@ -146,7 +151,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}).SetDefault()
 
 	policyChan := make(chan policy.SigningPolicy, 1)
-	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj)
+	instService := instruction.NewService(ctx, vc, teeID, TestChainID, policyChan, aq, metaObj)
 	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, aq, server.DirectConfig{})
 
 	wg.Go(func() {

@@ -143,7 +143,7 @@ func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data
 func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, priv *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
 	t.Helper()
 
-	h, err := iData.HashForSigning()
+	h, err := iData.HashForSigning(TestChainID)
 	require.NoError(t, err)
 
 	sig, err := instruction.SignInstructionHash(h, priv)

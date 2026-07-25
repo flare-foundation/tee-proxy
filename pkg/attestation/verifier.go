@@ -115,7 +115,12 @@ func Verify(tir *types.TeeInfoResponse, sentChallenge common.Hash, cfg *Config) 
 	}
 
 	claims := &googlecloud.GoogleTeeClaims{}
-	_, _, err := googlecloud.ParseAndValidatePKITokenClaims(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, claims)
+	// Zero-value Policy: this only activates the library's JWT-level checks (sig, iss,
+	// exp, leeway) with their defaults. The Apply-only claim checks it would otherwise
+	// run (secboot, dbgstat, image_id, hwmodel, eat_nonce) are deliberately skipped here
+	// and instead performed below by this file's own verifyClaims/nonce check, which use
+	// cfg's Config fields directly.
+	_, _, err := googlecloud.ParseAndValidatePKITokenClaims(tir.Attestation, cfg.RootCert, cfg.LeafCRL, cfg.IntermediateCRL, googlecloud.Policy{}, claims)
 	if err != nil {
 		return fmt.Errorf("validating attestation JWT: %w", err)
 	}

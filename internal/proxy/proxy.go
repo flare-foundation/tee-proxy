@@ -98,7 +98,7 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
-	resultService := result.NewService(resultStorage)
+	resultService := result.NewService(resultStorage, cfg.ChainID.Uint64())
 	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
 
 	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
@@ -157,8 +157,8 @@ func Run(ctx context.Context, cfgPath string) {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
-	meta := meta.New(walletService)
-	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta)
+	meta := meta.New(walletService, cfg.ChainID.Uint64())
+	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, cfg.ChainID.Uint64(), policyChan, actionQueues, meta)
 	go instructionService.Run(ctx)
 
 	directCfg := server.DirectConfig{

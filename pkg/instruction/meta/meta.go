@@ -36,12 +36,15 @@ type Meta interface {
 }
 
 type meta struct {
-	ws *wallets.Service
+	ws      *wallets.Service
+	chainID uint64
 }
 
 // New creates a Meta implementation backed by the given wallets Service.
-func New(ws *wallets.Service) Meta {
-	return &meta{ws}
+// chainID binds FDC message hashes to this chain (see fdc.HashMessage), and
+// must match the chain this proxy instance is configured for.
+func New(ws *wallets.Service, chainID uint64) Meta {
+	return &meta{ws, chainID}
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
@@ -145,27 +148,31 @@ func xrpCosigners(data *instruction.DataFixed, ws *wallets.Service) (map[common.
 	return cosigners, cosignerThreshold, nil
 }
 
-func (*meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
+func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
 	switch data.OPCommand {
 	case op.Prove.Hash():
-		return fdcCheckConsistency(data, signer)
+		return fdcCheckConsistency(data, signer, m.chainID)
 	}
 
 	return nil
 }
 
 // fdcCheckConsistency checks that signer of the FDC message is the same as the signer of the whole instruction.
-func fdcCheckConsistency(data *instruction.Data, signer common.Address) error {
+func fdcCheckConsistency(data *instruction.Data, signer common.Address, chainID uint64) error {
 	fdcReq, err := fdc.DecodeRequest(data.OriginalMessage)
 	if err != nil {
 		return fmt.Errorf("decoding FDC request: %w", err)
 	}
 
 	resBody := data.AdditionalFixedMessage
-	h, _, _, _, err := fdc.HashMessage(fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
+	messageHash, _, err := fdc.HashMessage(chainID, fdcReq, resBody, data.Cosigners, data.CosignersThreshold, data.Timestamp)
 	if err != nil {
 		return fmt.Errorf("hashing FDC message: %w", err)
 	}
+	// Cosigner/variable-message signatures are recovered against the relay-prefixed
+	// hash, not the bare messageHash (see fdc.RelayPrefixedHash doc) — same value this
+	// check verified against before HashMessage split it out of a single return tuple.
+	h := fdc.RelayPrefixedHash(messageHash)
 
 	sig := data.AdditionalVariableMessage
 	err = utils.VerifySignature(h[:], sig, signer)

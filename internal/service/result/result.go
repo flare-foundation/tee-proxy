@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
@@ -40,8 +41,9 @@ type Service struct {
 	// A channel for backup trigger actions (UPDATE_POLICY)
 	BackupTrigger chan bool
 
-	mu    sync.RWMutex
-	teeID common.Address
+	mu      sync.RWMutex
+	teeID   common.Address
+	chainID uint64
 
 	// storageMu guards lastStorageErr independently of mu so storage outcomes
 	// can be recorded without blocking the RLock held during ProcessAndStore.
@@ -49,14 +51,17 @@ type Service struct {
 	lastStorageErr error
 }
 
-// NewService creates a new result service.
-func NewService(rs *ResultStorage) *Service {
+// NewService creates a new result service. chainID binds the expected
+// signer's ActionResult signature to this chain (see recoverSigner), and
+// must match the chain this proxy instance is configured for.
+func NewService(rs *ResultStorage, chainID uint64) *Service {
 	kat := make(chan *types.ActionResult, keyActionsChanSize)
 	bst := make(chan *types.ActionResult, backupsChanSize)
 	btt := make(chan bool, backupTriggerChanSize)
 
 	return &Service{
 		rs:            rs,
+		chainID:       chainID,
 		KeyActions:    kat,
 		Backups:       bst,
 		BackupTrigger: btt,
@@ -83,7 +88,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 	defer s.mu.RUnlock()
 
 	if s.teeID.Cmp(common.Address{}) != 0 {
-		signer, err := recoverSigner(r)
+		signer, err := recoverSigner(r, s.chainID)
 		if err != nil {
 			logger.Errorf("recover signer for result %s: %v, result log: %s", r.Result.ID, err, r.Result.Log)
 			return fmt.Errorf("recovering signer: %w", err)
@@ -152,8 +157,17 @@ func (s *Service) Serve(ctx context.Context, actionID common.Hash, submissionTag
 	return s.rs.FetchResponse(ctx, actionID, submissionTag)
 }
 
-func recoverSigner(ar *types.ActionResponse) (common.Address, error) {
-	hash := accounts.TextHash((&ar.Result).Hash())
+// recoverSigner recovers the address that signed ar. Must mirror tee-node's
+// SignResult (internal/router/utils.go): the TEE signs
+// accounts.TextHash(signing.Payload{TEEActionResult, chainID, ar.Result.Hash()}.Hash()),
+// not the bare result hash.
+func recoverSigner(ar *types.ActionResponse, chainID uint64) (common.Address, error) {
+	signHash, err := csigning.NewPayload(csigning.TEEActionResult, chainID, common.BytesToHash((&ar.Result).Hash())).Hash()
+	if err != nil {
+		return common.Address{}, err
+	}
+
+	hash := accounts.TextHash(signHash[:])
 
 	pub, err := crypto.SigToPub(hash, ar.Signature)
 	if err != nil {

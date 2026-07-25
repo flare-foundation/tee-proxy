@@ -70,8 +70,9 @@ func FDCProve(
 	require.NoError(t, err)
 
 	// Verify FDC response signatures
-	msgToSign, fdcMsgHash, _, _, err := fdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
+	fdcMsgHash, _, err := fdc.HashMessage(utils.TestChainID, originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
+	msgToSign := fdc.RelayPrefixedHash(fdcMsgHash)
 
 	err = teeUtils.VerifySignature(fdcMsgHash.Bytes(), fdcResponse.TEESignature, pc.TeeID)
 	require.NoError(t, err)
@@ -123,7 +124,7 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [3
 	additionalFixedMessageEncoded, err := types.EncodeTeeAttestationRequest(&additionalFixedMessage)
 	require.NoError(t, err)
 
-	fdcMsgHash, _, _, _, err := fdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
+	fdcMsgHash, _, err := fdc.HashMessage(utils.TestChainID, originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
 
 	variableMessages := make([]hexutil.Bytes, 0)

@@ -11,7 +11,7 @@ import (
 // storage outcome wins, so a successful store clears the prior error and liveness
 // recovers without a pod restart.
 func TestLastStorageErrSetAndClear(t *testing.T) {
-	s := NewService(nil)
+	s := NewService(nil, 0)
 
 	require.NoError(t, s.LastStorageErr())
 
