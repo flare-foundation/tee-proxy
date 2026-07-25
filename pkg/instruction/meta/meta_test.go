@@ -16,7 +16,7 @@ import (
 )
 
 func TestFDCMeta(t *testing.T) {
-	m := New(nil)
+	m := New(nil, 0)
 
 	atb := []byte("TeeAvailabilityCheck")
 	at := common.Hash{}
@@ -72,7 +72,7 @@ func TestFDCMeta(t *testing.T) {
 	require.Equal(t, uint64(2), cst)
 
 	// consistency
-	hash, _, _, _, err := fdc.HashMessage(ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
+	hash, _, err := fdc.HashMessage(0, ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
 	require.NoError(t, err)
 
 	sk, err := crypto.GenerateKey()
@@ -96,7 +96,7 @@ func TestFDCMeta(t *testing.T) {
 }
 
 func TestMetaGeneral(t *testing.T) {
-	m := New(nil)
+	m := New(nil, 0)
 
 	data := &instruction.DataFixed{
 		InstructionID:          [32]byte{},

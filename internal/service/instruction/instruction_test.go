@@ -55,7 +55,7 @@ func TestVoting(t *testing.T) {
 	}
 
 	iData.AdditionalVariableMessage = hexutil.Bytes("ADD_VAR_1")
-	h, err := iData.HashForSigning()
+	h, err := iData.HashForSigning(0)
 	require.NoError(t, err)
 
 	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
@@ -67,7 +67,7 @@ func TestVoting(t *testing.T) {
 	}
 
 	iData.AdditionalVariableMessage = hexutil.Bytes("ADD_VAR_2")
-	h, err = iData.HashForSigning()
+	h, err = iData.HashForSigning(0)
 	require.NoError(t, err)
 
 	s2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
@@ -134,7 +134,7 @@ func TestStatus(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := iData.HashForSigning()
+	h, err := iData.HashForSigning(0)
 	require.NoError(t, err)
 
 	s1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
@@ -195,7 +195,7 @@ func TestStatus(t *testing.T) {
 	iData2 := *iData
 	iData2.OriginalMessage = []byte("TODO2")
 
-	h2, err := iData2.HashForSigning()
+	h2, err := iData2.HashForSigning(0)
 	require.NoError(t, err)
 
 	s3, err := instruction.SignInstructionHash(h2, testutil.PrivKey3)
@@ -315,7 +315,7 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 			AdditionalVariableMessage: hexutil.Bytes{},
 		}
 
-		hash, err := iData.HashForSigning()
+		hash, err := iData.HashForSigning(0)
 		require.NoError(t, err, "Failed to generate hash for signing for %s", name)
 
 		signature, err := instruction.SignInstructionHash(hash, testutil.PrivKey1)
@@ -386,7 +386,7 @@ func createBaseInstructionData(testName string, teeID common.Address) *instructi
 func signInstruction(t *testing.T, iData *instruction.Data, privateKey *ecdsa.PrivateKey) *instruction.Instruction {
 	t.Helper()
 
-	hash, err := iData.HashForSigning()
+	hash, err := iData.HashForSigning(0)
 	require.NoError(t, err)
 
 	signature, err := instruction.SignInstructionHash(hash, privateKey)
