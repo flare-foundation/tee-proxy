@@ -29,7 +29,8 @@ var (
 
 // Service processes incoming instructions and manages threshold-based voting consensus.
 type Service struct {
-	teeID common.Address
+	teeID   common.Address
+	chainID uint64
 
 	vs *voting.Storage
 
@@ -38,12 +39,15 @@ type Service struct {
 }
 
 // NewService creates a new instruction Service with the given voting config, TEE identity, and dependencies.
-func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) *Service {
+// chainID binds instruction signing hashes to this chain (see instruction.Data.HashForSigning), and must
+// match the chain this proxy instance is configured for.
+func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, chainID uint64, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta) *Service {
 	vs := voting.NewStorage(ctx, votingCfg, meta)
 
 	return &Service{
-		teeID: teeID,
-		vs:    vs,
+		teeID:   teeID,
+		chainID: chainID,
+		vs:      vs,
 
 		policies: policiesChan,
 		aq:       aq,
@@ -67,7 +71,7 @@ func (s *Service) ServeInstruction(_ context.Context, i *instruction.Instruction
 		return nil, errInvalidOP
 	}
 
-	hash, err := i.Data.HashForSigning()
+	hash, err := i.Data.HashForSigning(s.chainID)
 	if err != nil {
 		return nil, fmt.Errorf("hashing instruction: %w", err)
 	}
@@ -116,7 +120,7 @@ func (s *Service) ListenToPolicies(ctx context.Context) error {
 			return fmt.Errorf("policy listener stopped: %w", ctx.Err())
 		case policy := <-s.policies:
 			logger.Debugf("creating round for %d", policy.RewardEpochID)
-			logger.Debugf("overwriting round for %d", policy.RewardEpochID-s.vs.Size())
+			logger.Debugf("overwriting round for %d", policy.RewardEpochID-uint32(s.vs.Size()))
 			s.vs.StoreNewRound(&policy)
 		}
 	}

@@ -58,7 +58,7 @@ func TestStorage(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(0)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -125,7 +125,7 @@ func TestFDCMessageValidity(t *testing.T) {
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, err := fdc.HashMessage(0, fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -176,7 +176,7 @@ func TestFDCMessage(t *testing.T) {
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, err := fdc.HashMessage(0, fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -235,7 +235,7 @@ func TestStorageConcurrent(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(0)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -301,7 +301,7 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(0)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -352,7 +352,7 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(0)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)

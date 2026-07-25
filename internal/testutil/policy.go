@@ -56,7 +56,10 @@ func init() {
 		Timestamp:          0,
 	}
 
-	TestSigningPolicy = policy.NewSigningPolicy(&event, nil)
+	TestSigningPolicy, err = policy.NewSigningPolicy(&event, nil)
+	if err != nil {
+		panic("cannot build test signing policy: " + err.Error())
+	}
 }
 
 // RandomNormalizedArray generates an array of n random floats that sum to 1
@@ -131,7 +134,10 @@ func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.
 		Timestamp:          0,
 	}
 
-	sp := policy.NewSigningPolicy(&event, nil)
+	sp, err := policy.NewSigningPolicy(&event, nil)
+	if err != nil {
+		panic("cannot build signing policy: " + err.Error())
+	}
 
 	return sp, privKeys
 }
