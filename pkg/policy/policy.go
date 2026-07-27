@@ -25,6 +25,25 @@ var (
 	errInvalidLogCount     = errors.New("invalid number of logs")
 )
 
+// UpdateFailureReason maps an UpdatePolicyAction error to a bounded metric reason
+// (pubkey_mismatch/sig_deadline/indexer/not_consecutive/build_failed); "" for nil.
+func UpdateFailureReason(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, errWrongAddressRecovered):
+		return "pubkey_mismatch"
+	case errors.Is(err, ErrDeadlineExceeded):
+		return "sig_deadline"
+	case errors.Is(err, ErrTooManyErrors), errors.Is(err, errInvalidLogCountPubKeys):
+		return "indexer"
+	case errors.Is(err, errNotConsecutivePolicy):
+		return "not_consecutive"
+	default:
+		return "build_failed"
+	}
+}
+
 // InitializePolicyAction prepares action for INITIALIZE_POLICY".
 // SigningPolicyInitialized event that precedes the last emitted by offset is used.
 // If such event is not found, the oldest found event is used.

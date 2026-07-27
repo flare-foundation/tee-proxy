@@ -5,12 +5,14 @@ package machinepath
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/machinepath"
@@ -33,6 +35,8 @@ type Service struct {
 	extensionID    common.Hash
 	chainID        uint64
 
+	metrics *metrics.Metrics
+
 	lastNonce uint64
 }
 
@@ -43,7 +47,7 @@ type Service struct {
 // (Safe nonzero), approveMachinePathList Safe transactions are collected and
 // pre-verified as authorization evidence alongside direct governance
 // signatures.
-func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, governance types.Governance, extensionID common.Hash, chainID uint64, initialNonce uint64) *Service {
+func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, managerAddress common.Address, governance types.Governance, extensionID common.Hash, chainID uint64, initialNonce uint64, m *metrics.Metrics) *Service {
 	return &Service{
 		aq:             aq,
 		responses:      responses,
@@ -52,6 +56,7 @@ func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, manager
 		extensionID:    extensionID,
 		chainID:        chainID,
 		lastNonce:      initialNonce,
+		metrics:        m,
 	}
 }
 
@@ -79,37 +84,49 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, fetchInterval time.Durat
 func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 	nonce, toBlock, found, err := machinepath.LatestSignedList(ctx, db, s.managerAddress, s.extensionID, s.lastNonce)
 	if err != nil {
-		logger.Errorf("fetching latest signed machine path list for extension %s: %v", s.extensionID, err)
+		logger.Warnf("fetching latest signed machine path list for extension %s: %v", s.extensionID, err)
+		s.metrics.MachinepathPollObserved("fetch_error")
 		return
 	}
 	if !found {
 		logger.Debugf("no machine path list newer than nonce %d for extension %s", s.lastNonce, s.extensionID)
+		s.metrics.MachinepathPollObserved("no_change")
 		return
 	}
 
 	action, err := machinepath.SetMachinePathListAction(ctx, db, s.managerAddress, s.governance, s.extensionID, s.chainID, nonce, toBlock)
 	if err != nil {
-		logger.Errorf("creating SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
+		logger.Warnf("creating SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
+		s.metrics.MachinepathPollObserved("build_error")
 		return
 	}
 
 	if err := s.aq.Enqueue(ctx, action, processorutils.Direct); err != nil {
-		logger.Errorf("enqueueing SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
+		logger.Warnf("enqueueing SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
+		s.metrics.MachinepathPollObserved("enqueue_error")
 		return
 	}
 
 	// Advance lastNonce only once the TEE node confirms the action succeeded;
 	// otherwise the next poll retries the same list.
+	start := time.Now()
 	response, err := s.responses.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, responseWaitTimeout)
+	s.metrics.ObserveNodeWait("machinepath", time.Since(start), err)
 	if err != nil {
-		logger.Errorf("waiting for SET_MACHINE_PATH_LIST response for nonce %d: %v", nonce, err)
+		logger.Warnf("waiting for SET_MACHINE_PATH_LIST response for nonce %d: %v", nonce, err)
+		// a shutdown cancellation is not a poll failure
+		if !errors.Is(err, context.Canceled) {
+			s.metrics.MachinepathPollObserved("wait_error")
+		}
 		return
 	}
 	if response.Result.Status != 1 {
-		logger.Errorf("SET_MACHINE_PATH_LIST action for nonce %d failed: %s", nonce, response.Result.Log)
+		logger.Warnf("SET_MACHINE_PATH_LIST action for nonce %d failed: %s", nonce, response.Result.Log)
+		s.metrics.MachinepathPollObserved("rejected")
 		return
 	}
 
 	s.lastNonce = nonce
+	s.metrics.MachinepathPollObserved("confirmed")
 	logger.Infof("confirmed machine path list nonce %d for extension %s", nonce, s.extensionID)
 }

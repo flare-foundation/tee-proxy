@@ -14,6 +14,9 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
+	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting/limiter"
+	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/meta"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -22,12 +25,13 @@ import (
 )
 
 var (
-	errVotingBeforeEvent      = fmt.Errorf("%w: voting started before the event", status.HTTP[400])
-	errActionAlreadyDeleted   = errors.New("already deleted")
-	errActionNotFinalized     = errors.New("not finalized")
-	errInvalidVoter           = fmt.Errorf("%w: invalid voter", status.HTTP[403])
-	errVotingEnded            = fmt.Errorf("%w: voting already ended", status.HTTP[410])
-	errSignatureAlreadyStored = fmt.Errorf("%w: signature already stored", status.HTTP[403])
+	errVotingBeforeEvent        = fmt.Errorf("%w: voting started before the event", status.HTTP[400])
+	errActionAlreadyDeleted     = errors.New("already deleted")
+	errActionNotFinalized       = errors.New("not finalized")
+	errInvalidVoter             = fmt.Errorf("%w: invalid voter", status.HTTP[403])
+	errInvalidCosignerThreshold = fmt.Errorf("%w: cosigner threshold exceeds cosigner set", status.HTTP[400])
+	errVotingEnded              = fmt.Errorf("%w: voting already ended", status.HTTP[410])
+	errSignatureAlreadyStored   = fmt.Errorf("%w: signature already stored", status.HTTP[403])
 )
 
 // eventFutureSlack is the allowed slippage between the local clock and the
@@ -98,6 +102,27 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 		return nil, errVotingBeforeEvent
 	}
 
+	// Admit the proposer before any metadata work: only registered providers within their
+	// pending cap may open a box, so an ineligible request is rejected after a single map
+	// lookup rather than after resolving cosigners and ABI-encoding under the epoch lock.
+	if err := round.limiter.Increment(signer); err != nil {
+		return nil, err
+	}
+
+	box, err := buildVoteBox(data, signer, round, meta, expirationTime)
+	if err != nil {
+		// The box never opened, so release the slot we reserved. A creation failure is not
+		// an expiry, so releasing it does not weaken the anti-spam cap.
+		round.limiter.Decrement(signer)
+		return nil, err
+	}
+
+	return box, nil
+}
+
+// buildVoteBox resolves the box threshold and cosigner set from instruction metadata and
+// assembles the voteBox. The caller admits the proposer via the limiter first.
+func buildVoteBox(data *instruction.Data, signer common.Address, round *Round, meta meta.Meta, expirationTime time.Duration) (*voteBox, error) {
 	t, err := meta.ThresholdBIPS(&data.DataFixed)
 	if err != nil {
 		return nil, fmt.Errorf("reading threshold: %w", err)
@@ -118,9 +143,11 @@ func startVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 		return nil, fmt.Errorf("reading cosigners: %w", err)
 	}
 
-	err = round.limiter.Increment(signer)
-	if err != nil {
-		return nil, err
+	// A cosigner threshold larger than the cosigner set can never be met and is the signature
+	// of the uint64->uint16 wrap (e.g. 65536 -> 0). Reject before newProposal truncates it so
+	// the finalization gate agrees with the signed uint64 value.
+	if cosignerThreshold > uint64(len(cosigners)) {
+		return nil, fmt.Errorf("%w: %d > %d", errInvalidCosignerThreshold, cosignerThreshold, len(cosigners))
 	}
 
 	box, err := newVoteBox(&data.DataFixed, signer, threshold, cosigners, cosignerThreshold)
@@ -291,7 +318,7 @@ func (vb *voteBox) addVote(signer common.Address, weight uint16, signature []byt
 	return receipt, false, nil
 }
 
-func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxes *voteBoxes) {
+func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxes *voteBoxes, m *metrics.Metrics) {
 	// Cancellable wait so shutdown doesn't leak per-box goroutines.
 	if d := time.Until(vb.EndTime); d > 0 {
 		select {
@@ -316,6 +343,10 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 		opCommand := vb.proposal.instruction.OPCommand
 		opType := vb.proposal.instruction.OPType
 
+		// An unfinalised box that reaches its end time has expired. The proposer's limiter
+		// pending count is intentionally NOT decremented here: the limiter caps unfinalised
+		// votings per provider as anti-spam, so an expired one must keep counting against that
+		// cap until the epoch rolls (see limiter.Limiter). Decrement runs only on finalize.
 		if !vb.Finalized {
 			logger.Debugf("closing non finalized box %v, %v", vb.iID, vb.iHash)
 			return nil
@@ -328,6 +359,7 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 			a, err := vb.Action(types.Threshold)
 			if err != nil {
 				logger.Errorf("failed creating threshold action for %v, %v: %v", vb.iID, vb.iHash, err)
+				m.FinalizedActionLost("build_error")
 			} else {
 				as = append(as, a)
 			}
@@ -339,6 +371,7 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 		a, err := vb.Action(types.End)
 		if err != nil {
 			logger.Errorf("failed creating end action for %v, %v: %v", vb.iID, vb.iHash, err)
+			m.FinalizedActionLost("build_error")
 		} else {
 			as = append(as, a)
 		}
@@ -350,8 +383,54 @@ func (vb *voteBox) scheduleEnd(ctx context.Context, out chan *types.Action, boxe
 		select {
 		case out <- a:
 		case <-ctx.Done():
+			m.FinalizedActionLost("send_cancelled")
 			return
 		}
+	}
+}
+
+// RejectReason maps an AddVote error to a bounded label for instructions_rejected_total;
+// unmatched errors return "other". The label set is mirrored by the metrics pre-init
+// (metrics.New) — keep the two in sync.
+func RejectReason(err error) string {
+	switch {
+	case errors.Is(err, errInvalidVoter):
+		return "invalid_voter"
+	case errors.Is(err, errVotingEnded):
+		return "voting_ended"
+	case errors.Is(err, errSignatureAlreadyStored):
+		return "duplicate_signature"
+	case errors.Is(err, errVotingBeforeEvent):
+		return "event_in_future"
+	case errors.Is(err, errNoRound):
+		return "no_round"
+	case errors.Is(err, errInconsistentData):
+		return "inconsistent"
+	case errors.Is(err, limiter.ErrLimitReached):
+		return "rate_limited"
+	case errors.Is(err, limiter.ErrCannotInitialize):
+		return "not_eligible"
+	case errors.Is(err, errInvalidCosignerThreshold):
+		return "invalid_cosigner_threshold"
+	case errors.Is(err, meta.ErrCosignerMismatch), errors.Is(err, meta.ErrCosignerThresholdMismatch):
+		return "invalid_cosigner_declaration"
+	case errors.Is(err, meta.ErrMalformedPayload):
+		return "malformed_payload"
+	case errors.Is(err, wallets.ErrWalletNotFound):
+		return "unknown_wallet"
+	case errors.Is(err, meta.ErrFDCThresholdTooLow),
+		errors.Is(err, meta.ErrFDCThresholdBelowHalf),
+		errors.Is(err, meta.ErrFDCThresholdTooHigh):
+		return "invalid_fdc_threshold"
+	case errors.Is(err, errTooManyCosigners),
+		errors.Is(err, errOriginalMessageTooBig),
+		errors.Is(err, errAdditionalMessageTooBig),
+		errors.Is(err, errAdditionalVariableTooBig):
+		return "oversized"
+	case errors.Is(err, errNonInstructionCommand):
+		return "non_instruction_command"
+	default:
+		return "other"
 	}
 }
 

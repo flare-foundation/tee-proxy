@@ -168,13 +168,13 @@ func TestThresholdBIPSFDC2(t *testing.T) {
 		wantErr     error
 	}{
 		{name: "zero falls back to policy default", bips: 0, want: -1},
-		{name: "below minimum", bips: 3999, cosigners: []common.Address{a, b, c}, coThreshold: 2, wantErr: errFDCThresholdTooLow},
+		{name: "below minimum", bips: 3999, cosigners: []common.Address{a, b, c}, coThreshold: 2, wantErr: ErrFDCThresholdTooLow},
 		{name: "minimum with cosigner majority", bips: 4000, cosigners: []common.Address{a, b, c}, coThreshold: 2, want: 4000},
-		{name: "below half without cosigner majority", bips: 4500, cosigners: []common.Address{a, b}, coThreshold: 1, wantErr: errFDCThresholdBelowHalf},
+		{name: "below half without cosigner majority", bips: 4500, cosigners: []common.Address{a, b}, coThreshold: 1, wantErr: ErrFDCThresholdBelowHalf},
 		{name: "below half with cosigner majority", bips: 4500, cosigners: []common.Address{a, b}, coThreshold: 2, want: 4500},
 		{name: "at half", bips: 5000, want: 5000},
 		{name: "high accepted", bips: 9999, want: 9999},
-		{name: "at maximum rejected", bips: 10000, cosigners: []common.Address{a, b, c}, coThreshold: 2, wantErr: errFDCThresholdTooHigh},
+		{name: "at maximum rejected", bips: 10000, cosigners: []common.Address{a, b, c}, coThreshold: 2, wantErr: ErrFDCThresholdTooHigh},
 	}
 
 	for _, tt := range tests {

@@ -12,7 +12,7 @@ It handles instruction submission with threshold-based voting consensus, wallet 
 ## Setup
 
 ```bash
-cp config.example.toml config/config.toml
+cp config/config.example.toml config/config.toml
 # Edit config/config.toml with your settings
 export PRIVATE_KEY=0x...
 ```
@@ -23,7 +23,8 @@ Requires: Redis server, MySQL/SQLite database with C-chain indexer data.
 
 ### Package Layout
 
-- **`cmd/proxy/`** — Entry point. Reads config from `./config/config.toml`, loads private key from env var, runs initialization in a goroutine, and listens for OS shutdown signals.
+- **`cmd/proxy/`** — Entry point.
+  Reads config from `./config/config.toml`, loads private key from env var, runs initialization in a goroutine, and listens for OS shutdown signals.
 - **`internal/`** — Private business logic (not importable by external packages).
 - **`pkg/`** — Reusable public packages (config, storage, status codes, policy, instruction types).
 - **`test/`** — Integration tests and shared test utilities.
@@ -45,7 +46,8 @@ Requires: Redis server, MySQL/SQLite database with C-chain indexer data.
 
 ### Key Infrastructure
 
-- **Queue system** (`internal/queue/`): Three queue types (Direct, Main, Backup) backed by Redis. Action bodies are kept under the configured `storage.action_ttl` (default 14 days).
+- **Queue system** (`internal/queue/`): Three queue types (Direct, Main, Backup) backed by Redis.
+  Action bodies are kept under the configured `storage.action_ttl` (default 14 days).
 - **Generic storage** (`pkg/storage/`): Redis-backed `Storage[T]` with get/set/queue/pub-sub operations, namespaced keys.
 - **Status mapping** (`pkg/status/`): Maps domain errors to HTTP status codes.
 - **Liveness** (`internal/liveness/`): Health checks monitoring C-chain indexer and info service delays.

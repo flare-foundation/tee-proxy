@@ -1,7 +1,9 @@
 package limiter
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -13,7 +15,16 @@ var (
 	ErrLimitReached     = fmt.Errorf("%w: propose limit reached", status.HTTP[429])
 )
 
-// Limiter caps how many concurrent unfinalised proposals a single voter may have open.
+// Limiter is the anti-spam control on the voting path: it caps how many unfinalised
+// proposals a single data provider may have open at once.
+//
+// Only registered data providers may start a voting process, and each may hold at most
+// maxPendingRequests proposals that have not finalised. A provider's pending count rises
+// when it starts a voting (Increment) and falls only when one finalises (Decrement); a
+// voting that expires without finalising stays counted, because an unfinalised voting is
+// the spam the cap exists to bound — releasing it on expiry would let a provider cycle
+// proposals (open, let expire, open again) to evade the limit. Counts are per reward
+// epoch: a fresh Limiter is built for each Round.
 type Limiter struct {
 	counter map[common.Address]*State
 
@@ -83,8 +94,48 @@ func (l *Limiter) Increment(address common.Address) error {
 	return nil
 }
 
+// VoterPending pairs a voter with its count of unfinalised (pending) proposals.
+type VoterPending struct {
+	Address common.Address
+	Pending uint
+}
+
+// TopPending returns up to n voters with the most unfinalised proposals, highest first,
+// excluding any with zero pending. Ties are broken by address for a stable ordering.
+func (l *Limiter) TopPending(n int) []VoterPending {
+	l.RLock()
+	pending := make([]VoterPending, 0, len(l.counter))
+	for addr, state := range l.counter {
+		if state.pending > 0 {
+			pending = append(pending, VoterPending{Address: addr, Pending: state.pending})
+		}
+	}
+	l.RUnlock()
+
+	return SortTopPending(pending, n)
+}
+
+// SortTopPending returns pending sorted by count descending (ties broken by ascending
+// address) and truncated to n; n < 0 returns all. It holds no lock, so callers merging
+// pending across rounds reuse the exact ordering TopPending applies.
+func SortTopPending(pending []VoterPending, n int) []VoterPending {
+	sort.Slice(pending, func(i, j int) bool {
+		if pending[i].Pending != pending[j].Pending {
+			return pending[i].Pending > pending[j].Pending
+		}
+		return bytes.Compare(pending[i].Address.Bytes(), pending[j].Address.Bytes()) < 0
+	})
+
+	if n >= 0 && len(pending) > n {
+		pending = pending[:n]
+	}
+	return pending
+}
+
 // Decrement decrements counter for address in round.
 //
+// It is called only when a proposal finalises; proposals that expire unfinalised are
+// deliberately left counted (see Limiter), so this must not be called on the expiry path.
 // If the address is not registered or has zero pending requests, the call is ineffectual.
 func (l *Limiter) Decrement(address common.Address) {
 	l.Lock()

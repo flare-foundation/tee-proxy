@@ -17,6 +17,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 
@@ -46,21 +47,26 @@ type Service struct {
 	timingConfig   *config.InfoTiming
 	attestationCfg *attestation.Config
 
+	metrics *metrics.Metrics
+
 	sync.RWMutex
 }
 
 // NewService creates an info Service that periodically refreshes TEE info from the tee-node
-// and, when ac.Enabled, verifies the response's attestation.
-func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config) *Service {
+// and, when ac.Enabled, verifies the response's attestation. m may be nil or disabled.
+// LastUpdated starts at construction time so info_service_delay_seconds reports real elapsed
+// time from boot instead of a multi-decade spike before the first refresh.
+func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config, m *metrics.Metrics) *Service {
 	return &Service{
 		Latest:      new(types.TeeInfoResponse),
-		LastUpdated: time.Unix(0, 0),
+		LastUpdated: time.Now(),
 
 		db:              db,
 		actionQueues:    aq,
 		responseStorage: rs,
 		timingConfig:    tc,
 		attestationCfg:  ac,
+		metrics:         m,
 	}
 }
 
@@ -97,12 +103,13 @@ func (s *Service) Run(ctx context.Context) error {
 		_, err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
 		if err != nil {
 			errCount++
+			logger.Debugf("tee info update failed (attempt %d): %v", errCount, err)
 		} else {
 			errCount = 0
 		}
 
-		if errCount > 5 {
-			logger.Errorf("tee info update unsuccessful in %d attempts: latest error: %v", errCount, err)
+		if errCount > 5 && (errCount == 6 || errCount%30 == 0) {
+			logger.Warnf("tee info update unsuccessful in %d attempts: latest error: %v", errCount, err)
 		}
 	}
 }
@@ -135,9 +142,13 @@ func newInfoAction(challenge common.Hash) (*types.Action, error) {
 
 // updateInfo updates the latest info by sending a TEE_INFO action to the TEE and waiting for the response.
 // Returns the challenge that was sent so callers can verify the response binds to it.
-func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common.Hash, error) {
+func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ common.Hash, err error) {
+	refreshStart := time.Now()
+	defer func() { s.metrics.InfoRefreshObserved(time.Since(refreshStart), err) }()
+
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
+		s.metrics.InfoRefreshFailed("fetch_block")
 		return common.Hash{}, fmt.Errorf("fetching latest block: %w", err)
 	}
 
@@ -145,19 +156,25 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common
 
 	action, err := newInfoAction(challenge)
 	if err != nil {
+		s.metrics.InfoRefreshFailed("create_action")
 		return common.Hash{}, fmt.Errorf("creating info action: %w", err)
 	}
 
 	err = s.actionQueues.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
+		s.metrics.InfoRefreshFailed("enqueue")
 		return common.Hash{}, fmt.Errorf("enqueueing info action: %w", err)
 	}
 
+	start := time.Now()
 	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
+	s.metrics.ObserveNodeWait("info", time.Since(start), err)
 	if err != nil {
+		s.metrics.InfoRefreshFailed("wait_response")
 		return common.Hash{}, fmt.Errorf("waiting for info response: %w", err)
 	}
 	if response.Result.Status != 1 {
+		s.metrics.InfoRefreshFailed("action_status")
 		return common.Hash{}, fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
 	}
 
@@ -165,29 +182,45 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common
 
 	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
+		s.metrics.InfoRefreshFailed("unmarshal")
 		return common.Hash{}, fmt.Errorf("unmarshaling info response: %w", err)
 	}
 
 	if s.attestationCfg != nil {
 		teeID, err := ParseTeeID(&result)
 		if err != nil {
+			s.metrics.InfoRefreshFailed("parse_tee_id")
 			return common.Hash{}, fmt.Errorf("parsing tee ID: %w", err)
 		}
 
 		signingHash, err := signing.NewPayload(signing.TEEActionResult, result.TeeInfo.ChainID, [32]byte(response.Result.Hash())).Hash()
 		if err != nil {
+			s.metrics.InfoRefreshFailed("signing_hash")
 			return common.Hash{}, fmt.Errorf("computing signing hash: %w", err)
 		}
 
 		err = utils.VerifySignature(signingHash[:], response.Signature, teeID)
 		if err != nil {
+			s.metrics.InfoRefreshFailed("verify_signature")
+			// set-site Warn: the alert pages on one occurrence, but Run() Debug-logs one-shot failures
+			logger.Warnf("TEE info response signature verification failed: %v", err)
 			return common.Hash{}, fmt.Errorf("verifying response signature: %w", err)
 		}
 
-		if vErr := attestation.Verify(&result, challenge, s.attestationCfg); vErr != nil {
+		vErr := attestation.Verify(&result, challenge, s.attestationCfg)
+		if s.attestationCfg.Enabled {
+			res, reason := attestationOutcome(&result, vErr)
+			s.metrics.AttestationVerified(res, reason)
+		}
+		if vErr != nil {
 			s.Lock()
+			changed := s.lastAttestationErr == nil || s.lastAttestationErr.Error() != vErr.Error()
 			s.lastAttestationErr = vErr
 			s.Unlock()
+			if changed {
+				logger.Warnf("attestation verification failed (sticky, readiness fails until restart): %v", vErr)
+			}
+			s.metrics.InfoRefreshFailed("verify_attestation")
 			return common.Hash{}, fmt.Errorf("verifying attestation: %w", vErr)
 		}
 	}
@@ -202,6 +235,22 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (common
 	s.LastUpdated = time.Now()
 
 	return challenge, nil
+}
+
+// attestationOutcome maps a completed attestation verification to its bounded metric labels.
+// An accepted magic_pass sentinel (nil error under AllowMagicPass) yields result "ok" with
+// reason ReasonMagicPass, keeping it distinguishable from a genuine JWT pass; any error yields
+// result "error" with the classified Reason. The vErr==nil gate guarantees the sentinel was
+// actually accepted — a magic_pass under AllowMagicPass=false returns ErrMagicPassDisabled and
+// takes the error branch, so IsMagicPass is only consulted after acceptance.
+func attestationOutcome(tir *types.TeeInfoResponse, vErr error) (result, reason string) {
+	if vErr != nil {
+		return "error", attestation.Reason(vErr)
+	}
+	if attestation.IsMagicPass(tir) {
+		return "ok", attestation.ReasonMagicPass
+	}
+	return "ok", attestation.Reason(nil)
 }
 
 // ParseTeeID returns the TEE identity: the address derived from the TEE public key in the response.

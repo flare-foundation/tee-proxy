@@ -15,6 +15,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction/voting"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -574,6 +575,14 @@ func TestServeInstructionRejectsNonCanonicalSignature(t *testing.T) {
 
 func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.SigningPolicy) (*miniredis.Miniredis, *redis.Client, *Service) {
 	t.Helper()
+	return setupInstructionServiceWithMetrics(t, teeID, sp, nil)
+}
+
+// setupInstructionServiceWithMetrics is like setupInstructionService but wires the given
+// metrics object into both the voting storage and the Service, so reason-label selection
+// in ServeInstruction can be asserted against a real registry. m may be nil (no-op).
+func setupInstructionServiceWithMetrics(t *testing.T, teeID common.Address, sp *policy.SigningPolicy, m *metrics.Metrics) (*miniredis.Miniredis, *redis.Client, *Service) {
+	t.Helper()
 
 	mr := miniredis.RunT(t)
 	c := storage.NewClient(mr.Addr())
@@ -583,19 +592,207 @@ func setupInstructionService(t *testing.T, teeID common.Address, sp *policy.Sign
 		FinalizedBufferSize: 3,
 	}).SetDefault()
 
-	vs := voting.NewStorage(t.Context(), vCfg, &testMeta{})
+	vs := voting.NewStorage(t.Context(), vCfg, &testMeta{}, m)
 	vs.StoreNewRound(sp)
 
-	aq := queue.NewActionQueues(c, time.Hour)
+	aq := queue.NewActionQueues(c, time.Hour, nil)
 	s := &Service{
 		teeID:    teeID,
 		vs:       vs,
 		policies: make(chan policy.SigningPolicy, 1),
 		aq:       aq,
 		chainID:  testChainID,
+		metrics:  m,
 	}
 
 	return mr, c, s
+}
+
+// rejectedCount reads teeproxy_instructions_rejected_total for the given reason label
+// from the metrics registry, returning 0 if no series with that label exists.
+func rejectedCount(t *testing.T, m *metrics.Metrics, reason string) float64 {
+	t.Helper()
+
+	fams, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	for _, f := range fams {
+		if f.GetName() != "teeproxy_instructions_rejected_total" {
+			continue
+		}
+		for _, mc := range f.GetMetric() {
+			for _, l := range mc.GetLabel() {
+				if l.GetName() == "reason" && l.GetValue() == reason {
+					return mc.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+// finalizedActionLostCount reads teeproxy_finalized_action_lost_total for the given reason
+// label from the metrics registry, returning 0 if no series with that label exists.
+func finalizedActionLostCount(t *testing.T, m *metrics.Metrics, reason string) float64 {
+	t.Helper()
+
+	fams, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	for _, f := range fams {
+		if f.GetName() != "teeproxy_finalized_action_lost_total" {
+			continue
+		}
+		for _, mc := range f.GetMetric() {
+			for _, l := range mc.GetLabel() {
+				if l.GetName() == "reason" && l.GetValue() == reason {
+					return mc.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+
+	return 0
+}
+
+// TestServeInstructionShutdownDropNotRejected guards the MA-21 fix: when consensus is reached
+// but the finalized-action send is cancelled at shutdown, ServeInstruction surfaces a
+// context.Canceled error that must NOT be counted as an instruction rejection — the drop is
+// already recorded under finalized_action_lost_total{reason="send_cancelled"}.
+func TestServeInstructionShutdownDropNotRejected(t *testing.T) {
+	teeID := common.HexToAddress("dead")
+	m := metrics.New(metrics.Config{Enable: true, Voting: true})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	defer c.Close() //nolint:errcheck
+
+	vCfg := (&config.Voting{HistorySize: 3, FinalizedBufferSize: 1}).SetDefault()
+	vs := voting.NewStorage(ctx, vCfg, &testMeta{}, m)
+	vs.StoreNewRound(testutil.TestSigningPolicy)
+
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+	s := &Service{
+		teeID:    teeID,
+		vs:       vs,
+		policies: make(chan policy.SigningPolicy, 1),
+		aq:       aq,
+		chainID:  testChainID,
+		metrics:  m,
+	}
+
+	// Saturate the finalized-action channel and cancel the service ctx so the finalizing
+	// vote's send blocks and falls through to the ctx.Done() arm.
+	vs.Out <- &types.Action{}
+	cancel()
+
+	iData := createBaseInstructionData("shutdown_drop", teeID)
+
+	iData.AdditionalVariableMessage = hexutil.Bytes("v1")
+	_, err := s.ServeInstruction(context.Background(), signInstruction(t, iData, testutil.PrivKey1))
+	require.NoError(t, err, "first vote opens the box without finalizing")
+
+	iData.AdditionalVariableMessage = hexutil.Bytes("v2")
+	_, err = s.ServeInstruction(context.Background(), signInstruction(t, iData, testutil.PrivKey2))
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled, "the finalized-action send was cancelled at shutdown")
+
+	require.Zero(t, rejectedCount(t, m, "other"), "a shutdown-cancelled send must not count as a rejection")
+	require.Equal(t, float64(1), finalizedActionLostCount(t, m, "send_cancelled"))
+}
+
+// TestServeInstructionRejectionMetrics drives ServeInstruction down each rejection branch
+// with a real metrics object and asserts the bounded reason label it selects. It guards
+// the literal labels and, for the catch-all branch, that AddVote errors are collapsed via
+// voting.RejectReason rather than reported as raw error text.
+func TestServeInstructionRejectionMetrics(t *testing.T) {
+	teeID := common.HexToAddress("dead")
+
+	invalidVoterKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name string
+		// build returns the instruction that drives the wanted rejection branch.
+		build      func(t *testing.T) *instruction.Instruction
+		wantReason string
+		// otherReason is a different bounded label expected to stay at 0.
+		otherReason string
+	}{
+		{
+			name: "WrongTeeID",
+			build: func(t *testing.T) *instruction.Instruction {
+				t.Helper()
+				iData := createBaseInstructionData("metrics_wrong_tee_id", teeID)
+				iData.TeeID = common.HexToAddress("wrong")
+				return signInstruction(t, iData, testutil.PrivKey1)
+			},
+			wantReason:  "wrong_tee_id",
+			otherReason: "invalid_op",
+		},
+		{
+			name: "InvalidOP",
+			build: func(t *testing.T) *instruction.Instruction {
+				t.Helper()
+				iData := createBaseInstructionData("metrics_invalid_op", teeID)
+				// Wallet + Pay is not a valid opType/opCommand pair.
+				iData.OPType = op.Wallet.Hash()
+				iData.OPCommand = op.Pay.Hash()
+				return signInstruction(t, iData, testutil.PrivKey1)
+			},
+			wantReason:  "invalid_op",
+			otherReason: "wrong_tee_id",
+		},
+		{
+			name: "InvalidSignature",
+			build: func(t *testing.T) *instruction.Instruction {
+				t.Helper()
+				iData := createBaseInstructionData("metrics_invalid_signature", teeID)
+				canonical := signInstruction(t, iData, testutil.PrivKey1).Signature
+				return &instruction.Instruction{
+					Data:      *iData,
+					Signature: highSVariant(t, canonical),
+				}
+			},
+			wantReason:  "invalid_signature",
+			otherReason: "invalid_op",
+		},
+		{
+			// AddVote fails because the signer is not in the signing policy: the limiter
+			// returns ErrCannotInitialize, which voting.RejectReason maps to "not_eligible".
+			// This pins the bounded label for an AddVote error surfaced from the limiter.
+			name: "AddVoteNotEligible",
+			build: func(t *testing.T) *instruction.Instruction {
+				t.Helper()
+				iData := createBaseInstructionData("metrics_addvote_not_eligible", teeID)
+				return signInstruction(t, iData, invalidVoterKey)
+			},
+			wantReason:  "not_eligible",
+			otherReason: "invalid_signature",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Fresh metrics per sub-test so counts do not bleed across cases.
+			m := metrics.New(metrics.Config{Enable: true, Voting: true})
+
+			mr, c, s := setupInstructionServiceWithMetrics(t, teeID, testutil.TestSigningPolicy, m)
+			defer mr.Close()
+			defer c.Close() //nolint:errcheck
+
+			_, err := s.ServeInstruction(context.Background(), tc.build(t))
+			require.Error(t, err, "expected rejection for %s", tc.name)
+
+			require.Equal(t, float64(1), rejectedCount(t, m, tc.wantReason),
+				"reason %q must be incremented exactly once", tc.wantReason)
+			require.Equal(t, float64(0), rejectedCount(t, m, tc.otherReason),
+				"reason %q must not be incremented", tc.otherReason)
+		})
+	}
 }
 
 type testMeta struct{}

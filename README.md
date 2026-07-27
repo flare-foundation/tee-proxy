@@ -1,14 +1,4 @@
-<div align="center">
-  <a href="https://flare.network/" target="blank">
-    <img src="https://content.flare.network/Flare-2.svg" width="300" alt="Flare Logo" />
-  </a>
-  <br />
-  <a href="CONTRIBUTING.md">Contributing</a>
-  ·
-  <a href="SECURITY.md">Security</a>
-  ·
-  <a href="CHANGELOG.md">Changelog</a>
-</div>
+<div align="center"> <a href="https://flare.network/" target="blank"> <img src="https://content.flare.network/Flare-2.svg" width="300" alt="Flare Logo" /> </a> <br /> <a href="CONTRIBUTING.md">Contributing</a> · <a href="SECURITY.md">Security</a> · <a href="CHANGELOG.md">Changelog</a> </div>
 
 # Flare TEE proxy
 
@@ -17,7 +7,7 @@
 Copy config.example.toml to config.toml
 
 ```bash
-cp ./config.example.toml ./config/config.toml
+cp ./config/config.example.toml ./config/config.toml
 ```
 
 and set the configurations.
@@ -44,6 +34,26 @@ The proxy listens on two TCP ports with different trust models:
   `POST /queue/*` is unauthenticated; `POST /result` verifies the TEE's signature but still relies on network isolation for the startup window.
   This port must **not** be reachable from outside the pod/host.
   Deployments must enforce this (e.g., Kubernetes `NetworkPolicy`, bind to loopback, or sidecar-only access).
+
+## Metrics
+
+Prometheus metrics are exposed on `GET /metrics` of the internal server (port `6661` by default; it follows `ports.internal`).
+They are opt-in: nothing is collected and the endpoint is not mounted unless `[metrics] enable = true`.
+The endpoint inherits the internal port's trust model — no app-layer authentication, and it must not be reachable from outside the pod/host.
+
+Collection is split into groups that can be toggled independently.
+When `enable = true`, an unset group is on; set a group to `false` to omit it.
+An omitted group does not collect its data unless that data is already needed elsewhere.
+The proxy refuses to start if metrics are enabled with every group disabled.
+
+```toml
+[metrics]
+enable = true
+# storage = false   # omit a single group; unset groups stay on
+```
+
+Groups: `http`, `storage`, `queue`, `voting`, `active_voters`, `result`, `wallet`, `info`, `attestation`, `policy`, `liveness`, `node`, `runtime`.
+Metric names are prefixed `teeproxy_`; the `runtime` group also exports the standard `go_*` and `process_*` collectors.
 
 ## Direct Endpoint
 
@@ -96,6 +106,9 @@ docker build -t {IMAGE_TAG} -f tee-proxy/Dockerfile
 ```
 
 ### Running
+
+The image ships without a config file.
+Bind-mount your `config.toml` to `/app/config/config.toml`; without it the proxy exits at startup.
 
 ```bash
 docker run -p 6661:6661 -p 6662:6662 \
