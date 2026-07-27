@@ -127,10 +127,10 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/ferranbt/fastssz v0.1.4 h1:OCDB+dYDEQDvAgtAGnTSidK1Pe2tW3nFV40XyMkTeDY=
 github.com/ferranbt/fastssz v0.1.4/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
-github.com/flare-foundation/go-flare-common v1.2.2-0.20260619092858-10bd8c2bb674 h1:MkhqBj37HSCzElwGXATDWYj0Nryony/8KPvInLpaN+o=
-github.com/flare-foundation/go-flare-common v1.2.2-0.20260619092858-10bd8c2bb674/go.mod h1:H9I3pwQAyiOK+jC7tFHYRZa5qxDeOldW+5VpRiUs6rA=
-github.com/flare-foundation/tee-node v0.0.21-0.20260619120252-31fc839ae6d2 h1:LUU78GN2+qQd4p/Cps6OqGD5Sxyi1A1/KzNsYLhytRQ=
-github.com/flare-foundation/tee-node v0.0.21-0.20260619120252-31fc839ae6d2/go.mod h1:PRlIEYbM+EcsLpnaDYHbnNruLBy8neWxKZE7v23zn0M=
+github.com/flare-foundation/go-flare-common v1.2.2-0.20260727094511-09a10067e6a4 h1:B+WFq+c1k1Y1OcJh2jrojcvo4d9lslPNn1ze5IrebbM=
+github.com/flare-foundation/go-flare-common v1.2.2-0.20260727094511-09a10067e6a4/go.mod h1:H9I3pwQAyiOK+jC7tFHYRZa5qxDeOldW+5VpRiUs6rA=
+github.com/flare-foundation/tee-node v0.0.23 h1:wFu6dTIZFrhVBWBd6PKbTQ02UlvU578B0P1R+acRUCM=
+github.com/flare-foundation/tee-node v0.0.23/go.mod h1:4BLiHby94bTeiARRXqXFtFPF850KPG0YpvOaOduv4rA=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fsouza/fake-gcs-server v1.55.1 h1:8IsUkVFYQnS/QLyci2ORdpn7pkmqs+6hnJ8w51bN7Gg=

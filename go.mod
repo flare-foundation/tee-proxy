@@ -6,8 +6,8 @@ require (
 	cloud.google.com/go/storage v1.64.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.17.2
-	github.com/flare-foundation/go-flare-common v1.2.2-0.20260619092858-10bd8c2bb674
-	github.com/flare-foundation/tee-node v0.0.21-0.20260619120252-31fc839ae6d2
+	github.com/flare-foundation/go-flare-common v1.2.2-0.20260727094511-09a10067e6a4
+	github.com/flare-foundation/tee-node v0.0.23
 	github.com/fsouza/fake-gcs-server v1.55.1
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/stretchr/testify v1.11.1

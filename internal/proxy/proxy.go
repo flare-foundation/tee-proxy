@@ -165,7 +165,11 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	if cfg.Addresses.MachinePathManager != (common.Address{}) {
-		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce)
+		governance, err := resolveGovernance(cfg.Governance, initialInfo.MachineData.GovernanceHash)
+		if err != nil {
+			logger.Panicf("governance configuration: %v", err)
+		}
+		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, governance, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce)
 		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
 	} else {
 		logger.Info("machine_path_manager address not set; machine path list service disabled")

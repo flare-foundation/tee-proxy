@@ -17,6 +17,11 @@ var (
 	// machinePathsAddedEventSel is the topic0 of the MachinePathsAdded event,
 	// which carries the paths appended to a list.
 	machinePathsAddedEventSel common.Hash
+	// machinePathListApprovedEventSel is the topic0 of the
+	// MachinePathListApproved event, emitted each time a governance Safe
+	// approves a list via approveMachinePathList. It pinpoints the Safe
+	// execTransaction that carries the owner signatures.
+	machinePathListApprovedEventSel common.Hash
 
 	// signMachinePathListSel is the 4-byte selector of the signMachinePathList
 	// method, whose calldata carries a single governance signature.
@@ -49,6 +54,12 @@ func init() {
 		panic(errors.New("MachinePathsAdded event not found in machinePathManager ABI"))
 	}
 	machinePathsAddedEventSel = addedEvent.ID
+
+	approvedEvent, ok := managerABI.Events["MachinePathListApproved"]
+	if !ok {
+		panic(errors.New("MachinePathListApproved event not found in machinePathManager ABI"))
+	}
+	machinePathListApprovedEventSel = approvedEvent.ID
 
 	signMethod, ok := managerABI.Methods["signMachinePathList"]
 	if !ok {
