@@ -76,6 +76,9 @@ Availability — probe/heartbeat-driven, so traffic-independent:
 | `TeeProxyDown`        | `up{job="tee-proxy"} == 0` for 2m                    | Prometheus cannot scrape the proxy. **Example only** — keys on the synthetic `up` metric; the `job` selector must match your scrape config. |
 | `TeeProxyPolicyFetchStalled` | `time() - teeproxy_policy_last_fetch_timestamp_seconds > 7200 and teeproxy_policy_last_fetch_timestamp_seconds > 0` for 5m | Signing-policy rollover stuck >2h (overdue gate); the heartbeat freezes once a rollover cannot complete, so it catches any stuck stage. |
 
+A startup config refusal — a governance-hash mismatch, or any of the other `Panicf` exits before `SignalStartupFinished` — is intentionally metric-free: the proxy dies before steady state, and in the resulting crash loop per-restart counter resets defeat `increase()`-based alerting, so a metric would only appear to provide coverage.
+Detection is the panic log line plus `TeeProxyDown`/`TeeProxyNotReady` and platform restart counts.
+
 Sustained degradation — pages after the condition persists (most have a warning sibling below; `TeeProxyWalletSyncWedged` pages directly):
 
 | Alert                                   | Condition                                                                                 | Why it pages                                                                                |
@@ -313,7 +316,7 @@ It gives lead time before the 140s readiness cutoff and attributes a readiness f
 | `teeproxy_node_response_wait_total`            | counter   | `path`, `result` | TEE-node response waits by path and outcome.                                        |
 | `teeproxy_machinepath_poll_total`              | counter   | `result`         | Machine-path poll cycles by result.                                                 |
 | `teeproxy_governance_posture`                  | gauge     | `setting`        | Machine-path governance posture: 1 if the named setting is active, else 0.          |
-| `teeproxy_governance_hash_match`               | gauge     | —                | 1 if the node's last-reported governance hash equals the proxy's startup snapshot.  |
+| `teeproxy_governance_hash_match`               | gauge (scrape-time) | —      | 1 if the node's last-reported governance hash equals the proxy's startup snapshot.  |
 
 Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`no_authorization`/`enqueue_error`/`wait_error`/`no_change`/`rejected`/`confirmed`.
 The `timeout` and `error` node-wait series are pre-initialized to 0 for every path so a first, possibly one-shot wait failure satisfies `increase(...) > 0`.

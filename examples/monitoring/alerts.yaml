@@ -296,10 +296,12 @@ groups:
           summary: "Machine-path poll cycle failing"
           description: >-
             A machine-path poll cycle failed before the node ever saw the action (fetching the
-            signed list, building the action, or enqueueing it), or failed/timed out waiting for
-            the node's confirmation (wait_error; wait latency is in
-            teeproxy_node_response_wait_total{path="machinepath"}). Requires the `node`
-            metric group.
+            signed list, building the action — under Safe-backed governance that includes
+            locating and parsing the Safe approval — or enqueueing it), or failed/timed out
+            waiting for the node's confirmation (wait_error; wait latency is in
+            teeproxy_node_response_wait_total{path="machinepath"}). Authorization absence is
+            not counted here — it has its own result value and alert
+            (TeeProxyMachinepathNoAuthorization). Requires the `node` metric group.
 
       - alert: TeeProxyMachinepathNoAuthorization
         expr: increase(teeproxy_machinepath_poll_total{result="no_authorization"}[15m]) > 0
@@ -323,11 +325,15 @@ groups:
         annotations:
           summary: "TEE node rejected the machine-path action"
           description: >-
-            The node returned a non-success status for a SET_MACHINE_PATH_LIST action — most
-            plausibly a governance/threshold mismatch between the node and the chain. The poller
-            never advances its nonce, so the same action is re-rejected every poll (~10m) until the
-            mismatch is resolved; the node's reason is in the proxy log line "SET_MACHINE_PATH_LIST
-            action for nonce ... failed". Requires the `node` metric group.
+            The node returned a non-success status for a SET_MACHINE_PATH_LIST action — for
+            direct signatures, most plausibly a governance/threshold mismatch between the node
+            and the chain. Safe approvals are pre-verified with the node's own check against its
+            attested governance snapshot, so under a configured [governance] a rejection implies
+            the direct-signature leg (or a post-startup governance rotation — see
+            TeeProxyGovernanceHashDrift). The poller never advances its nonce, so the same
+            action is re-rejected every poll (~10m) until the mismatch is resolved; the node's
+            reason is in the proxy log line "SET_MACHINE_PATH_LIST action for nonce ... failed".
+            Requires the `node` metric group.
 
       # Deployment-pinned like the magic_pass rules: enable only where [governance] must be
       # configured (e.g. a Safe-backed node). The posture gauge is set unconditionally at
@@ -338,7 +344,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "machine-path governance not configured"
+          summary: "Machine-path governance not configured"
           description: >-
             The proxy runs without a [governance] block: direct governance signatures are
             forwarded without local pre-verification (the legacy path), nothing is cross-checked
@@ -353,7 +359,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "node governance changed after startup"
+          summary: "Node governance changed after startup"
           description: >-
             The governance hash the node reports no longer matches the proxy's startup-resolved
             snapshot — the node was redeployed or re-attested with rotated governance while the
