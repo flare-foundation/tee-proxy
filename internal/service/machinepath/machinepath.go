@@ -97,7 +97,12 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 	action, err := machinepath.SetMachinePathListAction(ctx, db, s.managerAddress, s.governance, s.extensionID, s.chainID, nonce, toBlock)
 	if err != nil {
 		logger.Warnf("creating SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
-		s.metrics.MachinepathPollObserved("build_error")
+		// missing authorization evidence is a governance-config condition, not an infra fault
+		outcome := "build_error"
+		if errors.Is(err, machinepath.ErrNoAuthorization) {
+			outcome = "no_authorization"
+		}
+		s.metrics.MachinepathPollObserved(outcome)
 		return
 	}
 

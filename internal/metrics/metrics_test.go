@@ -463,7 +463,7 @@ func TestNodeDisabledIsNoOp(t *testing.T) {
 func TestMachinepathPollMetrics(t *testing.T) {
 	m := New(Config{Enable: true, Node: true})
 
-	results := []string{"fetch_error", "build_error", "enqueue_error", "wait_error", "no_change", "confirmed", "rejected"}
+	results := []string{"fetch_error", "build_error", "no_authorization", "enqueue_error", "wait_error", "no_change", "confirmed", "rejected"}
 
 	// All results pre-initialized at 0 so the poll-error warnings fire on the first occurrence.
 	require.Equal(t, len(results), testutil.CollectAndCount(m.machinepathPollTotal), "all results must be pre-initialized")

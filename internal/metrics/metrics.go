@@ -339,7 +339,7 @@ func New(cfg Config) *Metrics {
 			Help: "Machine-path poll cycles by result (including a node rejection as result=\"rejected\" and a failed or timed-out confirmation wait as result=\"wait_error\"); wait latency is in node_response_wait_total.",
 		}, []string{"result"})
 		// Pre-initialize so the poll-error/rejected warnings fire on the first occurrence.
-		for _, result := range []string{"fetch_error", "no_change", "build_error", "enqueue_error", "wait_error", "rejected", "confirmed"} {
+		for _, result := range []string{"fetch_error", "no_change", "build_error", "no_authorization", "enqueue_error", "wait_error", "rejected", "confirmed"} {
 			m.machinepathPollTotal.WithLabelValues(result).Add(0)
 		}
 	}
@@ -626,7 +626,10 @@ func nodeWaitResult(err error) string {
 }
 
 // MachinepathPollObserved records one machine-path poll-loop outcome under a bounded result
-// ("fetch_error"/"build_error"/"enqueue_error"/"wait_error"/"no_change"/"rejected"/"confirmed");
+// ("fetch_error"/"build_error"/"no_authorization"/"enqueue_error"/"wait_error"/"no_change"/"rejected"/"confirmed");
+// "no_authorization" is an activated list with no forwardable authorization evidence (neither
+// direct signatures nor a verifiable Safe approval — a governance-config condition, split out
+// of "build_error" so it does not read as an infra fault),
 // "rejected" is a node status!=1 rejection (err==nil, so invisible to node_response_wait_total),
 // "wait_error" a failed or timed-out confirmation wait (shutdown cancellations excluded).
 func (m *Metrics) MachinepathPollObserved(result string) {

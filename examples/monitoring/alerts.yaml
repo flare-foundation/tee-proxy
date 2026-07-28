@@ -301,6 +301,21 @@ groups:
             teeproxy_node_response_wait_total{path="machinepath"}). Requires the `node`
             metric group.
 
+      - alert: TeeProxyMachinepathNoAuthorization
+        expr: increase(teeproxy_machinepath_poll_total{result="no_authorization"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Machine-path list has no authorization evidence"
+          description: >-
+            An activated machine-path list carries no forwardable authorization evidence — no
+            direct governance signatures and no verifiable Safe approval (Safe candidates that
+            fail pre-verification are skipped and logged at debug). A governance-configuration
+            condition, not an infra fault: audit the proxy's [governance] block against the
+            node's governance and the on-chain evidence. The poller never advances its nonce,
+            so the same list is retried every poll (~10m) until authorization appears. Requires
+            the `node` metric group.
+
       - alert: TeeProxyMachinepathRejected
         expr: increase(teeproxy_machinepath_poll_total{result="rejected"}[15m]) > 0
         labels:
