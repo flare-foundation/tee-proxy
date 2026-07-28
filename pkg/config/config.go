@@ -68,6 +68,7 @@ var (
 	errGovernanceThresholdTooHigh           = errors.New("governance: threshold exceeds the number of signers")
 	errGovernanceZeroSigner                 = errors.New("governance: signer is the zero address")
 	errGovernanceSafePairing                = errors.New("governance: safe and tee_manager must be set together")
+	errGovernanceWithoutManager             = errors.New("governance: set but addresses.machine_path_manager is unset")
 	errMetricsNoGroups                      = errors.New("metrics enabled but all groups are disabled; enable at least one group or set enable = false")
 )
 
@@ -313,6 +314,12 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
+	// governance configures machine-path pre-verification only; without the
+	// manager address the whole block would be silently inert
+	if c.Governance.IsSet() && c.Addresses.MachinePathManager == (common.Address{}) {
+		return c, errGovernanceWithoutManager
+	}
+
 	err = c.Ports.validate()
 	if err != nil {
 		return c, err
@@ -427,6 +434,10 @@ func (a Addresses) validate() error {
 // Signers and Threshold are the plain governance signer set / threshold, or —
 // for Safe-backed governance — the Safe owners' snapshot and threshold. Safe
 // and TeeManager are set together only for Safe-backed governance.
+//
+// A set governance requires addresses.machine_path_manager: the block exists
+// only for the machine-path service, so configuring one without the other is
+// rejected at load time.
 type Governance struct {
 	Signers    []common.Address `toml:"signers"`
 	Threshold  uint64           `toml:"threshold"`

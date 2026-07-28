@@ -30,11 +30,12 @@ console = true
 flare_systems_manager = "0xa4bcDF64Cdd5451b6ac3743B414124A6299B65FF"
 relay = "0x5A0773Ff307Bf7C71a832dBB5312237fD3437f9F"
 voter_registry = "0xB00cC45B4a7d3e1FEE684cFc4417998A1c183e6d"
-machine_path_manager = "0x0000000000000000000000000000000000000000"  # zero disables the machine-path-list service (lists never updated; [governance] then unused)
+machine_path_manager = "0x0000000000000000000000000000000000000000"  # zero disables the machine-path-list service (lists never updated; [governance] must then be left unset)
 
 
 # TEE governance. Configure this ONLY when the extension's governance is a Safe;
 # for direct-signature governance leave the whole section out.
+# Requires a non-zero machine_path_manager — governance without it is rejected at config load.
 #
 # Safe-backed governance — required: set all four fields so the proxy can collect and
 # pre-verify the approveMachinePathList Safe transactions that authorize a machine-path
