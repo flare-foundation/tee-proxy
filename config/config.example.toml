@@ -136,7 +136,7 @@ enable = true
 # storage       = true   # Redis/GCS operation count and errors
 # queue         = true   # dequeue counters and queue-depth gauge
 # voting        = true   # instruction and votings-started counters, threshold-duration histogram
-# active_voters = true   # per-epoch gauges: data-provider voters, initiators, top-3 providers by unfinalized proposals
+# active_voters = true   # per-epoch gauges: data-provider voters and their weight, initiators, top-3 providers by unfinalized proposals, max voting weight, voting threshold
 # result        = true   # result throughput, lost, discarded, rejected, and channel-dropped counters (rejected{reason=wrong_tee_id} = TEE tamper/mis-route signal)
 # wallet        = true   # wallet key/proof sync-cycle outcome counter and cached-key gauge
 # info          = true   # TEE info per-stage refresh failures and refresh-duration histogram

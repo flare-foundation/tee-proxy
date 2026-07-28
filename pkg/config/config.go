@@ -215,7 +215,7 @@ type Metrics struct {
 	Storage      *bool `toml:"storage"`       // Generic Redis/GCS operation count and errors.
 	Queue        *bool `toml:"queue"`         // Action enqueue/dequeue counters and queue-depth gauge.
 	Voting       *bool `toml:"voting"`        // Instruction and votings-started counters, threshold-duration histogram.
-	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters, initiators, top providers).
+	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters and weight, initiators, top providers, voting threshold).
 	Result       *bool `toml:"result"`        // Result throughput, lost, discarded, rejected, and channel-dropped counters; rejected{reason=wrong_tee_id} is the TEE tamper/mis-route signal.
 	Wallet       *bool `toml:"wallet"`        // Wallet key/proof sync-cycle outcome counter and cached-key gauge.
 	Info         *bool `toml:"info"`          // TEE info per-stage refresh failures and end-to-end refresh-duration histogram.

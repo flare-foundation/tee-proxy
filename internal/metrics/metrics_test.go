@@ -669,6 +669,61 @@ teeproxy_active_initiators 4
 	require.False(t, called, "count functions must not be invoked when the group is disabled")
 }
 
+func TestActiveVoterWeightGauges(t *testing.T) {
+	tests := []struct {
+		name     string
+		register func(*Metrics, func() float64)
+		value    float64
+		expected string
+	}{
+		{
+			name:     "teeproxy_active_data_provider_weight_bips",
+			register: (*Metrics).RegisterActiveDataProviderWeight,
+			value:    5001,
+			expected: `
+# HELP teeproxy_active_data_provider_weight_bips Combined signing-policy weight, in BIPS of the policy total, of the distinct data-provider voters counted by active_data_provider_voters.
+# TYPE teeproxy_active_data_provider_weight_bips gauge
+teeproxy_active_data_provider_weight_bips 5001
+`,
+		},
+		{
+			name:     "teeproxy_max_voting_weight_bips",
+			register: (*Metrics).RegisterMaxVotingWeight,
+			value:    3333,
+			expected: `
+# HELP teeproxy_max_voting_weight_bips Highest provider weight, in BIPS of the policy total, accumulated by any single voting in the reported reward epoch.
+# TYPE teeproxy_max_voting_weight_bips gauge
+teeproxy_max_voting_weight_bips 3333
+`,
+		},
+		{
+			name:     "teeproxy_voting_threshold_bips",
+			register: (*Metrics).RegisterVotingThreshold,
+			value:    5000,
+			expected: `
+# HELP teeproxy_voting_threshold_bips Signing-policy finalization threshold in BIPS of total voter weight for the reported reward epoch; default votings finalize on weight strictly greater than this.
+# TYPE teeproxy_voting_threshold_bips gauge
+teeproxy_voting_threshold_bips 5000
+`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			on := New(Config{Enable: true, ActiveVoters: true})
+			test.register(on, func() float64 { return test.value })
+			require.Contains(t, gatheredNames(t, on), test.name)
+			require.NoError(t, testutil.GatherAndCompare(on.Registry(), strings.NewReader(test.expected), test.name))
+
+			off := New(Config{Enable: true, ActiveVoters: false})
+			called := false
+			test.register(off, func() float64 { called = true; return 1 })
+			require.Empty(t, gatheredNames(t, off), "disabled active-voters group registers no weight gauge")
+			require.False(t, called, "the gauge function must not be invoked when the group is disabled")
+		})
+	}
+}
+
 func TestTopProviderUnfinalizedProposals(t *testing.T) {
 	const name = "teeproxy_top_provider_unfinalized_proposals"
 

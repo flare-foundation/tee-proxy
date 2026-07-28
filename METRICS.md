@@ -27,7 +27,7 @@ For the histograms, use `histogram_quantile(0.95, rate(<name>_bucket[5m]))` for 
 | `storage`       | Redis/GCS operation count, latency, and errors                                                                   |
 | `queue`         | enqueue and dequeue counters, queue-depth gauge, and depth-read failure counter                                        |
 | `voting`        | instruction and votings-started counters, threshold-duration histogram                                                 |
-| `active_voters` | per-epoch participant gauges                                                                                           |
+| `active_voters` | per-epoch participant gauges, participating and per-voting weight, and the voting-threshold gauge                       |
 | `result`        | result throughput, lost, discarded, and rejected counters                                                              |
 | `wallet`        | wallet sync-cycle outcome counter, key-update/backup-apply failure counters, and cached-key gauge                      |
 | `info`          | TEE info refresh duration and per-stage failures                                                                       |
@@ -121,6 +121,7 @@ Other warnings (lead time / degradation that self-heals):
 | `TeeProxyGovernanceHashDrift`                       | `teeproxy_governance_hash_match == 0` for 15m                                                                                              | Node governance rotated after startup; Safe pre-verification is stale — update `[governance]` and restart.                                                                          |
 | `TeeProxyMachinepathRejected`                       | `increase(teeproxy_machinepath_poll_total{result="rejected"}[15m]) > 0`                                                                    | Node returned a non-success status for the machine-path action.                                    |
 | `TeeProxyConsensusStall`                            | votings started but none finalized in 15m                                                                                                  | Offline voters / mis-set threshold / partition.                                                    |
+| `TeeProxyLowVotingParticipation`                    | `teeproxy_active_data_provider_weight_bips <= teeproxy_voting_threshold_bips and increase(teeproxy_votings_started_total[1h]) > 0` for 1h   | Participating provider weight this epoch never exceeded the threshold, so default-threshold votings cannot finalize; the activity guard keeps idle epochs and restarts from paging. |
 | `TeeProxyPolicyUpdateFailing`                       | `sum(increase(teeproxy_policy_update_total{result=~"build_failed\|indexer\|enqueue_failed\|await_failed\|rejected"}[15m])) > 3` for 15m | A rollover keeps failing on a fast-retry reason (build/indexer/enqueue/await/rejected); a genuine wedge pages via `TeeProxyPolicyFetchStalled`.                         |
 | `TeeProxySigningPolicySignaturesShort` | `increase(teeproxy_policy_update_total{result="sig_deadline"}[35m]) > 0` | Stage-2 signature collection hit its 30m deadline; normal early in a rollover, pages via the overdue gate if it persists. |
 | `TeeProxyPolicyReconcileFrequent` | `increase(teeproxy_policy_update_total{result="reconciled"}[6h]) > 1` | Repeated reconciles — stage-4 confirmations timing out though the node applied the policy. |
@@ -201,16 +202,29 @@ All three `reason` series are pre-initialized to 0 at startup so the first, poss
 
 ## `active_voters`
 
-All gauges are per current reward epoch and scrape-time.
+All gauges are scrape-time and per reward epoch.
+The scalar gauges report the current reward epoch's round, falling back to its predecessor only while the current round has no accepted provider votes — the ~2h policy-adoption overlap, where the next policy's round already exists but voting continues in the previous epoch.
+All five report the same round, so their values are directly comparable.
+Reporting a max across both resident rounds instead would mask a participation collapse for the whole epoch, because the predecessor stays resident and both values are monotone.
+`top_provider_unfinalized_proposals` still merges both rounds, since an unfinalized proposal genuinely spans the overlap.
 
-| Metric                                        | Type                | Labels     | Description                                                                                                                                                                       |
-| --------------------------------------------- | ------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `teeproxy_active_data_provider_voters`        | gauge (scrape-time) | —          | Distinct data-provider voters (policy-registered, weight-bearing) that cast at least one accepted vote in the current reward epoch.                                               |
-| `teeproxy_active_initiators`                  | gauge (scrape-time) | —          | Distinct initiators (proposers) that opened at least one voting in the current reward epoch.                                                                                      |
-| `teeproxy_top_provider_unfinalized_proposals` | gauge (scrape-time) | `provider` | Unfinalized proposals held by each of the top 3 providers (by count) in the current reward epoch; providers with none are omitted, so the metric has no series when all are zero. |
+| Metric                                          | Type                | Labels     | Description                                                                                                                                                                       |
+| ----------------------------------------------- | ------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `teeproxy_active_data_provider_voters`          | gauge (scrape-time) | —          | Distinct data-provider voters (policy-registered, weight-bearing) that cast at least one accepted vote in the current reward epoch.                                               |
+| `teeproxy_active_initiators`                    | gauge (scrape-time) | —          | Distinct initiators (proposers) that opened at least one voting in the current reward epoch.                                                                                      |
+| `teeproxy_active_data_provider_weight_bips`     | gauge (scrape-time) | —          | Combined signing-policy weight, in BIPS of the policy total, of the distinct data-provider voters counted by `active_data_provider_voters`.                                        |
+| `teeproxy_max_voting_weight_bips`               | gauge (scrape-time) | —          | Highest provider weight, in BIPS of the policy total, accumulated by any single voting in the reported reward epoch.                                                               |
+| `teeproxy_voting_threshold_bips`                | gauge (scrape-time) | —          | Signing-policy finalization threshold in BIPS of total voter weight for the reported reward epoch.                                                                                 |
+| `teeproxy_top_provider_unfinalized_proposals`   | gauge (scrape-time) | `provider` | Unfinalized proposals held by each of the top 3 providers (by count) in the current reward epoch; providers with none are omitted, so the metric has no series when all are zero. |
 
 The `provider` label on `top_provider_unfinalized_proposals` is a voter address.
 It is bounded to at most 3 series per scrape, but the set of addresses that appear changes over time as different providers enter the top 3 (the usual cost of an address-valued label).
+
+The three BIPS gauges exist for the decentralized deployment requirement: more than 50% of data-provider signing-policy weight must participate in instruction voting, and weight — not voter count — is what finalizes a voting.
+All three are per-epoch cumulative and monotone within an epoch (weight is only ever added, and the watermark only rises), so they answer "has enough weight participated yet", not "at what rate".
+They are in-memory only, so after a restart they rebuild from live votes and read low until the epoch's traffic repopulates them.
+`active_data_provider_weight_bips` is the epoch-wide participation figure, `max_voting_weight_bips` answers the sharper deployment-readiness question — has any single proposal gathered enough weight to finalize — and `voting_threshold_bips` is the comparison line for both.
+The threshold gauge is the signing policy's own threshold, which covers default-threshold votings; a per-instruction FDC threshold (4000–9999 BIPS) overrides it for that box, so votings carrying one can finalize above or below the gauge's line.
 
 ## `result`
 

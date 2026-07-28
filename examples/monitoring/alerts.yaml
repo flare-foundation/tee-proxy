@@ -454,6 +454,24 @@ groups:
             mis-set threshold, or a partition. Warning; a full sustained stall is a candidate to
             escalate to critical. Requires the `voting` metric group.
 
+      # Decentralization gate: >50% of data-provider signing-policy weight must participate.
+      - alert: TeeProxyLowVotingParticipation
+        expr: |
+          teeproxy_active_data_provider_weight_bips <= teeproxy_voting_threshold_bips
+            and increase(teeproxy_votings_started_total[1h]) > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Participating provider weight at or below the voting threshold"
+          description: >-
+            The data-provider weight that has voted this reward epoch has not exceeded the
+            signing-policy threshold while votings are being opened, so default-threshold votings
+            cannot finalize. Both gauges are per-epoch cumulative, so this is a participation
+            shortfall, not a slow patch. The activity guard keeps idle epochs and restarts (the
+            gauges rebuild in-memory from live votes) from paging on silence. Requires the
+            `active_voters` and `voting` metric groups.
+
   # Signing-policy rollover. TeeProxyPolicyFetchStalled is the catch-all page (any stuck stage);
   # policy_update_total{result} reasons give the per-stage cause.
   - name: tee-proxy.policy

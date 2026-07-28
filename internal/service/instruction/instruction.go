@@ -49,10 +49,14 @@ type Service struct {
 func NewService(ctx context.Context, votingCfg *config.Voting, teeID common.Address, policiesChan <-chan policy.SigningPolicy, aq *queue.ActionQueues, meta meta.Meta, chainID uint64, m *metrics.Metrics) *Service {
 	vs := voting.NewStorage(ctx, votingCfg, meta, m)
 
-	// Report current-epoch participant counts and the oldest resident signing-policy epoch at
-	// scrape time; each is a no-op when its metric group is disabled.
+	// Report current-epoch participant counts, participating and per-voting weight against the
+	// finalization threshold, and the oldest resident signing-policy epoch at scrape time; each
+	// is a no-op when its metric group is disabled.
 	m.RegisterActiveDataProviderVoters(func() float64 { return float64(vs.CurrentRoundProviderVoterCount()) })
 	m.RegisterActiveInitiators(func() float64 { return float64(vs.CurrentRoundInitiatorCount()) })
+	m.RegisterActiveDataProviderWeight(vs.CurrentVotedWeightBips)
+	m.RegisterMaxVotingWeight(vs.CurrentMaxVotingWeightBips)
+	m.RegisterVotingThreshold(vs.CurrentVotingThresholdBips)
 	m.RegisterTopUnfinalizedProposals(func() []metrics.ProviderPending {
 		top := vs.CurrentRoundTopPending(3)
 		out := make([]metrics.ProviderPending, len(top))

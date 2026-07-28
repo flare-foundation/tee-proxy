@@ -511,6 +511,44 @@ func (m *Metrics) RegisterActiveDataProviderVoters(count func() float64) {
 	}, count))
 }
 
+// RegisterActiveDataProviderWeight registers a scrape-time gauge of bips(), the combined
+// weight of the current reward epoch's data-provider voters. No-op when active-voters is
+// disabled.
+func (m *Metrics) RegisterActiveDataProviderWeight(bips func() float64) {
+	if !m.ActiveVotersEnabled() || bips == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "active_data_provider_weight_bips",
+		Help: "Combined signing-policy weight, in BIPS of the policy total, of the distinct data-provider voters counted by active_data_provider_voters.",
+	}, bips))
+}
+
+// RegisterMaxVotingWeight registers a scrape-time gauge of bips(), the highest provider weight
+// any single voting accumulated in the reported reward epoch. No-op when active-voters is
+// disabled.
+func (m *Metrics) RegisterMaxVotingWeight(bips func() float64) {
+	if !m.ActiveVotersEnabled() || bips == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "max_voting_weight_bips",
+		Help: "Highest provider weight, in BIPS of the policy total, accumulated by any single voting in the reported reward epoch.",
+	}, bips))
+}
+
+// RegisterVotingThreshold registers a scrape-time gauge of bips(), the reported reward epoch's
+// signing-policy finalization threshold. No-op when active-voters is disabled.
+func (m *Metrics) RegisterVotingThreshold(bips func() float64) {
+	if !m.ActiveVotersEnabled() || bips == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "voting_threshold_bips",
+		Help: "Signing-policy finalization threshold in BIPS of total voter weight for the reported reward epoch; default votings finalize on weight strictly greater than this.",
+	}, bips))
+}
+
 // ProviderPending pairs a provider address with its count of unfinalized proposals.
 type ProviderPending struct {
 	Provider string
