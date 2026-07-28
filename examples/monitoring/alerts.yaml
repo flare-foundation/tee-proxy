@@ -329,6 +329,40 @@ groups:
             mismatch is resolved; the node's reason is in the proxy log line "SET_MACHINE_PATH_LIST
             action for nonce ... failed". Requires the `node` metric group.
 
+      # Deployment-pinned like the magic_pass rules: enable only where [governance] must be
+      # configured (e.g. a Safe-backed node). The posture gauge is set unconditionally at
+      # startup, so the series exists whenever the node metric group is enabled.
+      - alert: TeeProxyGovernanceNotConfigured
+        expr: teeproxy_governance_posture{setting="configured"} == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "machine-path governance not configured"
+          description: >-
+            The proxy runs without a [governance] block: direct governance signatures are
+            forwarded without local pre-verification (the legacy path), nothing is cross-checked
+            against the node's attested governance hash, and no Safe approvals are collected —
+            on a Safe-backed node, pure-Safe lists fail every poll as result="no_authorization".
+            A state gauge, so it is sustained by nature. DEPLOYMENT-PINNED rule; a Safe-backed
+            deployment may pin setting="safe_backed" instead. Requires the `node` metric group.
+
+      - alert: TeeProxyGovernanceHashDrift
+        expr: teeproxy_governance_hash_match == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "node governance changed after startup"
+          description: >-
+            The governance hash the node reports no longer matches the proxy's startup-resolved
+            snapshot — the node was redeployed or re-attested with rotated governance while the
+            proxy kept running. The identical condition at startup is a fatal refusal; arising
+            later it silently stales Safe pre-verification (new valid approvals are skipped,
+            surfacing only as no_authorization at the next list activation). Update [governance]
+            and restart the proxy. The series exists only when [governance] is set and the
+            machine-path service is enabled. Requires the `node` metric group.
+
       # HTTP 5xx is a request-path signal, so it cannot escalate on duration (a quiet-but-broken
       # endpoint never accumulates a window). Warn on any 5xx; page on a majority-failing RATIO
       # with a minimum-sample guard; rely on TeeProxyNotReady as the zero-traffic backstop.

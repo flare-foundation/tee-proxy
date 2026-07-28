@@ -109,6 +109,7 @@ type Metrics struct {
 	nodeWaitTotal    *prometheus.CounterVec
 
 	machinepathPollTotal *prometheus.CounterVec
+	governancePosture    *prometheus.GaugeVec
 
 	policyEpoch     prometheus.Gauge
 	policyLastFetch prometheus.Gauge
@@ -342,6 +343,10 @@ func New(cfg Config) *Metrics {
 		for _, result := range []string{"fetch_error", "no_change", "build_error", "no_authorization", "enqueue_error", "wait_error", "rejected", "confirmed"} {
 			m.machinepathPollTotal.WithLabelValues(result).Add(0)
 		}
+		m.governancePosture = f.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace, Name: "governance_posture",
+			Help: "Machine-path governance posture: 1 if the named setting is active, else 0.",
+		}, []string{"setting"})
 	}
 
 	if cfg.Policy {
@@ -637,6 +642,44 @@ func (m *Metrics) MachinepathPollObserved(result string) {
 		return
 	}
 	m.machinepathPollTotal.WithLabelValues(result).Inc()
+}
+
+// SetGovernancePosture records the machine-path governance posture, setting the
+// governance_posture gauge to 1 for each active setting and 0 otherwise. The setting
+// key set is closed — the sole caller passes a fixed-key literal map: configured,
+// safe_backed. Set unconditionally at startup (pure config), so the series exists
+// even when the machine-path service itself is disabled.
+func (m *Metrics) SetGovernancePosture(settings map[string]bool) {
+	if m == nil || m.governancePosture == nil {
+		return
+	}
+	for k, on := range settings {
+		v := 0.0
+		if on {
+			v = 1
+		}
+		m.governancePosture.WithLabelValues(k).Set(v)
+	}
+}
+
+// NodeEnabled reports whether node-interaction metrics are collected.
+func (m *Metrics) NodeEnabled() bool {
+	return m != nil && m.cfg.Enable && m.cfg.Node
+}
+
+// RegisterGovernanceHashMatch registers a scrape-time gauge reporting whether the
+// governance hash the tee-node last reported still equals the proxy's startup-resolved
+// snapshot (1 = match, 0 = the node's governance rotated after startup, so Safe
+// pre-verification runs against a stale snapshot). Registered only when [governance]
+// is configured; no-op when the node group is disabled.
+func (m *Metrics) RegisterGovernanceHashMatch(match func() float64) {
+	if !m.NodeEnabled() || match == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "governance_hash_match",
+		Help: "1 if the node's last-reported governance hash equals the proxy's startup snapshot, else 0.",
+	}, match))
 }
 
 // SetActiveRewardEpoch records the reward epoch of the active signing policy.

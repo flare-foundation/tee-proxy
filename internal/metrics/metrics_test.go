@@ -479,6 +479,55 @@ func TestMachinepathPollMetrics(t *testing.T) {
 	require.Equal(t, len(results), testutil.CollectAndCount(m.machinepathPollTotal), "each result must be its own series")
 }
 
+func TestGovernancePosture(t *testing.T) {
+	m := New(Config{Enable: true, Node: true})
+
+	m.SetGovernancePosture(map[string]bool{"configured": true, "safe_backed": false})
+	require.Equal(t, float64(1), testutil.ToFloat64(m.governancePosture.WithLabelValues("configured")))
+	require.Equal(t, float64(0), testutil.ToFloat64(m.governancePosture.WithLabelValues("safe_backed")))
+
+	// Set is idempotent: flipping a setting updates the same series.
+	m.SetGovernancePosture(map[string]bool{"safe_backed": true})
+	require.Equal(t, float64(1), testutil.ToFloat64(m.governancePosture.WithLabelValues("safe_backed")))
+}
+
+func TestGovernancePostureDisabledIsNoOp(t *testing.T) {
+	var nilMetrics *Metrics
+	require.NotPanics(t, func() { nilMetrics.SetGovernancePosture(map[string]bool{"configured": true}) })
+
+	off := New(Config{Enable: true, Node: false})
+	require.NotPanics(t, func() { off.SetGovernancePosture(map[string]bool{"configured": true}) })
+	require.Nil(t, off.governancePosture, "disabled node group leaves the posture gauge nil")
+
+	n, err := testutil.GatherAndCount(off.Registry(), "teeproxy_governance_posture")
+	require.NoError(t, err)
+	require.Zero(t, n)
+}
+
+func TestGovernanceHashMatchGauge(t *testing.T) {
+	m := New(Config{Enable: true, Node: true})
+	m.RegisterGovernanceHashMatch(func() float64 { return 1 })
+
+	const expected = `
+# HELP teeproxy_governance_hash_match 1 if the node's last-reported governance hash equals the proxy's startup snapshot, else 0.
+# TYPE teeproxy_governance_hash_match gauge
+teeproxy_governance_hash_match 1
+`
+	require.NoError(t, testutil.GatherAndCompare(m.Registry(), strings.NewReader(expected), "teeproxy_governance_hash_match"))
+}
+
+func TestGovernanceHashMatchGaugeDisabled(t *testing.T) {
+	m := New(Config{Enable: true, Node: false})
+
+	matchCalled := false
+	m.RegisterGovernanceHashMatch(func() float64 { matchCalled = true; return 1 })
+
+	n, err := testutil.GatherAndCount(m.Registry(), "teeproxy_governance_hash_match")
+	require.NoError(t, err)
+	require.Zero(t, n, "must register no series when the node group is disabled")
+	require.False(t, matchCalled)
+}
+
 func TestPolicyMetrics(t *testing.T) {
 	m := New(Config{Enable: true, Policy: true})
 

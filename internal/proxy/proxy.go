@@ -181,10 +181,27 @@ func Run(ctx context.Context, cfgPath string) {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
+	logGovernancePosture(cfg.Governance)
+	proxyMetrics.SetGovernancePosture(map[string]bool{
+		"configured":  cfg.Governance.IsSet(),
+		"safe_backed": cfg.Governance.SafeBacked(),
+	})
+
 	if cfg.Addresses.MachinePathManager != (common.Address{}) {
 		governance, err := resolveGovernance(cfg.Governance, initialInfo.MachineData.GovernanceHash)
 		if err != nil {
 			logger.Panicf("governance configuration: %v", err)
+		}
+		if cfg.Governance.IsSet() {
+			// a startup mismatch is fatal above; the same condition arising later
+			// (node redeployed with rotated governance) is otherwise silent
+			expected := governance.Hash
+			proxyMetrics.RegisterGovernanceHashMatch(func() float64 {
+				if infoService.LastGovernanceHash() == expected {
+					return 1
+				}
+				return 0
+			})
 		}
 		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, governance, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce, proxyMetrics)
 		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
