@@ -30,7 +30,27 @@ console = true
 flare_systems_manager = "0xa4bcDF64Cdd5451b6ac3743B414124A6299B65FF"
 relay = "0x5A0773Ff307Bf7C71a832dBB5312237fD3437f9F"
 voter_registry = "0xB00cC45B4a7d3e1FEE684cFc4417998A1c183e6d"
-machine_path_manager = "0x0000000000000000000000000000000000000000"
+machine_path_manager = "0x0000000000000000000000000000000000000000"  # zero disables the machine-path-list service (lists never updated; [governance] then unused)
+
+
+# TEE governance. Configure this ONLY when the extension's governance is a Safe;
+# for direct-signature governance leave the whole section out.
+#
+# Safe-backed governance — required: set all four fields so the proxy can collect and
+# pre-verify the approveMachinePathList Safe transactions that authorize a machine-path
+# list. Without them the proxy cannot assemble Safe authorization, so the node rejects
+# every list update. signers/threshold are the Safe owners' snapshot and its threshold;
+# safe and tee_manager are the governing Safe and the TeeManager it controls.
+#
+# Direct-signature governance — not needed: the proxy recovers the on-chain governance
+# signatures itself and forwards them for the node to verify. You may optionally set
+# signers + threshold alone (no safe/tee_manager) to have the proxy cross-check its
+# configured governance hash against the node's attested hash at startup.
+# [governance]
+# signers = ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+# threshold = 2
+# safe = "0x5afe5afe5afe5afe5afe5afe5afe5afe5afe5afe"
+# tee_manager = "0x1a9C4A0f9D76c0b1D91d22E24E573a9b377618aE"
 
 
 [ports]
