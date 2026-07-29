@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
 )
 
@@ -19,6 +21,58 @@ var ErrInvalidBody = fmt.Errorf("%w: invalid body", status.HTTP[400])
 // noBody is passed to prepareHandler when the endpoint expects no request body.
 // A value of 0 enforces a zero-byte body limit via http.MaxBytesReader.
 const noBody int64 = 0
+
+// statusRecorder wraps an http.ResponseWriter to capture the response status code,
+// defaulting to 200 for handlers that write a body without an explicit WriteHeader.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap exposes the wrapped writer so http.ResponseController and optional
+// interfaces (Flusher, Hijacker) reach the underlying ResponseWriter.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
+// instrumentHTTP wraps next so each request records count and latency under server.
+// It returns next unchanged when metrics or the HTTP group are disabled.
+// next must be the routed mux: r.Pattern is read after it serves, by which point
+// the mux has matched the route template.
+// A handler panic is recorded as a 5xx request and then re-raised so net/http still handles it.
+func instrumentHTTP(m *metrics.Metrics, server string, next http.Handler) http.Handler {
+	if !m.HTTPEnabled() {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		start := time.Now()
+
+		defer func() {
+			p := recover()
+			if p != nil {
+				// A panicking handler never completed a normal response; force the
+				// server-error class so the request is counted even when the handler
+				// already wrote a status. Panic status takes precedence.
+				rec.status = http.StatusInternalServerError
+			}
+			m.ObserveHTTP(server, r.Pattern, rec.status, time.Since(start))
+			if p != nil {
+				// Re-raise so net/http's per-connection recovery (logging, connection
+				// abort, http.ErrAbortHandler suppression) still runs.
+				panic(p)
+			}
+		}()
+
+		next.ServeHTTP(rec, r)
+	})
+}
 
 // prepareHandler wraps a handler function with common setup.
 // maxBodySize is passed to http.MaxBytesReader; pass a negative value to skip body limiting.

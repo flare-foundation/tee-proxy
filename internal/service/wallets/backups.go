@@ -25,7 +25,7 @@ import (
 const initiateBackupsConcurrency = 10
 
 // backupStoreTimeout caps each storage call in createNewBackup. Bounded so a degraded
-// Redis can't stall the wallet event loop indefinitely.
+// backup store (GCS or Redis) can't stall the wallet event loop indefinitely.
 const backupStoreTimeout = 10 * time.Second
 
 // InitiateBackups triggers TEE_BACKUP action for all stored keys.
@@ -114,14 +114,17 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	var b *wallets.TEEBackupResponse
 	err := json.Unmarshal(r.Data, &b)
 	if err != nil {
+		s.metrics.WalletBackupApplyFailed()
 		return fmt.Errorf("unmarshaling backup response: %w", err)
 	}
 	if b == nil {
+		s.metrics.WalletBackupApplyFailed()
 		return errors.New("backup response is nil")
 	}
 
 	idHash, err := b.BackupID.Hash()
 	if err != nil {
+		s.metrics.WalletBackupApplyFailed()
 		return fmt.Errorf("hashing backup ID: %w", err)
 	}
 	idHashKey := hex.EncodeToString(idHash[:])
@@ -143,8 +146,7 @@ func (s *Service) createNewBackup(ctx context.Context, r *types.ActionResult) er
 	err = s.index.SetWithTTL(indexCtx, toKey(idPair), idHash, s.backupTTL)
 	if err != nil {
 		// Body landed but index didn't: backup is orphaned until backupTTL.
-		logger.Errorf("backup orphaned for %v: body at %s but index write failed: %v", idPair, idHashKey, err)
-		return fmt.Errorf("storing backup index: %w", err)
+		return fmt.Errorf("storing backup index for %v (body orphaned at %s): %w", idPair, idHashKey, err)
 	}
 
 	return nil

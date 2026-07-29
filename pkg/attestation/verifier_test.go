@@ -24,7 +24,12 @@ import (
 const (
 	testHWModel     = "test_model"
 	testImageDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	testAudience    = "test-audience"
 )
+
+// testImageIDHash is the common.Hash form of testImageDigest, suitable for
+// googlecloud.Policy.AllowedImageIDs.
+var testImageIDHash = common.HexToHash("0x1111111111111111111111111111111111111111111111111111111111111111")
 
 // newTir builds a minimally valid TeeInfoResponse with matching pubkeys and the given challenge.
 func newTir(t *testing.T, challenge common.Hash) *types.TeeInfoResponse {
@@ -90,12 +95,14 @@ func TestVerifyEmbeddedRootCertDecodes(t *testing.T) {
 func TestActiveReflectsConfig(t *testing.T) {
 	cfg := &Config{
 		Enabled:             true,
+		Audience:            "rp",
 		ExpectedCodeHash:    []common.Hash{common.HexToHash("0x1")},
 		MaxTokenAge:         5 * time.Minute,
 		RequireSecBoot:      true,
 		ExpectedDebugStatus: []string{"disabled-since-boot"},
 	}
 	a := cfg.Active()
+	require.True(t, a.Audience)
 	require.True(t, a.CodeHash)
 	require.False(t, a.Platform)
 	require.True(t, a.DebugStatus)
@@ -133,7 +140,14 @@ func TestVerifyJWT(t *testing.T) {
 	})
 	tir.Attestation = signedJWT
 
-	base := func() *Config { return &Config{Enabled: true, RootCert: root} }
+	base := func() *Config {
+		return &Config{
+			Enabled:         true,
+			RootCert:        root,
+			Audience:        testAudience,
+			AllowedImageIDs: []common.Hash{testImageIDHash},
+		}
+	}
 
 	t.Run("happy path, no measurement checks", func(t *testing.T) {
 		require.NoError(t, Verify(tir, challenge, base()))
@@ -150,7 +164,11 @@ func TestVerifyJWT(t *testing.T) {
 		bad := newTir(t, challenge)
 		bad.TeeInfo.TeeTimestamp = tir.TeeInfo.TeeTimestamp + 1 // changes hash → nonce no longer matches
 		bad.Attestation = tir.Attestation
-		require.ErrorIs(t, Verify(bad, challenge, base()), ErrNonceMismatch)
+		// The EAT nonce is enforced inside the library policy, so a mismatch
+		// surfaces as the policy's eat_nonce error.
+		err := Verify(bad, challenge, base())
+		require.Error(t, err)
+		require.ErrorContains(t, err, "nonce")
 	})
 
 	t.Run("code hash allowlist", func(t *testing.T) {
@@ -207,13 +225,14 @@ func TestVerifyMaxTokenAgeMissingIat(t *testing.T) {
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
 		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 	})
 	tir.Attestation = signedJWT
 
-	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, MaxTokenAge: time.Hour})
+	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, Audience: testAudience, AllowedImageIDs: []common.Hash{testImageIDHash}, MaxTokenAge: time.Hour})
 	require.ErrorIs(t, err, ErrTokenTooOld)
 }
 
@@ -226,6 +245,7 @@ func TestVerifyMaxTokenAgeFutureIat(t *testing.T) {
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
 		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(2 * time.Hour)),
@@ -233,7 +253,7 @@ func TestVerifyMaxTokenAgeFutureIat(t *testing.T) {
 	})
 	tir.Attestation = signedJWT
 
-	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, MaxTokenAge: time.Hour})
+	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, Audience: testAudience, AllowedImageIDs: []common.Hash{testImageIDHash}, MaxTokenAge: time.Hour})
 	require.ErrorIs(t, err, ErrTokenTooOld)
 }
 
@@ -248,6 +268,7 @@ func TestVerifySecBootRejectsWhenDisabled(t *testing.T) {
 		SecBoot:  false,
 		HWModel:  testHWModel,
 		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
@@ -255,8 +276,41 @@ func TestVerifySecBootRejectsWhenDisabled(t *testing.T) {
 	})
 	tir.Attestation = signedJWT
 
-	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, RequireSecBoot: true})
+	err = Verify(tir, challenge, &Config{Enabled: true, RootCert: root, Audience: testAudience, AllowedImageIDs: []common.Hash{testImageIDHash}, RequireSecBoot: true})
 	require.ErrorIs(t, err, ErrSecBootDisabled)
+}
+
+func TestVerifyAudience(t *testing.T) {
+	const aud = "https://relying-party.example"
+	challenge := common.HexToHash("0xa11d")
+	tir := newTir(t, challenge)
+	teeInfoHash, err := tir.TeeInfo.Hash()
+	require.NoError(t, err)
+	nonce := hex.EncodeToString(teeInfoHash)
+
+	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
+		EATNonce: googlecloud.EATNonce{nonce},
+		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
+		RegisteredClaims: jwt.RegisteredClaims{
+			Audience:  jwt.ClaimStrings{aud},
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		},
+	})
+	tir.Attestation = signedJWT
+
+	t.Run("empty audience skips check", func(t *testing.T) {
+		require.NoError(t, Verify(tir, challenge, &Config{Enabled: true, RootCert: root, AllowedImageIDs: []common.Hash{testImageIDHash}}))
+	})
+
+	t.Run("matching audience passes", func(t *testing.T) {
+		require.NoError(t, Verify(tir, challenge, &Config{Enabled: true, RootCert: root, Audience: aud, AllowedImageIDs: []common.Hash{testImageIDHash}}))
+	})
+
+	t.Run("wrong audience rejected", func(t *testing.T) {
+		err := Verify(tir, challenge, &Config{Enabled: true, RootCert: root, Audience: "someone-else", AllowedImageIDs: []common.Hash{testImageIDHash}})
+		require.Error(t, err)
+	})
 }
 
 func TestVerifyMalformedJWT(t *testing.T) {
@@ -265,17 +319,29 @@ func TestVerifyMalformedJWT(t *testing.T) {
 	tir.Attestation = "not.a.jwt"
 
 	root, _ := generateTestCert(t, time.Now().Add(-time.Hour), time.Now().Add(time.Hour), true, nil, nil)
-	err := Verify(tir, challenge, &Config{Enabled: true, RootCert: root})
+	err := Verify(tir, challenge, &Config{Enabled: true, RootCert: root, Audience: testAudience, AllowedImageIDs: []common.Hash{testImageIDHash}})
 	require.Error(t, err)
 	require.False(t, errors.Is(err, ErrMagicPassDisabled))
 }
 
 func buildTestJWT(t *testing.T, claims googlecloud.GoogleTeeClaims) (*x509.Certificate, string) {
 	t.Helper()
+	// Verify pins the issuer to ConfidentialSpaceIssuer, which the library always enforces;
+	// real Confidential Space tokens carry it. Default it so tests need not repeat it.
+	if claims.Issuer == "" {
+		claims.Issuer = googlecloud.ConfidentialSpaceIssuer
+	}
 	now := time.Now()
 	root, rootKey := generateTestCert(t, now.Add(-time.Hour), now.Add(time.Hour), true, nil, nil)
 	inter, interKey := generateTestCert(t, now.Add(-time.Hour), now.Add(time.Hour), true, root, rootKey)
 	leaf, leafKey := generateTestCert(t, now.Add(-time.Hour), now.Add(time.Hour), false, inter, interKey)
+
+	if len(claims.Audience) == 0 {
+		claims.Audience = jwt.ClaimStrings{testAudience}
+	}
+	if claims.Issuer == "" {
+		claims.Issuer = googlecloud.ConfidentialSpaceIssuer
+	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	token.Header["x5c"] = []string{certToB64(leaf), certToB64(inter), certToB64(root)}

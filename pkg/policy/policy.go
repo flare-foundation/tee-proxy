@@ -25,6 +25,25 @@ var (
 	errInvalidLogCount     = errors.New("invalid number of logs")
 )
 
+// UpdateFailureReason maps an UpdatePolicyAction error to a bounded metric reason
+// (pubkey_mismatch/sig_deadline/indexer/not_consecutive/build_failed); "" for nil.
+func UpdateFailureReason(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, errWrongAddressRecovered):
+		return "pubkey_mismatch"
+	case errors.Is(err, ErrDeadlineExceeded):
+		return "sig_deadline"
+	case errors.Is(err, ErrTooManyErrors), errors.Is(err, errInvalidLogCountPubKeys):
+		return "indexer"
+	case errors.Is(err, errNotConsecutivePolicy):
+		return "not_consecutive"
+	default:
+		return "build_failed"
+	}
+}
+
 // InitializePolicyAction prepares action for INITIALIZE_POLICY".
 // SigningPolicyInitialized event that precedes the last emitted by offset is used.
 // If such event is not found, the oldest found event is used.
@@ -56,7 +75,10 @@ func InitializePolicyAction(
 		return nil, nil, 0, fmt.Errorf("parsing signing policy event: %w", err)
 	}
 
-	p := policy.NewSigningPolicy(event, nil)
+	p, err := policy.NewSigningPolicy(event, nil)
+	if err != nil {
+		return nil, nil, 0, fmt.Errorf("creating signing policy instance: %w", err)
+	}
 
 	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
 	if err != nil {
@@ -129,7 +151,38 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 		return nil, fmt.Errorf("parsing signing policy %d event: %w", signingPolicyID, err)
 	}
 
-	return policy.NewSigningPolicy(event, nil), nil
+	p, err := policy.NewSigningPolicy(event, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating signing policy %d instance: %w", signingPolicyID, err)
+	}
+
+	return p, nil
+}
+
+// FetchSigningPolicyLog fetches the SigningPolicyInitialized event log for the given
+// policy ID from the database. found is false (with a nil error) when no such event
+// exists yet — i.e. the reward epoch has not been initialized on chain.
+func FetchSigningPolicyLog(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (database.Log, bool, error) {
+	topics := [4]common.Hash{}
+	topics[0] = SigningPolicyInitializedEventSel
+	topics[1] = convert.Uint32ToHash(signingPolicyID)
+
+	params := database.LogsFullParams{
+		Address: relayAddress,
+		Topics:  topics,
+		Number:  1,
+	}
+
+	logs, err := database.FetchLogsFull(ctx, db, params)
+	if err != nil {
+		return database.Log{}, false, fmt.Errorf("fetching signing policy %d log: %w", signingPolicyID, err)
+	}
+
+	if len(logs) == 0 {
+		return database.Log{}, false, nil
+	}
+
+	return logs[0], true, nil
 }
 
 // prepareSignatures transforms a slice of Signatures to a slice SignatureMessage.
@@ -150,9 +203,14 @@ func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addre
 		return nil, nil, fmt.Errorf("parsing signing policy event: %w", err)
 	}
 
-	p := policy.NewSigningPolicy(event, nil)
+	p, err := policy.NewSigningPolicy(event, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("creating signing policy instance: %w", err)
+	}
 
-	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber), chainID)
+	// The transaction scan range is (start, to], so start one block below the
+	// SigningPolicyInitialized event
+	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber)-1, chainID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("preparing update policy message: %w", err)
 	}
@@ -170,8 +228,12 @@ func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
 }
 
 // policyRolloverSignatureDeadline caps how long collectSignatures waits for
-// on-chain signNewSigningPolicy endorsements during a policy rollover.
-const policyRolloverSignatureDeadline = 3 * time.Hour
+// on-chain signNewSigningPolicy endorsements during a single attempt of a policy
+// rollover. The update loop retries across attempts, so signatures that appear
+// late are still collected on a later attempt; this only bounds one attempt so the
+// loop can re-log progress and re-reconcile with the node. It is a var so tests can
+// shrink it.
+var policyRolloverSignatureDeadline = 30 * time.Minute
 
 func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64, chainID *big.Int) ([]byte, error) {
 	deadline := time.Now().Add(policyRolloverSignatureDeadline)

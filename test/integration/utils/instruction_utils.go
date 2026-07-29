@@ -16,12 +16,30 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/flare-foundation/go-flare-common/pkg/random"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
+
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/instruction/voting"
 	"github.com/stretchr/testify/require"
 )
+
+// TestChainID is the chain ID embedded in every integration instruction and configured on the
+// TEE via SetChainIDOnTEE. The instruction's signed hash and the TEE's expectedChainID must agree.
+const TestChainID uint64 = 14
+
+// ActionResultSignHash recomputes the domain-separated preimage the TEE signs over an action
+// result: signing.Payload{TEEActionResult, TestChainID, ActionResult.Hash()}.Hash(). The returned
+// bytes are suitable for teeUtils.VerifySignature, which applies the EIP-191 text-hash prefix.
+func ActionResultSignHash(t *testing.T, innerHash []byte) []byte {
+	t.Helper()
+
+	signHash, err := csigning.NewPayload(csigning.TEEActionResult, TestChainID, common.BytesToHash(innerHash)).Hash()
+	require.NoError(t, err)
+
+	return signHash[:]
+}
 
 func BuildInstructionData(
 	t *testing.T,
@@ -143,7 +161,7 @@ func SignAndSendInstructionsWithAddVarMsgs(t *testing.T, iData *instruction.Data
 func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, priv *ecdsa.PrivateKey, port uint) *voting.SignedReceipt {
 	t.Helper()
 
-	h, err := iData.HashForSigning()
+	h, err := iData.HashForSigning(TestChainID)
 	require.NoError(t, err)
 
 	sig, err := instruction.SignInstructionHash(h, priv)
@@ -158,8 +176,22 @@ func signAndSendSingleInstruction(t *testing.T, iData *instruction.Data, priv *e
 	require.NoError(t, err)
 
 	url := fmt.Sprintf("http://localhost:%d/instruction", port)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	require.NoError(t, err)
+
+	// A policy pushed to the proxy is applied asynchronously: ListenToPolicies creates the
+	// voting round in a separate goroutine, so an instruction submitted right after a policy
+	// change can outrun the round and get a 404 (the only 404 from POST /instruction is
+	// "no round"). Retry on 404 within the test timeout; any other status is returned as-is.
+	var resp *http.Response
+	deadline := time.Now().Add(TestTimeConfig.Timeout)
+	for {
+		resp, err = http.Post(url, "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		if resp.StatusCode != http.StatusNotFound || time.Now().After(deadline) {
+			break
+		}
+		resp.Body.Close() //nolint:errcheck
+		time.Sleep(TestTimeConfig.Interval)
+	}
 
 	defer resp.Body.Close() //nolint:errcheck
 
@@ -255,7 +287,7 @@ func VerifyActionResponse(t *testing.T, res *types.ActionResponse, submissionTag
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
 
-	err := teeUtils.VerifySignature(res.Result.Hash(), res.Signature, teeID)
+	err := teeUtils.VerifySignature(ActionResultSignHash(t, res.Result.Hash()), res.Signature, teeID)
 	require.NoError(t, err)
 }
 
@@ -285,7 +317,7 @@ func FetchAndVerifyActionResponse(t *testing.T, port uint, actionID common.Hash,
 	require.Equal(t, opType.Hash(), res.Result.OPType)
 	require.Equal(t, opCommand.Hash(), res.Result.OPCommand)
 
-	err := teeUtils.VerifySignature(res.Result.Hash(), res.Signature, teeID)
+	err := teeUtils.VerifySignature(ActionResultSignHash(t, res.Result.Hash()), res.Signature, teeID)
 	require.NoError(t, err)
 
 	return &res
@@ -303,6 +335,8 @@ func FetchAndVerifyRewardingData(t *testing.T, pc *ProxyConfig, instructionID co
 	require.Greater(t, len(receipts), 0)
 	require.Equal(t, common.BytesToHash(receipts[len(receipts)-1].Receipt.VoteHash[:]), rewData.VoteSequence.VoteHash)
 
-	err = teeUtils.VerifySignature(rewData.VoteSequence.VoteHash[:], rewData.Signature, pc.TeeID)
+	voteSignHash, err := csigning.NewPayload(csigning.TEEVoteHash, TestChainID, rewData.VoteSequence.VoteHash).Hash()
+	require.NoError(t, err)
+	err = teeUtils.VerifySignature(voteSignHash[:], rewData.Signature, pc.TeeID)
 	require.NoError(t, err)
 }

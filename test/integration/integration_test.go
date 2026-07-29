@@ -69,6 +69,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "TEE server did not start listening within timeout")
 	proxyUrl := fmt.Sprintf("http://localhost:%d", intPort)
 	integrationUtils.SetProxyURLOnTEE(t, teePort, proxyUrl)
+	integrationUtils.SetChainIDOnTEE(t, teePort, integrationUtils.TestChainID)
 
 	var wgProxy sync.WaitGroup
 	cfg, cleanup := integrationUtils.RunProxy(t, intPort, extPort, testutil.PrivKey1, &wgProxy)
@@ -99,8 +100,7 @@ func TestProxyTeeIntegration(t *testing.T) {
 		FeeSchedule:      []byte{0x13, 0x88, 0x00, 0x01, 0x27, 0x10, 0x00, 0x02},
 		PaymentReference: [32]byte{},
 		Nonce:            0,
-		SubNonce:         0,
-		BatchEndTs:       0,
+		PaymentId:        0,
 	}
 	integrationactions.SignTransaction(t, cfg, cfg.TeeID, paymentInstruction, providerPrivKeys, policy.RewardEpochID)
 	t.Log("Signed transaction")

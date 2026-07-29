@@ -5,20 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/server"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
+	"github.com/flare-foundation/tee-proxy/internal/service/machinepath"
 	"github.com/flare-foundation/tee-proxy/internal/service/policy"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
@@ -70,48 +73,65 @@ func Run(ctx context.Context, cfgPath string) {
 			logger.Warnf("closing Redis client: %v", err)
 		}
 	}()
-	actionQueues := queue.NewActionQueues(redisClient, cfg.Storage.ActionTTL)
+	proxyMetrics := metrics.New(metricsConfig(cfg.Metrics))
+
+	actionQueues := queue.NewActionQueues(redisClient, cfg.Storage.ActionTTL, proxyMetrics)
 
 	var (
-		resultStore storage.Storage[*types.ActionResponse]
-		backupStore storage.Storage[*teewallets.TEEBackupResponse]
-		backupIndex storage.Storage[common.Hash]
+		resultStore    storage.Storage[*types.ActionResponse]
+		backupStore    storage.Storage[*teewallets.TEEBackupResponse]
+		backupIndex    storage.Storage[common.Hash]
+		storageBackend string
 	)
 
-	if (cfg.Firestore != config.Firestore{}) {
-		fbClient, err := storage.NewFirestoreClient(ctx, cfg.Firestore.ProjectID, cfg.Firestore.DatabaseID, cfg.Firestore.CredentialsFile, cfg.Firestore.URL)
+	if cfg.GCS.Bucket != "" {
+		if cfg.GCS.URL != "" {
+			logger.Warnf("GCS endpoint override %q is active: the connection is UNAUTHENTICATED (emulator mode, not for production)", cfg.GCS.URL)
+		}
+		gcsClient, err := storage.NewGCSClient(ctx, cfg.GCS.CredentialsFile, cfg.GCS.URL)
 		if err != nil {
-			logger.Panicf("connecting to Firestore: %v", err)
+			logger.Panicf("connecting to Google Cloud Storage: %v", err)
 		}
 		defer func() {
-			if err := fbClient.Close(); err != nil {
-				logger.Warnf("closing Firestore client: %v", err)
+			if err := gcsClient.Close(); err != nil {
+				logger.Warnf("closing Google Cloud Storage client: %v", err)
 			}
 		}()
-		resultStore = storage.NewFirestoreStorage[*types.ActionResponse](fbClient, "results")
-		backupStore = storage.NewFirestoreStorage[*teewallets.TEEBackupResponse](fbClient, "backups")
-		backupIndex = storage.NewFirestoreStorage[common.Hash](fbClient, "backupIndex")
+		resultStore = storage.NewGCSStorage[*types.ActionResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "results"))
+		backupStore = storage.NewGCSStorage[*teewallets.TEEBackupResponse](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backups"))
+		backupIndex = storage.NewGCSStorage[common.Hash](gcsClient, cfg.GCS.Bucket, path.Join(cfg.GCS.Prefix, "backupIndex"))
+		logger.Infof("persistent storage backend: GCS bucket %q prefix %q", cfg.GCS.Bucket, cfg.GCS.Prefix)
+		storageBackend = "gcs"
 	} else {
 		resultStore = storage.NewRedisStorage[*types.ActionResponse]("results", redisClient)
 		backupStore = storage.NewRedisStorage[*teewallets.TEEBackupResponse]("backups", redisClient)
 		backupIndex = storage.NewRedisStorage[common.Hash]("backupIndex", redisClient)
+		logger.Info("persistent storage backend: Redis (gcs bucket not configured)")
+		storageBackend = "redis"
+	}
+
+	if obs := proxyMetrics.StorageObserver(); obs != nil {
+		resultStore = storage.WithMetrics(resultStore, obs, storageBackend, "results")
+		backupStore = storage.WithMetrics(backupStore, obs, storageBackend, "backups")
+		backupIndex = storage.WithMetrics(backupIndex, obs, storageBackend, "backupIndex")
 	}
 
 	resultStorage := result.NewStorage(resultStore, storage.NewNotifier(redisClient), cfg.Storage.ResultTTL, cfg.Storage.SubmitResultTTL)
-	resultService := result.NewService(resultStorage)
-	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL)
+	resultService := result.NewService(resultStorage, cfg.ChainID, proxyMetrics)
+	walletService := wallets.NewService(actionQueues, resultStorage, backupIndex, backupStore, cfg.Storage.BackupTTL, proxyMetrics)
 
-	attestationCfg, err := buildAttestationConfig(&cfg.Attestation)
+	attestationCfg, err := buildAttestationConfig(&cfg.Attestation, cfg.ChainID)
 	if err != nil {
 		logger.Panicf("building attestation config: %v", err)
 	}
 	logAttestationPosture(attestationCfg)
+	proxyMetrics.SetAttestationPosture(attestationPostureSettings(attestationCfg))
 
-	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg)
+	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg, proxyMetrics)
 
-	livenessService := liveness.New(db, redisClient, infoService, resultService)
+	livenessService := liveness.New(db, redisClient, infoService, resultService, proxyMetrics)
 
-	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService)
+	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService, proxyMetrics)
 	go runServer("internal", internalServer.Serve)
 
 	logger.Info("fetching initial TEE info")
@@ -129,11 +149,15 @@ func Run(ctx context.Context, cfgPath string) {
 
 	go func() {
 		if err := infoService.Run(ctx); err != nil {
-			logger.Errorf("info service exited: %v", err)
+			if errors.Is(err, context.Canceled) {
+				logger.Infof("info service exited: %v", err)
+			} else {
+				logger.Errorf("info service exited: %v", err)
+			}
 		}
 	}()
 
-	teeID, err := parseTeeID(initialInfo)
+	teeID, err := info.ParseTeeID(initialInfo)
 	if err != nil {
 		logger.Panicf("parsing TEE id: %v", err)
 	}
@@ -146,7 +170,7 @@ func Run(ctx context.Context, cfgPath string) {
 	go walletService.RunUpdateInfo(ctx, walletsSyncTrigger, resultService.BackupTrigger, resultService.KeyActions, resultService.Backups)
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, walletSyncPeriod)
 
-	policyService := policy.NewService(actionQueues, cfg.Addresses, cfg.ChainID)
+	policyService := policy.NewService(actionQueues, resultStorage, cfg.Addresses, cfg.ChainID, infoService, proxyMetrics)
 	err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset, initialInfo)
 	if err != nil {
 		logger.Panicf("initializing signing policy: %v", err)
@@ -157,19 +181,43 @@ func Run(ctx context.Context, cfgPath string) {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
 
-	meta := meta.New(walletService)
-	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta)
+	logGovernancePosture(cfg.Governance)
+	proxyMetrics.SetGovernancePosture(map[string]bool{
+		"configured":  cfg.Governance.IsSet(),
+		"safe_backed": cfg.Governance.SafeBacked(),
+	})
+
+	if cfg.Addresses.MachinePathManager != (common.Address{}) {
+		governance, err := resolveGovernance(cfg.Governance, initialInfo.MachineData.GovernanceHash)
+		if err != nil {
+			logger.Panicf("governance configuration: %v", err)
+		}
+		if cfg.Governance.IsSet() {
+			// a startup mismatch is fatal above; the same condition arising later
+			// (node redeployed with rotated governance) is otherwise silent
+			expected := governance.Hash
+			proxyMetrics.RegisterGovernanceHashMatch(func() float64 {
+				if infoService.LastGovernanceHash() == expected {
+					return 1
+				}
+				return 0
+			})
+		}
+		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, governance, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce, proxyMetrics)
+		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
+	} else {
+		logger.Info("machine_path_manager address not set; machine path list service disabled")
+	}
+
+	meta := meta.New(walletService, cfg.ChainID)
+	instructionService := instruction.NewService(ctx, &cfg.Voting, teeID, policyChan, actionQueues, meta, cfg.ChainID, proxyMetrics)
 	go instructionService.Run(ctx)
 
-	directCfg := server.DirectConfig{
-		Enable:         cfg.Direct.Enable,
-		APIKey:         cfg.Direct.APIKey,
-		APIKeyOptional: cfg.Direct.APIKeyOptional,
-	}
+	directCfg := directConfig(cfg.Direct)
 	if cfg.Direct.Enable && cfg.Direct.APIKeyOptional {
 		logger.Warn("/direct is enabled without API key authentication (api_key_optional = true)")
 	}
-	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, actionQueues, directCfg)
+	externalServer := server.NewExternal(cfg.Ports.External, instructionService, resultService, infoService, walletService, privKey, cfg.ChainID, actionQueues, directCfg, proxyMetrics)
 	go runServer("external", externalServer.Serve)
 
 	livenessService.SignalStartupFinished()
@@ -181,12 +229,20 @@ func Run(ctx context.Context, cfgPath string) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := internalServer.Close(shutdownCtx); err != nil {
-		logger.Warnf("shutting down internal server: %v", err)
-	}
-	if err := externalServer.Close(shutdownCtx); err != nil {
-		logger.Warnf("shutting down external server: %v", err)
-	}
+	// Parallel: the internal server's wait for result writes must not eat the
+	// external server's drain budget.
+	var closes sync.WaitGroup
+	closes.Go(func() {
+		if err := internalServer.Close(shutdownCtx); err != nil {
+			logger.Warnf("shutting down internal server: %v", err)
+		}
+	})
+	closes.Go(func() {
+		if err := externalServer.Close(shutdownCtx); err != nil {
+			logger.Warnf("shutting down external server: %v", err)
+		}
+	})
+	closes.Wait()
 }
 
 // runServer invokes serve and panics if it returns an error other than http.ErrServerClosed,
@@ -198,17 +254,46 @@ func runServer(name string, serve func() error) {
 	}
 }
 
-// parseTeeID extracts the TEE ID from the TEE info as the address corresponding to the public key.
-func parseTeeID(info *types.TeeInfoResponse) (common.Address, error) {
-	teePub, err := types.ParsePubKey(info.TeeInfo.PublicKey)
-	if err != nil {
-		return common.Address{}, err
+// directConfig maps the /direct endpoint configuration onto the server's DirectConfig,
+// including the body-size limit applied to POST /direct requests.
+func directConfig(c config.Direct) server.DirectConfig {
+	return server.DirectConfig{
+		Enable:         c.Enable,
+		APIKey:         c.APIKey,
+		APIKeyOptional: c.APIKeyOptional,
+		MaxBodySize:    c.MaxBodySize,
 	}
-
-	return crypto.PubkeyToAddress(*teePub), nil
 }
 
-func buildAttestationConfig(cfg *config.Attestation) (*attestation.Config, error) {
+// metricsConfig resolves config.Metrics into metrics.Config: with Enable false every
+// group is off; otherwise an unset group inherits Enable and an explicit value wins.
+func metricsConfig(c config.Metrics) metrics.Config {
+	group := func(p *bool) bool {
+		if !c.Enable {
+			return false
+		}
+		return p == nil || *p
+	}
+
+	return metrics.Config{
+		Enable:       c.Enable,
+		HTTP:         group(c.HTTP),
+		Storage:      group(c.Storage),
+		Queue:        group(c.Queue),
+		Voting:       group(c.Voting),
+		ActiveVoters: group(c.ActiveVoters),
+		Result:       group(c.Result),
+		Wallet:       group(c.Wallet),
+		Info:         group(c.Info),
+		Attestation:  group(c.Attestation),
+		Policy:       group(c.Policy),
+		Liveness:     group(c.Liveness),
+		Node:         group(c.Node),
+		Runtime:      group(c.Runtime),
+	}
+}
+
+func buildAttestationConfig(cfg *config.Attestation, chainID uint64) (*attestation.Config, error) {
 	if !cfg.Enable {
 		return &attestation.Config{Enabled: false}, nil
 	}
@@ -235,12 +320,14 @@ func buildAttestationConfig(cfg *config.Attestation) (*attestation.Config, error
 	return &attestation.Config{
 		Enabled:             true,
 		RootCert:            root,
+		Audience:            cfg.Audience,
 		ExpectedCodeHash:    codeHashes,
 		ExpectedPlatform:    platforms,
 		ExpectedDebugStatus: cfg.ExpectedDebugStatuses,
 		MaxTokenAge:         cfg.MaxTokenAge,
 		RequireSecBoot:      cfg.RequireSecBoot,
 		AllowMagicPass:      cfg.AllowMagicPass,
+		ChainID:             chainID,
 	}, nil
 }
 
@@ -250,9 +337,25 @@ func logAttestationPosture(cfg *attestation.Config) {
 		return
 	}
 	a := cfg.Active()
-	logger.Infof("attestation verification enabled: code_hash=%v platform=%v debug_status=%v max_token_age=%v sec_boot=%v magic_pass=%v",
-		a.CodeHash, a.Platform, a.DebugStatus, a.MaxTokenAge, a.SecBoot, a.MagicPass)
+	logger.Infof("attestation verification enabled: audience=%v code_hash=%v platform=%v debug_status=%v max_token_age=%v sec_boot=%v magic_pass=%v",
+		a.Audience, a.CodeHash, a.Platform, a.DebugStatus, a.MaxTokenAge, a.SecBoot, a.MagicPass)
 	if cfg.AllowMagicPass {
 		logger.Warn("attestation: allow_magic_pass=true — accepts the tee-node magic_pass sentinel in place of a real JWT; do not enable in production")
+	}
+}
+
+// attestationPostureSettings maps the attestation config to the closed-key gauge map
+// SetAttestationPosture records: enabled plus each optional check Verify will run.
+func attestationPostureSettings(cfg *attestation.Config) map[string]bool {
+	a := cfg.Active()
+	return map[string]bool{
+		"enabled":             cfg.Enabled,
+		"magic_pass_allowed":  a.MagicPass,
+		"audience_check":      a.Audience,
+		"code_hash_check":     a.CodeHash,
+		"platform_check":      a.Platform,
+		"debug_status_check":  a.DebugStatus,
+		"max_token_age_check": a.MaxTokenAge,
+		"sec_boot_check":      a.SecBoot,
 	}
 }

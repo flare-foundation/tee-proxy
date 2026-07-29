@@ -1,6 +1,7 @@
 package voting
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -15,8 +16,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/tee-node/pkg/fdc"
+	"github.com/flare-foundation/tee-node/pkg/types"
 	teeutils "github.com/flare-foundation/tee-node/pkg/utils"
 )
+
+const voteTestChainID uint64 = 14
 
 type testMeta struct{}
 
@@ -38,7 +42,7 @@ func TestStorage(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 10,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -58,7 +62,7 @@ func TestStorage(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -98,6 +102,23 @@ func TestStorage(t *testing.T) {
 
 	require.Contains(t, a.Signatures, hexutil.Bytes(s1))
 	require.Contains(t, a.Signatures, hexutil.Bytes(s2))
+
+	require.Equal(t, uint32(1), s.MaxConsensusEpoch(), "consensus watermark tracks the finalized voting's reward epoch")
+}
+
+func TestMaxConsensusEpoch(t *testing.T) {
+	s := NewStorage(t.Context(), &config.Voting{HistorySize: 3, FinalizedBufferSize: 1}, &testMeta{}, nil)
+
+	require.Equal(t, uint32(0), s.MaxConsensusEpoch(), "zero before any finalization")
+
+	s.recordConsensusEpoch(5)
+	require.Equal(t, uint32(5), s.MaxConsensusEpoch())
+
+	s.recordConsensusEpoch(3) // a late finalization for an older epoch must not lower the watermark
+	require.Equal(t, uint32(5), s.MaxConsensusEpoch())
+
+	s.recordConsensusEpoch(6)
+	require.Equal(t, uint32(6), s.MaxConsensusEpoch())
 }
 
 func TestFDCMessageValidity(t *testing.T) {
@@ -106,8 +127,10 @@ func TestFDCMessageValidity(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
+
+	chainID := uint64(14)
 
 	_, ok := s.Get(1)
 	require.True(t, ok)
@@ -125,7 +148,7 @@ func TestFDCMessageValidity(t *testing.T) {
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, err := fdc.HashMessage(chainID, fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -157,8 +180,10 @@ func TestFDCMessage(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
+
+	chainID := uint64(14)
 
 	_, ok := s.Get(1)
 	require.True(t, ok)
@@ -176,7 +201,7 @@ func TestFDCMessage(t *testing.T) {
 	cosigners := []common.Address{crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)}
 	cosignersThreshold := uint64(1)
 	responseBody := crypto.Keccak256Hash([]byte("todo"))
-	msgHash, _, _, _, err := fdc.HashMessage(fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
+	msgHash, _, err := fdc.HashMessage(chainID, fdcReq, responseBody[:], cosigners, cosignersThreshold, uint64(0))
 	require.NoError(t, err)
 
 	signature, err := teeutils.Sign(msgHash[:], testutil.PrivKey1)
@@ -214,7 +239,7 @@ func TestStorageConcurrent(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
@@ -235,7 +260,7 @@ func TestStorageConcurrent(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -281,7 +306,7 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	_, ok := s.Get(1)
@@ -301,7 +326,7 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
@@ -325,6 +350,70 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestAddVoteFinalizedSendCancelledOnShutdown verifies that a finalizing vote does not block
+// forever on the finalized-action channel when the consumer is not draining it: once the
+// service context is cancelled, AddVote abandons the send and returns an error instead of parking.
+func TestAddVoteFinalizedSendCancelledOnShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s := NewStorage(ctx, &config.Voting{
+		ProposalExpiration:  10 * time.Second,
+		MaxPendingRequests:  10,
+		HistorySize:         3,
+		FinalizedBufferSize: 1,
+	}, &testMeta{}, nil)
+	s.StoreNewRound(testutil.TestSigningPolicy)
+
+	// Fill the finalized-action buffer so the finalizing send below cannot proceed.
+	s.Out <- &types.Action{}
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("shutdown-send")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochID:          1,
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
+			OriginalMessage:        []byte("TODO"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	h, err := i.HashForSigning(voteTestChainID)
+	require.NoError(t, err)
+
+	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
+	sig1, err := instruction.SignInstructionHash(h, testutil.PrivKey1)
+	require.NoError(t, err)
+
+	a2 := crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey)
+	sig2, err := instruction.SignInstructionHash(h, testutil.PrivKey2)
+	require.NoError(t, err)
+
+	// First vote is below threshold: it records but emits no action.
+	_, err = s.AddVote(i, a1, sig1)
+	require.NoError(t, err)
+
+	cancel()
+
+	// The second vote finalizes and tries to emit the threshold action, but the buffer is full
+	// and the context is cancelled, so AddVote must return promptly rather than block.
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.AddVote(i, a2, sig2)
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddVote blocked on a full finalized-action channel after shutdown")
+	}
+}
+
 // TestConcurrentVoteAtExpiry verifies AddVote and scheduleEnd respect a consistent
 // lock order (boxes → box) under concurrent expiry.
 func TestConcurrentVoteAtExpiry(t *testing.T) {
@@ -335,7 +424,7 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 		MaxPendingRequests:  10,
 		HistorySize:         3,
 		FinalizedBufferSize: 3,
-	}, &testMeta{})
+	}, &testMeta{}, nil)
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	i := &instruction.Data{
@@ -352,7 +441,7 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
-	h, err := i.HashForSigning()
+	h, err := i.HashForSigning(voteTestChainID)
 	require.NoError(t, err)
 
 	a1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)

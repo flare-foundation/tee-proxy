@@ -43,3 +43,7 @@ Thumbs.db
 # CI caches
 .go-mod-cache/
 .golangci-cache/
+
+# Runtime config with real values must never enter the build context
+config/*
+!config/config.example.toml

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,13 +10,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
+	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,9 +42,9 @@ func (s *stubResultService) Serve(context.Context, common.Hash, types.Submission
 	return s.response, nil
 }
 
-// TestResultHProxySignatureUsesResultHash verifies that resultH signs the canonical
-// Result.Hash(), not Keccak256(Result.Data).
-func TestResultHProxySignatureUsesResultHash(t *testing.T) {
+// TestResultHProxySignatureUsesDomainPreimage verifies that resultH signs the
+// domain-separated PROXY_ACTION_RESULT preimage over Result.Hash().
+func TestResultHProxySignatureUsesDomainPreimage(t *testing.T) {
 	privKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	proxyAddr := crypto.PubkeyToAddress(privKey.PublicKey)
@@ -53,9 +59,11 @@ func TestResultHProxySignatureUsesResultHash(t *testing.T) {
 		},
 	}
 
+	const testChainID = uint64(14)
 	e := &External{
 		resultService: &stubResultService{response: resp},
 		privKey:       privKey,
+		chainID:       testChainID,
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/action/result/"+actionID.Hex(), nil)
@@ -70,17 +78,19 @@ func TestResultHProxySignatureUsesResultHash(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, got.ProxySignature, "ProxySignature should be populated")
 
-	canonicalHash := accounts.TextHash(got.Result.Hash())
+	signHash, err := csigning.NewPayload(csigning.ProxyActionResult, testChainID, common.BytesToHash(got.Result.Hash())).Hash()
+	require.NoError(t, err)
+	canonicalHash := accounts.TextHash(signHash[:])
 	pub, err := crypto.SigToPub(canonicalHash, got.ProxySignature)
 	require.NoError(t, err)
 	assert.Equal(t, proxyAddr, crypto.PubkeyToAddress(*pub),
-		"ProxySignature must recover to the proxy address when verified against Result.Hash()")
+		"ProxySignature must recover to the proxy address under the PROXY_ACTION_RESULT domain preimage")
 
-	legacyHash := accounts.TextHash(crypto.Keccak256(got.Result.Data))
+	legacyHash := accounts.TextHash(got.Result.Hash())
 	legacyPub, err := crypto.SigToPub(legacyHash, got.ProxySignature)
 	if err == nil {
 		assert.NotEqual(t, proxyAddr, crypto.PubkeyToAddress(*legacyPub),
-			"ProxySignature must NOT recover under the legacy Keccak256(Data) path")
+			"ProxySignature must NOT recover under the bare (undomained) Result.Hash() path")
 	}
 }
 
@@ -199,6 +209,43 @@ func TestValidateDirect(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// TestDirectHEnqueueFailureReturns503 pins the 4xx/5xx split of directH: a well-formed
+// request whose downstream enqueue fails maps to 503, while a malformed body stays 400.
+func TestDirectHEnqueueFailureReturns503(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	defer c.Close() //nolint:errcheck
+
+	e := &External{
+		actionQueues: queue.NewActionQueues(c, time.Hour, nil),
+		direct:       DirectConfig{APIKeyOptional: true},
+	}
+
+	t.Run("enqueue failure maps to 503", func(t *testing.T) {
+		body, err := json.Marshal(&types.DirectInstruction{
+			OPType:  op.Type("F_CUSTOM").Hash(),
+			Message: []byte("payload"),
+		})
+		require.NoError(t, err)
+
+		mr.Close() // sever Redis so the enqueue fails on a valid request
+
+		req := httptest.NewRequest(http.MethodPost, "/direct", bytes.NewReader(body))
+		err = e.directH(httptest.NewRecorder(), req)
+		require.Error(t, err)
+		assert.ErrorIs(t, err, errEnqueueFailed)
+		assert.Equal(t, http.StatusServiceUnavailable, status.ErrToCode(err))
+	})
+
+	t.Run("malformed body stays 400", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/direct", strings.NewReader("not json"))
+		err := e.directH(httptest.NewRecorder(), req)
+		require.Error(t, err)
+		assert.Equal(t, http.StatusBadRequest, status.ErrToCode(err))
+	})
 }
 
 func resultHRequest(actionIDHex, rawQuery string) *http.Request {

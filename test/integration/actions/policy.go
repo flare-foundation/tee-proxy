@@ -113,7 +113,7 @@ func GetBackup(t *testing.T, pc *utils.ProxyConfig, walletID [32]byte, keyID uin
 	res, err := pc.Rs.WaitOnResponse(t.Context(), a.Data.ID, types.Submit, utils.TestTimeConfig.Timeout)
 	require.NoError(t, err)
 
-	err = teeUtils.VerifySignature(res.Result.Hash(), res.Signature, teeID)
+	err = teeUtils.VerifySignature(utils.ActionResultSignHash(t, res.Result.Hash()), res.Signature, teeID)
 	require.NoError(t, err)
 
 	var backupResponse wallets.TEEBackupResponse

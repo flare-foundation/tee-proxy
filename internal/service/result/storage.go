@@ -15,6 +15,15 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
+// errOverrideFinal and errOverrideTransient mark deliberate override-guard
+// rejections: the incoming result is dropped to protect an already-persisted
+// canonical result, so it is neither data loss nor a storage failure. Callers
+// match on them (errors.Is) to keep these out of the lost-result and liveness signals.
+var (
+	errOverrideFinal     = errors.New("tried to override final status")
+	errOverrideTransient = errors.New("trying to override higher transient status")
+)
+
 // ResultStorage provides methods for storing and retrieving action responses.
 //
 // mu serialises StoreResponse so the override-guard read-then-write stays atomic; reads do not take it.
@@ -59,10 +68,10 @@ func (rs *ResultStorage) StoreResponse(ctx context.Context, response *types.Acti
 	}
 	if res != nil {
 		if res.Result.Status < 2 {
-			return fmt.Errorf("tried to override final status for %s", id.String())
+			return fmt.Errorf("%w for %s", errOverrideFinal, id.String())
 		}
 		if response.Result.Status >= 2 && res.Result.Status >= response.Result.Status {
-			return fmt.Errorf("trying to override higher transient status for %s", id.String())
+			return fmt.Errorf("%w for %s", errOverrideTransient, id.String())
 		}
 	}
 

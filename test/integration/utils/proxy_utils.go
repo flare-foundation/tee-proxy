@@ -15,6 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
+	"github.com/fsouza/fake-gcs-server/fakestorage"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
@@ -38,6 +39,10 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 	pkgwallets "github.com/flare-foundation/tee-proxy/pkg/wallets"
 )
+
+// gcsTestBucket is the bucket in the in-process fake GCS server backing the
+// proxy's persistent stores in integration tests.
+const gcsTestBucket = "integration"
 
 type ProxyConfig struct {
 	ExtPort     uint
@@ -99,23 +104,32 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	c := storage.NewClient(mr.Addr())
 	storageCfg := config.Storage{}
 	storageCfg.SetDefault()
-	aq := queue.NewActionQueues(c, storageCfg.ActionTTL)
-	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
+	aq := queue.NewActionQueues(c, storageCfg.ActionTTL, nil)
+	// Persistent stores run against an in-process fake GCS server so the whole
+	// integration flow exercises the production GCS storage path (envelope
+	// serialization, lazy TTL, prefix layout) without external services.
+	gcsServer, err := fakestorage.NewServerWithOptions(fakestorage.Options{NoListener: true})
+	require.NoError(t, err)
+	t.Cleanup(gcsServer.Stop)
+	gcsServer.CreateBucketWithOpts(fakestorage.CreateBucketOpts{Name: gcsTestBucket})
+	gcsClient := gcsServer.Client()
+
+	rs := result.NewStorage(storage.NewGCSStorage[*types.ActionResponse](gcsClient, gcsTestBucket, "results"), storage.NewNotifier(c), storageCfg.ResultTTL, storageCfg.SubmitResultTTL)
 
 	// Setup action and result services
-	backupStore := testutil.NewMemStorage[*teewallets.TEEBackupResponse]()
-	backupIndex := testutil.NewMemStorage[common.Hash]()
-	resultService := result.NewService(rs)
-	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL)
+	backupStore := storage.NewGCSStorage[*teewallets.TEEBackupResponse](gcsClient, gcsTestBucket, "backups")
+	backupIndex := storage.NewGCSStorage[common.Hash](gcsClient, gcsTestBucket, "backupIndex")
+	resultService := result.NewService(rs, TestChainID, nil)
+	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL, nil)
 
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
-	}, &attestation.Config{Enabled: false})
+	}, &attestation.Config{Enabled: false}, nil)
 
-	livenessService := liveness.New(db, c, infoService, resultService)
+	livenessService := liveness.New(db, c, infoService, resultService, nil)
 
-	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService)
+	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService, nil)
 
 	wg.Go(func() {
 		logger.Info("Starting internal server")
@@ -138,7 +152,7 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	err = resultService.SetIdentity(teeID)
 	require.NoError(t, err)
 
-	metaObj := meta.New(walletStorage)
+	metaObj := meta.New(walletStorage, TestChainID)
 
 	vc := (&config.Voting{
 		ProposalExpiration: 600 * time.Millisecond,
@@ -146,8 +160,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	}).SetDefault()
 
 	policyChan := make(chan policy.SigningPolicy, 1)
-	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj)
-	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, aq, server.DirectConfig{})
+	instService := instruction.NewService(ctx, vc, teeID, policyChan, aq, metaObj, TestChainID, nil)
+	external := server.NewExternal(fmt.Sprintf("%d", externalPort), instService, resultService, infoService, walletStorage, proxyPk, TestChainID, aq, server.DirectConfig{}, nil)
 
 	wg.Go(func() {
 		instService.Run(ctx)

@@ -42,6 +42,8 @@ func FDCProve(
 		RequestBody: make([]byte, 10),
 	}
 
+	chainID := utils.TestChainID
+
 	originalMessageEncoded, err := fdc.EncodeRequest(originalMessage)
 	require.NoError(t, err)
 
@@ -49,7 +51,7 @@ func FDCProve(
 	require.NoError(t, err)
 
 	timestamp := uint64(time.Now().Unix())
-	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys, cosignerAddresses, cosignersThreshold)
+	additionalFixedMessageEncoded, variableMessages, privKeys, err := GetAdditionalFixedMessage(t, pc, challenge, originalMessage, timestamp, cosignerAndProvider, providerPrivKeys, cosignerPrivKeys, cosignerAddresses, cosignersThreshold, chainID)
 	require.NoError(t, err)
 
 	iData := utils.BuildInstructionData(t, op.FDC2, op.Prove, originalMessageEncoded, timestamp, additionalFixedMessageEncoded, nil, cosignerAddresses, cosignersThreshold, pc.TeeID, rewardEpochID)
@@ -62,23 +64,26 @@ func FDCProve(
 
 	res := utils.FetchAndVerifyActionResponse(t, pc.ExtPort, iData.InstructionID, types.Threshold, op.FDC2, op.Prove, pc.TeeID, 1)
 
-	err = teeUtils.VerifySignature(res.Result.Hash(), res.Signature, pc.TeeID)
+	err = teeUtils.VerifySignature(utils.ActionResultSignHash(t, res.Result.Hash()), res.Signature, pc.TeeID)
 	require.NoError(t, err)
 
 	var fdcResponse fdc.ProveResponse
 	err = json.Unmarshal(res.Result.Data, &fdcResponse)
 	require.NoError(t, err)
 
-	// Verify FDC response signatures
-	msgToSign, fdcMsgHash, _, _, err := fdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
+	// Verify FDC response signatures. TEE signs the raw messageHash; cosigner
+	// signatures are over the Relay Mode-2 prefixed hash (matches
+	// Verification.toCosignersMessageHash on chain + Relay.relay()).
+	msgHash, _, err := fdc.HashMessage(chainID, originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
+	cosignerSigningHash := fdc.RelayPrefixedHash(msgHash)
 
-	err = teeUtils.VerifySignature(fdcMsgHash.Bytes(), fdcResponse.TEESignature, pc.TeeID)
+	err = teeUtils.VerifySignature(msgHash.Bytes(), fdcResponse.TEESignature, pc.TeeID)
 	require.NoError(t, err)
 
 	require.Equal(t, len(fdcResponse.CosignerSignatures), len(cosignerPrivKeys))
 	for _, signature := range fdcResponse.CosignerSignatures {
-		_, err = teeUtils.CheckSignature(msgToSign.Bytes(), signature, cosignerAddresses)
+		_, err = teeUtils.CheckSignature(cosignerSigningHash.Bytes(), signature, cosignerAddresses)
 		require.NoError(t, err)
 	}
 
@@ -106,7 +111,7 @@ func CosignerAddressesAndProvider(cosignerPrivKeys []*ecdsa.PrivateKey, provider
 }
 
 // GetAdditionalFixedMessage returns the additional fixed message, the variable messages (signatures) and the private keys for the provider and cosigner
-func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [32]byte, originalMessage fdc2.IFdc2HubFdc2AttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
+func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [32]byte, originalMessage fdc2.IFdc2HubFdc2AttestationRequest, timestamp uint64, cosignerAndProvider map[common.Address]bool, providerPrivKeys []*ecdsa.PrivateKey, cosignerPrivKeys []*ecdsa.PrivateKey, cosignerAddresses []common.Address, cosignersThreshold uint64, chainID uint64) ([]byte, []hexutil.Bytes, []*ecdsa.PrivateKey, error) {
 	t.Helper()
 
 	additionalFixedMessage := verification.IVerificationTeeAttestation{
@@ -123,13 +128,15 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [3
 	additionalFixedMessageEncoded, err := types.EncodeTeeAttestationRequest(&additionalFixedMessage)
 	require.NoError(t, err)
 
-	fdcMsgHash, _, _, _, err := fdc.HashMessage(originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
+	fdcMsgHash, _, err := fdc.HashMessage(chainID, originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
+	// Data providers + cosigners both sign the Relay Mode-2 prefixed hash.
+	dpSigningHash := fdc.RelayPrefixedHash(fdcMsgHash)
 
 	variableMessages := make([]hexutil.Bytes, 0)
 	privKeys := make([]*ecdsa.PrivateKey, 0)
 	for _, privKey := range providerPrivKeys {
-		variableMessage, err := teeUtils.Sign(fdcMsgHash[:], privKey)
+		variableMessage, err := teeUtils.Sign(dpSigningHash[:], privKey)
 		require.NoError(t, err)
 
 		variableMessages = append(variableMessages, variableMessage)
@@ -139,7 +146,7 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [3
 		if _, check := cosignerAndProvider[crypto.PubkeyToAddress(privKey.PublicKey)]; check {
 			continue
 		}
-		variableMessage, err := teeUtils.Sign(fdcMsgHash[:], privKey)
+		variableMessage, err := teeUtils.Sign(dpSigningHash[:], privKey)
 		require.NoError(t, err)
 
 		variableMessages = append(variableMessages, variableMessage)

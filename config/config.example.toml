@@ -1,0 +1,147 @@
+redis_port = ":6379"
+
+chain_id = 14                       # must be a positive integer
+private_key_variable = "PRIVATE_KEY"
+
+
+initial_signing_policy_offset = 3
+signing_policy_fetch_interval = "10m"
+machine_path_list_fetch_interval = "10m"
+db_sync_max_sleep_time = "10m"
+
+
+[db]
+host = "localhost"
+port = 3306
+database = "flare_ftso_indexer"
+username = "root"
+password = "root"
+log_queries = false
+
+
+[logging]
+level = "DEBUG"
+file = ""
+max_file_size = 0               # megabytes; 0 = library default (100 MB)
+console = true
+
+
+[addresses]
+flare_systems_manager = "0xa4bcDF64Cdd5451b6ac3743B414124A6299B65FF"
+relay = "0x5A0773Ff307Bf7C71a832dBB5312237fD3437f9F"
+voter_registry = "0xB00cC45B4a7d3e1FEE684cFc4417998A1c183e6d"
+machine_path_manager = "0x0000000000000000000000000000000000000000"  # zero disables the machine-path-list service (lists never updated; [governance] must then be left unset)
+
+
+# TEE governance. Configure this ONLY when the extension's governance is a Safe;
+# for direct-signature governance leave the whole section out.
+# Requires a non-zero machine_path_manager — governance without it is rejected at config load.
+#
+# Safe-backed governance — required: set all four fields so the proxy can collect and
+# pre-verify the approveMachinePathList Safe transactions that authorize a machine-path
+# list. Without them the proxy cannot assemble Safe authorization, so the node rejects
+# every list update. signers/threshold are the Safe owners' snapshot and its threshold;
+# safe and tee_manager are the governing Safe and the TeeManager it controls.
+#
+# Direct-signature governance — not needed: the proxy recovers the on-chain governance
+# signatures itself and forwards them for the node to verify. You may optionally set
+# signers + threshold alone (no safe/tee_manager) to have the proxy cross-check its
+# configured governance hash against the node's attested hash at startup.
+# [governance]
+# signers = ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
+# threshold = 2
+# safe = "0x5afe5afe5afe5afe5afe5afe5afe5afe5afe5afe"
+# tee_manager = "0x1a9C4A0f9D76c0b1D91d22E24E573a9b377618aE"
+
+
+[ports]
+internal = "6661"
+external = "6662"
+
+
+[info_timing]
+initial_timeout = "5m"           # 0 for no timeout
+cycle_internal = "10s"
+cycle_queue_response_wait = "30s"
+
+
+[voting]
+proposal_expiration = "120s"
+max_pending_request = 100
+history_size = 3                 # Number of most recent signing policy rounds kept in memory
+finalized_buffer_size = 10       # Buffer size for the finalized instructions channel
+max_provider_vote = 0.025        # Max fraction of total weight a single provider can hold. Caps per-vote variable message size for restore ops. 0 = no cap.
+
+
+[storage]
+action_ttl = "336h"          # 14d — action bodies (Action-* keys)
+result_ttl = "336h"          # 14d — Threshold/End results
+submit_result_ttl = "30m"    # Submit results (short — bootstrap only)
+backup_ttl = "192h"          # 8d — backups and backup index
+
+
+
+# Google Cloud Storage for persistent storage: all action results (including
+# transient submit-tagged ones) and wallet backups. Omit the section (or leave
+# bucket empty) to store them in Redis instead. Queues and pub/sub always use Redis.
+# TTLs are enforced lazily on read; add a bucket lifecycle rule (age >= your
+# [storage] TTLs) to garbage-collect objects that are never read again.
+[gcs]
+bucket = ""  # Bucket name; setting it enables GCS-backed storage.
+prefix = ""  # Optional object-name prefix namespacing this proxy's data.
+url = ""  # Endpoint override for emulators/tests, e.g. "http://127.0.0.1:4443/storage/v1/". Empty = production GCS.
+credentials_file = ""  # Path to service account JSON. Empty = Application Default Credentials.
+
+[direct]
+# Direct extension enables POST /direct endpoint (requires API key)
+enable = false
+api_key = ""
+api_key_variable = "DIRECT_API_KEY"
+# Set to true to disable API key requirement for /direct endpoint
+api_key_optional = false
+# Max body size on /direct. 0 defaults to 10 MiB.
+max_body_size = 0
+
+
+[attestation]
+# When disabled the proxy trusts whichever TEE answers the bootstrap challenge first.
+enable = false
+
+# Each allowlist is optional; leave empty to skip that check.
+# JWT signature, nonce, challenge round-trip, and pubkey consistency are always enforced when enabled.
+
+# audience = "https://your-relying-party"                # expected aud claim; empty skips the audience check
+# expected_code_hashes = ["sha256:abcdef..."]            # 32-byte hex, optional 0x/sha256: prefix
+# expected_platforms = ["AMD_SEV_SNP_VM", "INTEL_TDX_VM"]
+# expected_debug_statuses = ["disabled-since-boot"]
+
+max_token_age = "5m"      # 0 skips freshness check
+require_sec_boot = false
+
+# Accept tee-node "magic_pass" sentinel; for non-Confidential-Space test runs only.
+allow_magic_pass = false
+
+
+[metrics]
+# Prometheus metrics are OPT-IN; the built-in default is enable = false (nothing is
+# collected and no /metrics endpoint is mounted). Enabled here so a deploy from this
+# example is scrapeable out of the box: /metrics is served on the internal server
+# (port 6661 by default, network-segregated) and exposes no secrets.
+# Metric catalog: METRICS.md. Example Prometheus alert rules: examples/monitoring/.
+enable = true
+
+# The group toggles below take effect only when enable = true.
+# An omitted group inherits enable; set one to false to omit just that group.
+# http          = true   # per-request count and latency
+# storage       = true   # Redis/GCS operation count and errors
+# queue         = true   # dequeue counters and queue-depth gauge
+# voting        = true   # instruction and votings-started counters, threshold-duration histogram
+# active_voters = true   # per-epoch gauges: data-provider voters and their weight, initiators, top-3 providers by unfinalized proposals, max voting weight, voting threshold
+# result        = true   # result throughput, lost, discarded, rejected, and channel-dropped counters (rejected{reason=wrong_tee_id} = TEE tamper/mis-route signal)
+# wallet        = true   # wallet key/proof sync-cycle outcome counter and cached-key gauge
+# info          = true   # TEE info per-stage refresh failures and refresh-duration histogram
+# attestation   = true   # attestation verify outcomes
+# policy        = true   # active (newest) and oldest-resident signing-policy reward-epoch gauges
+# liveness      = true   # readiness gauge + info-staleness gauge
+# node          = true   # TEE-node response-wait latency/outcomes and machine-path poll-cycle outcomes (info, wallet, machinepath)
+# runtime       = true   # Go runtime/process collectors and build info

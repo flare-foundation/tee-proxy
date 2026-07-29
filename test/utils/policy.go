@@ -146,7 +146,13 @@ func GenerateRandomPolicyData(rewardEpochID uint32, voters []common.Address, see
 		panic(err)
 	}
 	event.SigningPolicyBytes = policyBytes
-	return policy.NewSigningPolicy(&event, nil)
+
+	p, err := policy.NewSigningPolicy(&event, nil)
+	if err != nil {
+		panic(fmt.Sprintf("generating random policy data: %v", err))
+	}
+
+	return p
 }
 
 func BuildMultiSignedPolicy(policyBytes []byte, voterPrivKeys []*ecdsa.PrivateKey) types.MultiSignedPolicy {

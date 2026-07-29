@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -13,7 +14,9 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
@@ -44,7 +47,15 @@ type Internal struct {
 	resultService ResultService
 	server        *http.Server
 
+	// resultWrites tracks detached result-store goroutines so Close can wait for them.
+	resultWrites sync.WaitGroup
+	// mu guards draining; once set, resultH stores synchronously so no Add can race Wait.
+	mu       sync.Mutex
+	draining bool
+
 	lHandlers livenessHandlers
+
+	metrics *metrics.Metrics
 }
 
 type liveness interface {
@@ -53,11 +64,13 @@ type liveness interface {
 }
 
 // NewInternal creates and configures a new Internal server listening on port.
+// m may be nil or disabled, in which case no /metrics endpoint is mounted.
 func NewInternal(port string,
 	actionQueues *queue.ActionQueues,
 	resultService ResultService,
 	wallet *wallets.Service,
 	liveness liveness,
+	m *metrics.Metrics,
 ) *Internal {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -75,6 +88,7 @@ func NewInternal(port string,
 		resultService: resultService,
 		server:        server,
 		lHandlers:     livenessHandlers{liveness},
+		metrics:       m,
 	}
 
 	e.registerRoutes()
@@ -88,14 +102,31 @@ func (i *Internal) Serve() error {
 	return i.server.ListenAndServe()
 }
 
-// Close gracefully closes the server.
+// Close gracefully closes the server, then waits (bounded by ctx) for detached
+// result writes so acked results are durable before the storage client closes.
 func (i *Internal) Close(ctx context.Context) error {
-	return i.server.Shutdown(ctx)
+	i.mu.Lock()
+	i.draining = true
+	i.mu.Unlock()
+
+	err := i.server.Shutdown(ctx)
+
+	done := make(chan struct{})
+	go func() {
+		i.resultWrites.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		logger.Warn("shutdown deadline reached with result writes still in flight")
+	}
+
+	return err
 }
 
 func (i *Internal) registerRoutes() {
 	mux := http.NewServeMux()
-	i.server.Handler = mux
 
 	mux.HandleFunc("POST /result", prepareHandler(i.resultH, maxResultBodySize, true))
 	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(i.queueH, noBody, true))
@@ -103,6 +134,27 @@ func (i *Internal) registerRoutes() {
 	mux.HandleFunc("GET /healthy", i.lHandlers.healthy)
 	mux.HandleFunc("GET /startup", i.lHandlers.startup)
 	mux.HandleFunc("GET /ready", i.lHandlers.ready)
+
+	if i.metrics.Enabled() {
+		mux.Handle("GET /metrics", promhttp.HandlerFor(i.metrics.Registry(), promhttp.HandlerOpts{
+			// Bound concurrent scrapes: each fans out into LLEN-backed gauges and
+			// lock-walks, so a misbehaving scraper must not pile them up.
+			MaxRequestsInFlight: 3,
+			EnableOpenMetrics:   true,
+			// Surface gather/encode errors that are otherwise silently discarded.
+			ErrorLog: promErrorLogger{},
+		}))
+	}
+
+	i.server.Handler = instrumentHTTP(i.metrics, "internal", mux)
+}
+
+// promErrorLogger adapts the project logger to promhttp.Logger so /metrics gather and
+// encoding errors are surfaced instead of being silently discarded.
+type promErrorLogger struct{}
+
+func (promErrorLogger) Println(v ...any) {
+	logger.Warnf("serving /metrics: %s", fmt.Sprint(v...))
 }
 
 // resultH serves "/result" endpoint.
@@ -113,27 +165,41 @@ func (i *Internal) resultH(w http.ResponseWriter, r *http.Request) error {
 	dec.DisallowUnknownFields()
 	err := dec.Decode(&response)
 	if err != nil {
+		logger.Warnf("decoding result body from node: %v", err)
 		return ErrInvalidBody
 	}
 
 	logger.Debugf("received response for %v tag: %v, status %v", response.Result.ID, response.Result.SubmissionTag, response.Result.Status)
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
-		defer cancel()
-
-		if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
-			// Body has been acked to the TEE node; a failure here means the result is lost.
-			logger.Errorf("result lost id=%s tag=%s opType=%s opCommand=%s: %v",
-				response.Result.ID,
-				response.Result.SubmissionTag,
-				op.HashToOPType(response.Result.OPType),
-				op.HashToOPCommand(response.Result.OPCommand),
-				err)
-		}
-	}()
+	i.mu.Lock()
+	draining := i.draining
+	if !draining {
+		i.resultWrites.Go(func() { i.storeResult(response) })
+	}
+	i.mu.Unlock()
+	if draining {
+		// Close may already be waiting on the group; store synchronously instead,
+		// which also keeps Shutdown draining this handler.
+		i.storeResult(response)
+	}
 
 	return nil
+}
+
+// storeResult persists a result already acked to the TEE node.
+func (i *Internal) storeResult(response *types.ActionResponse) {
+	ctx, cancel := context.WithTimeout(context.Background(), resultWriteTimeout)
+	defer cancel()
+
+	if err := i.resultService.ProcessAndStore(ctx, response); err != nil {
+		// Warn, not Error: ProcessAndStore records the lost-result metric; rejections aren't losses.
+		logger.Warnf("processing result failed id=%s tag=%s opType=%s opCommand=%s: %v",
+			response.Result.ID,
+			response.Result.SubmissionTag,
+			op.HashToOPType(response.Result.OPType),
+			op.HashToOPCommand(response.Result.OPCommand),
+			err)
+	}
 }
 
 // queueH serves "/queue/{queueID}" endpoint.
@@ -156,8 +222,15 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 
 		logger.Debugf("sending action %v with tag %v to the node on queue %v", value.Data.ID, value.Data.SubmissionTag, queueID)
 		err = json.NewEncoder(w).Encode(value)
+		if err == nil {
+			// Flush so a buffered write failure surfaces here; the body is already deleted from the queue.
+			err = http.NewResponseController(w).Flush()
+		}
 		if err != nil {
-			return err
+			if queueID == processorutils.Main {
+				i.metrics.FinalizedActionLost("send_failed")
+			}
+			return fmt.Errorf("sending action %v (tag %v, queue %v) to node failed after dequeue, action lost: %w", value.Data.ID, value.Data.SubmissionTag, queueID, err)
 		}
 
 	default:

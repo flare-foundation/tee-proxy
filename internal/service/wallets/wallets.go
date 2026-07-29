@@ -14,6 +14,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
 
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/status"
@@ -34,8 +35,10 @@ const (
 )
 
 var (
-	errKeyProofNotFound    = fmt.Errorf("%w: key proof not found", status.HTTP[404])
-	errWalletNotFound      = errors.New("wallet not found")
+	errKeyProofNotFound = fmt.Errorf("%w: key proof not found", status.HTTP[404])
+	// ErrWalletNotFound reports an instruction referencing a wallet the proxy does not manage;
+	// exported so voting.RejectReason can classify it as reason="unknown_wallet".
+	ErrWalletNotFound      = fmt.Errorf("%w: wallet not found", status.HTTP[404])
 	errKeyDataNotFound     = fmt.Errorf("%w: key data not found", status.HTTP[404])
 	errKeyUpdate           = errors.New("key update action not successful")
 	errInvalidActionResult = errors.New("invalid action result status")
@@ -59,6 +62,8 @@ type Service struct {
 	rs        *result.ResultStorage
 	backupTTL time.Duration
 
+	metrics *metrics.Metrics
+
 	// syncing serialises sync() across overlapping triggers so the event loop
 	// keeps draining other channels while a long sync is in progress.
 	syncing atomic.Bool
@@ -67,8 +72,8 @@ type Service struct {
 }
 
 // NewService wires the wallet service to its action queue, result storage, and backup stores.
-func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration) *Service {
-	return &Service{
+func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.Storage[common.Hash], backups storage.Storage[*wallets.TEEBackupResponse], backupTTL time.Duration, m *metrics.Metrics) *Service {
+	s := &Service{
 		KeysForWallet: make(map[common.Hash][]uint64),
 		Keys:          make(map[IDPair]*pkgwallets.KeyData),
 
@@ -78,7 +83,16 @@ func NewService(aq *queue.ActionQueues, rs *result.ResultStorage, index storage.
 		aq:        aq,
 		rs:        rs,
 		backupTTL: backupTTL,
+		metrics:   m,
 	}
+
+	m.RegisterWalletKeysCached(func() float64 {
+		s.RLock()
+		defer s.RUnlock()
+		return float64(len(s.Keys))
+	})
+
+	return s
 }
 
 // RunUpdateInfo runs the wallet service's event loop until ctx is cancelled.
@@ -91,27 +105,12 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Info("wallet event loop exiting")
 			return
 		case <-walletSyncTrigger:
-			// Run sync in its own goroutine so the loop keeps draining keyActions,
-			// backups, and backupTrigger while sync waits on the tee-node (up to
-			// minutes per batch). syncing guards against overlapping syncs.
-			if !s.syncing.CompareAndSwap(false, true) {
-				logger.Debug("wallet sync skipped: already in progress")
-				continue
-			}
-			go func() {
-				defer s.syncing.Store(false)
-				logger.Debug("wallet sync start")
-				if err := s.sync(ctx); err != nil {
-					logger.Errorf("wallet sync: %v", err)
-					return
-				}
-				logger.Debug("wallet sync done")
-			}()
+			s.triggerSync(ctx)
 		case keyAction := <-keyActions:
-			logger.Debug("wallet key update start")
 			id, added, err := s.update(keyAction)
 			if err != nil {
-				logger.Errorf("wallet key update: %v", err)
+				logger.Warnf("wallet key update: %v", err)
+				s.metrics.WalletKeyUpdateFailed()
 				continue
 			}
 
@@ -119,7 +118,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			if !added {
 				action = "removed"
 			}
-			logger.Debugf("walletID: %v keyID: %d %s", id.WalletID, id.KeyID, action)
+			logger.Debugf("wallet key update: walletID %v keyID %d %s", id.WalletID, id.KeyID, action)
 
 			if added {
 				go func() {
@@ -127,7 +126,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 
 					err := s.initiateBackup(ctx, id)
 					if err != nil {
-						logger.Errorf("making backup for %v: %v", id, err)
+						logger.Warnf("making backup for %v: %v", id, err)
 					}
 					logger.Debugf("backup done for %v", id)
 				}()
@@ -136,7 +135,7 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("storing backup result")
 			err := s.createNewBackup(ctx, backupResult)
 			if err != nil {
-				logger.Errorf("storing backup result: %v", err)
+				logger.Warnf("storing backup result: %v", err)
 				continue
 			}
 
@@ -144,12 +143,34 @@ func (s *Service) RunUpdateInfo(ctx context.Context, walletSyncTrigger, backupTr
 			logger.Debug("backups triggered")
 			err := s.InitiateBackups(ctx)
 			if err != nil {
-				logger.Errorf("triggering backups: %v", err)
+				logger.Warnf("triggering backups: %v", err)
 				continue
 			}
 			logger.Debug("backups enqueued")
 		}
 	}
+}
+
+// triggerSync starts one sync cycle unless one is already in progress, in which case it
+// records a skip and returns. Sync runs in its own goroutine so the event loop keeps
+// draining keyActions, backups, and backupTrigger while sync waits on the tee-node (up to
+// minutes per batch). syncing guards against overlapping syncs.
+func (s *Service) triggerSync(ctx context.Context) {
+	if !s.syncing.CompareAndSwap(false, true) {
+		logger.Debug("wallet sync skipped: already in progress")
+		s.metrics.WalletSyncObserved("skipped")
+		return
+	}
+	go func() {
+		defer s.syncing.Store(false)
+		logger.Debug("wallet sync start")
+		if err := s.sync(ctx); err != nil {
+			logger.Warnf("wallet sync: %v", err)
+			return
+		}
+		logger.Debug("wallet sync done")
+		s.metrics.WalletSyncObserved("success")
+	}()
 }
 
 // WalletsInfo returns summary information about all stored wallets and keys.
@@ -202,7 +223,7 @@ func (s *Service) WalletInfo(walletID common.Hash) (*pkgwallets.KeyExistence, er
 
 	keys, exists := s.KeysForWallet[walletID]
 	if !exists || len(keys) == 0 {
-		return nil, errWalletNotFound
+		return nil, ErrWalletNotFound
 	}
 
 	id := IDPair{WalletID: walletID, KeyID: keys[0]}
@@ -247,6 +268,10 @@ func (s *Service) sync(ctx context.Context) error {
 		return fmt.Errorf("fetching key info: %w", err)
 	}
 
+	// Snapshot local keys now so removeStaleKeys won't evict keys the event loop adds
+	// during the sync window; those are newer than this remote view.
+	localAtStart := s.localKeySet()
+
 	toFetch := s.keysNeedingProof(remoteKeys)
 
 	for batch := range slices.Chunk(toFetch, keyProofBatchSize) {
@@ -263,6 +288,7 @@ func (s *Service) sync(ctx context.Context) error {
 			info, err := parseKeyExistenceProof(proof)
 			if err != nil {
 				s.Unlock()
+				s.metrics.WalletSyncObserved("parse_error")
 				return fmt.Errorf("parsing key proof: %w", err)
 			}
 
@@ -276,9 +302,22 @@ func (s *Service) sync(ctx context.Context) error {
 		s.Unlock()
 	}
 
-	s.removeStaleKeys(remoteKeys)
+	s.removeStaleKeys(remoteKeys, localAtStart)
 
 	return nil
+}
+
+// localKeySet returns the set of currently-cached key IDs.
+func (s *Service) localKeySet() map[IDPair]bool {
+	s.RLock()
+	defer s.RUnlock()
+
+	set := make(map[IDPair]bool, len(s.Keys))
+	for id := range s.Keys {
+		set[id] = true
+	}
+
+	return set
 }
 
 // fetchKeyInfo sends a KEY_INFO action and returns the list of key infos from the tee-node.
@@ -286,20 +325,33 @@ func (s *Service) sync(ctx context.Context) error {
 func (s *Service) fetchKeyInfo(ctx context.Context) ([]types.KeyInfo, error) {
 	action, err := keysInfoAction()
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, fmt.Errorf("creating key info action: %w", err)
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
+	start := time.Now()
 	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyInfoResponseTimeout)
+	s.metrics.ObserveNodeWait("wallet_key_info", time.Since(start), err)
 	if err != nil {
+		// a shutdown cancellation is not a sync failure
+		if !errors.Is(err, context.Canceled) {
+			s.metrics.WalletSyncObserved("wait_error")
+		}
 		return nil, err
 	}
 
-	return parseKeyInfoResult(&response.Result)
+	infos, err := parseKeyInfoResult(&response.Result)
+	if err != nil {
+		s.metrics.WalletSyncObserved("parse_error")
+		return nil, err
+	}
+	return infos, nil
 }
 
 // keysNeedingProof returns the key ID pairs from remote that are not in the local cache
@@ -324,27 +376,35 @@ func (s *Service) keysNeedingProof(remote []types.KeyInfo) []IDPair {
 	return toFetch
 }
 
-// removeStaleKeys removes locally cached keys that are no longer present on the tee-node.
-func (s *Service) removeStaleKeys(remote []types.KeyInfo) {
+// removeStaleKeys removes locally cached keys that are absent from remote, except those
+// not in localAtStart: keys added during the sync window are preserved, not evicted.
+func (s *Service) removeStaleKeys(remote []types.KeyInfo, localAtStart map[IDPair]bool) {
 	remoteSet := make(map[IDPair]bool, len(remote))
 	for _, info := range remote {
 		remoteSet[IDPair{WalletID: info.WalletID, KeyID: info.KeyID}] = true
 	}
 
 	s.Lock()
-	defer s.Unlock()
-
+	var evicted []IDPair
 	for id := range s.Keys {
-		if !remoteSet[id] {
-			delete(s.Keys, id)
-
-			s.KeysForWallet[id.WalletID] = slices.DeleteFunc(s.KeysForWallet[id.WalletID], func(k uint64) bool {
-				return k == id.KeyID
-			})
-			if len(s.KeysForWallet[id.WalletID]) == 0 {
-				delete(s.KeysForWallet, id.WalletID)
-			}
+		if remoteSet[id] || !localAtStart[id] {
+			continue
 		}
+
+		delete(s.Keys, id)
+
+		s.KeysForWallet[id.WalletID] = slices.DeleteFunc(s.KeysForWallet[id.WalletID], func(k uint64) bool {
+			return k == id.KeyID
+		})
+		if len(s.KeysForWallet[id.WalletID]) == 0 {
+			delete(s.KeysForWallet, id.WalletID)
+		}
+		evicted = append(evicted, id)
+	}
+	s.Unlock()
+
+	for _, id := range evicted {
+		logger.Infof("wallet sync evicted stale key walletID %v keyID %d (absent from node)", id.WalletID, id.KeyID)
 	}
 }
 
@@ -352,25 +412,39 @@ func (s *Service) removeStaleKeys(remote []types.KeyInfo) {
 func (s *Service) fetchKeyProofs(ctx context.Context, batch []IDPair) ([]*wallets.SignedKeyExistenceProof, error) {
 	msg, err := json.Marshal(batch)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
 	action, err := queue.PrepareDirectAction(op.Get, op.KeyProof, msg)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
 	err = s.aq.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
+		s.metrics.WalletSyncObserved("enqueue_error")
 		return nil, err
 	}
 
+	start := time.Now()
 	response, err := s.rs.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, keyProofResponseTimeout)
+	s.metrics.ObserveNodeWait("wallet_key_proof", time.Since(start), err)
 	if err != nil {
+		// a shutdown cancellation is not a sync failure
+		if !errors.Is(err, context.Canceled) {
+			s.metrics.WalletSyncObserved("wait_error")
+		}
 		return nil, err
 	}
 
-	return parseKeyProofResult(&response.Result)
+	proofs, err := parseKeyProofResult(&response.Result)
+	if err != nil {
+		s.metrics.WalletSyncObserved("parse_error")
+		return nil, err
+	}
+	return proofs, nil
 }
 
 // parseKeyInfoResult parses a KEY_INFO response into a list of key infos.
@@ -421,7 +495,7 @@ func (s *Service) update(action *types.ActionResult) (IDPair, bool, error) {
 	}
 
 	switch action.OPCommand {
-	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash():
+	case op.KeyGenerate.Hash(), op.KeyDataProviderRestore.Hash(), op.KeyDirectRestore.Hash():
 		id, err := s.updateOrAddKey(action)
 		if err != nil {
 			return IDPair{}, true, fmt.Errorf("updating or adding key: %w", err)
@@ -529,7 +603,9 @@ func parseKeyDeleteActionResult(r *types.ActionResult) (IDPair, error) {
 	return idPair, nil
 }
 
-// parseNewKeyActionResult parses action result data for "KEY_GENERATE" or "KEY_DATA_PROVIDER_RESTORE" action.
+// parseNewKeyActionResult parses action result data for "KEY_GENERATE",
+// "KEY_DATA_PROVIDER_RESTORE", or "KEY_DIRECT_RESTORE" — all three produce a
+// SignedKeyExistenceProof so the proxy can hydrate its key cache the same way.
 func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistenceProof, error) {
 	if r.Status != 1 {
 		return nil, errInvalidActionResult
@@ -539,7 +615,9 @@ func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistence
 		return nil, errInvalidOpType
 	}
 
-	if r.OPCommand != op.KeyDataProviderRestore.Hash() && r.OPCommand != op.KeyGenerate.Hash() {
+	if r.OPCommand != op.KeyDataProviderRestore.Hash() &&
+		r.OPCommand != op.KeyGenerate.Hash() &&
+		r.OPCommand != op.KeyDirectRestore.Hash() {
 		return nil, errInvalidOpCommand
 	}
 

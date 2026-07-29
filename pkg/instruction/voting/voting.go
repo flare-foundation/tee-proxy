@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 )
@@ -66,14 +67,25 @@ type SignedReceipt struct {
 	Signature hexutil.Bytes `json:"signature"`
 }
 
-// Sign signs the receipt with the private key and returns signed receipt.
-func (r *Receipt) Sign(sk *ecdsa.PrivateKey) (*SignedReceipt, error) {
+// SignHash returns the domain-separated, chain-bound preimage signed over a
+// receipt: signing.Payload{csigning.ProxyVoteReceipt, chainID, Hash()}.Hash().
+func (r *Receipt) SignHash(chainID uint64) ([32]byte, error) {
 	h, err := r.Hash()
+	if err != nil {
+		return [32]byte{}, err
+	}
+
+	return csigning.NewPayload(csigning.ProxyVoteReceipt, chainID, h).Hash()
+}
+
+// Sign signs the receipt with the private key and returns signed receipt.
+func (r *Receipt) Sign(sk *ecdsa.PrivateKey, chainID uint64) (*SignedReceipt, error) {
+	signHash, err := r.SignHash(chainID)
 	if err != nil {
 		return nil, err
 	}
 
-	sig, err := crypto.Sign(accounts.TextHash(h[:]), sk)
+	sig, err := crypto.Sign(accounts.TextHash(signHash[:]), sk)
 	if err != nil {
 		return nil, err
 	}
@@ -87,12 +99,11 @@ func (r *Receipt) Sign(sk *ecdsa.PrivateKey) (*SignedReceipt, error) {
 }
 
 // RecoverPubKey recovers signer of the signed receipt.
-func (sr *SignedReceipt) RecoverPubKey() (*ecdsa.PublicKey, error) {
-	h, err := sr.Receipt.Hash()
+func (sr *SignedReceipt) RecoverPubKey(chainID uint64) (*ecdsa.PublicKey, error) {
+	signHash, err := sr.Receipt.SignHash(chainID)
 	if err != nil {
 		return nil, err
 	}
-	msg := accounts.TextHash(h.Bytes())
 
-	return crypto.SigToPub(msg, sr.Signature)
+	return crypto.SigToPub(accounts.TextHash(signHash[:]), sr.Signature)
 }

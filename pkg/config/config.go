@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +27,8 @@ const (
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
 	defaultInitialSigningPolicyOffset = 3
 
+	defaultMachinePathListFetchInterval = 10 * time.Minute
+
 	defaultProposalExpiration  = 120 * time.Second
 	defaultMaxPendingRequests  = uint(100)
 	defaultVotingHistorySize   = 3
@@ -41,52 +43,77 @@ const (
 )
 
 var (
-	errSigningPolicyFetchIntervalPositive = errors.New("signingPolicyFetchInterval has to be positive")
-	errInitialSigningPolicyOffsetNegative = errors.New("initialSigningPolicyOffset cannot be negative")
-	errFlareSystemsManagerAddressNotSet   = errors.New("flareSystemsManager address not set")
-	errRelayAddressNotSet                 = errors.New("relay address not set")
-	errVoterRegistryAddressNotSet         = errors.New("voterRegistry address not set")
-	errInternalPortNotSet                 = errors.New("internal port not set")
-	errExternalPortNotSet                 = errors.New("external port not set")
-	errProposalExpirationPositive         = errors.New("proposalExpiration has to be positive")
-	errMaxPendingRequestsPositive         = errors.New("maxPendingRequests has to be positive")
-	errHistorySizeTooSmall                = errors.New("historySize has to be at least 2")
-	errFinalizedBufferSizePositive        = errors.New("finalizedBufferSize has to be positive")
-	errMaxProviderVoteOutOfRange          = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
-	errInvalidPrivateKeyString            = errors.New("invalid string for private key")
-	errDirectAPIKeyNotSet                 = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
-	errStorageTTLPositive                 = errors.New("storage ttl values have to be positive")
-	errAttestationCodeHashInvalid         = errors.New("attestation expected_code_hashes contains invalid hex")
-	errAttestationMaxTokenAgeNegative     = errors.New("attestation max_token_age must be non-negative")
-	errDirectMaxBodySizeNegative          = errors.New("direct max_body_size must be non-negative")
+	errSigningPolicyFetchIntervalPositive   = errors.New("signingPolicyFetchInterval has to be positive")
+	errMachinePathListFetchIntervalPositive = errors.New("machinePathListFetchInterval has to be positive")
+	errInitialSigningPolicyOffsetNegative   = errors.New("initialSigningPolicyOffset cannot be negative")
+	errFlareSystemsManagerAddressNotSet     = errors.New("flareSystemsManager address not set")
+	errRelayAddressNotSet                   = errors.New("relay address not set")
+	errVoterRegistryAddressNotSet           = errors.New("voterRegistry address not set")
+	errInternalPortNotSet                   = errors.New("internal port not set")
+	errExternalPortNotSet                   = errors.New("external port not set")
+	errProposalExpirationPositive           = errors.New("proposalExpiration has to be positive")
+	errMaxPendingRequestsPositive           = errors.New("maxPendingRequests has to be positive")
+	errHistorySizeTooSmall                  = errors.New("historySize has to be at least 2")
+	errFinalizedBufferSizePositive          = errors.New("finalizedBufferSize has to be positive")
+	errMaxProviderVoteOutOfRange            = errors.New("maxProviderVote must be in (0, 1] or 0 (unset)")
+	errInvalidPrivateKeyString              = errors.New("invalid string for private key")
+	errDirectAPIKeyNotSet                   = errors.New("direct_extension is enabled but no API key is configured (set direct_api_key in config or DIRECT_API_KEY env variable)")
+	errStorageTTLPositive                   = errors.New("storage ttl values have to be positive")
+	errAttestationCodeHashInvalid           = errors.New("attestation expected_code_hashes contains invalid hex")
+	errAttestationMaxTokenAgeNegative       = errors.New("attestation max_token_age must be non-negative")
+	errDirectMaxBodySizeNegative            = errors.New("direct max_body_size must be non-negative")
+	errGCSBucketNotSet                      = errors.New("gcs is configured but bucket is not set")
+	errGCSURLWithCredentials                = errors.New("gcs url (unauthenticated emulator endpoint) and credentials_file cannot both be set")
+	errGovernanceIncomplete                 = errors.New("governance: signers and threshold must be set together")
+	errGovernanceThresholdTooHigh           = errors.New("governance: threshold exceeds the number of signers")
+	errGovernanceZeroSigner                 = errors.New("governance: signer is the zero address")
+	errGovernanceSafePairing                = errors.New("governance: safe and tee_manager must be set together")
+	errGovernanceWithoutManager             = errors.New("governance: set but addresses.machine_path_manager is unset")
+	errMetricsNoGroups                      = errors.New("metrics enabled but all groups are disabled; enable at least one group or set enable = false")
 )
 
-// Firestore holds Firestore connection configuration.
-type Firestore struct {
-	URL             string `toml:"url"`              // Firestore URL
-	ProjectID       string `toml:"project_id"`       // Google Cloud project ID.
-	DatabaseID      string `toml:"database_id"`      // Firestore database ID. Empty means default database.
+// GCS holds Google Cloud Storage connection configuration.
+// Setting bucket enables GCS-backed persistent storage; empty means Redis-backed.
+type GCS struct {
+	Bucket          string `toml:"bucket"`           // Bucket holding the proxy's persistent data.
+	Prefix          string `toml:"prefix"`           // Optional object-name prefix namespacing this proxy's data within the bucket.
+	URL             string `toml:"url"`              // Endpoint override for emulators/tests. Empty means production Google Cloud Storage.
 	CredentialsFile string `toml:"credentials_file"` // Path to service account JSON key. Empty means Application Default Credentials.
+}
+
+// validate checks that a non-empty GCS configuration names a bucket and does not
+// combine the unauthenticated endpoint override with credentials.
+func (g GCS) validate() error {
+	if (g != GCS{}) && g.Bucket == "" {
+		return errGCSBucketNotSet
+	}
+	if g.URL != "" && g.CredentialsFile != "" {
+		return errGCSURLWithCredentials
+	}
+	return nil
 }
 
 // Proxy holds the full configuration for the TEE proxy service.
 type Proxy struct {
-	DB                         database.Config `toml:"db"`                            // C-chain indexer database config.
-	RedisPort                  string          `toml:"redis_port"`                    // Redis database port.
-	Firestore                  Firestore       `toml:"firestore"`                     // Firestore connection configuration.
-	ChainID                    *big.Int        `toml:"chain_id"`                      // Chain ID used for voter registration message hash verification.
-	Addresses                  Addresses       `toml:"addresses"`                     // Smart contract addresses.
-	Ports                      Ports           `toml:"ports"`                         // Servers ports.
-	InfoTiming                 InfoTiming      `toml:"info_timing"`                   // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
-	Voting                     Voting          `toml:"voting"`                        // Instruction voting configurations.
-	PrivateKeyVariable         string          `toml:"private_key_variable"`          // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
-	InitialSigningPolicyOffset int             `toml:"initial_signing_policy_offset"` // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
-	SigningPolicyFetchInterval time.Duration   `toml:"signing_policy_fetch_interval"` // Duration between periodic checks for a new signing policy.
-	DBSyncMaxSleepTime         time.Duration   `toml:"db_sync_max_sleep_time"`        // Max sleep between DB sync retries on startup. Defaults to 10m.
-	Logging                    logger.Config   `toml:"logging"`                       // Logging configurations. Default is "DEBUG" level in consol.
-	Direct                     Direct          `toml:"direct"`                        // Direct endpoint configuration.
-	Storage                    Storage         `toml:"storage"`                       // TTLs applied to Redis/Firestore-backed persistent storage.
-	Attestation                Attestation     `toml:"attestation"`                   // Bootstrap attestation verification configuration.
+	DB                           database.Config `toml:"db"`                               // C-chain indexer database config.
+	RedisPort                    string          `toml:"redis_port"`                       // Redis database port.
+	GCS                          GCS             `toml:"gcs"`                              // Google Cloud Storage connection configuration.
+	ChainID                      uint64          `toml:"chain_id"`                         // EVM chain ID bound into TEE/FDC2 signed payloads. Must be a positive integer.
+	Addresses                    Addresses       `toml:"addresses"`                        // Smart contract addresses.
+	Governance                   Governance      `toml:"governance"`                       // TEE governance; required for Safe-backed governance (enables Safe machine-path-list approval pre-verification), optional otherwise.
+	Ports                        Ports           `toml:"ports"`                            // Servers ports.
+	InfoTiming                   InfoTiming      `toml:"info_timing"`                      // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
+	Voting                       Voting          `toml:"voting"`                           // Instruction voting configurations.
+	PrivateKeyVariable           string          `toml:"private_key_variable"`             // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
+	InitialSigningPolicyOffset   int             `toml:"initial_signing_policy_offset"`    // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
+	SigningPolicyFetchInterval   time.Duration   `toml:"signing_policy_fetch_interval"`    // Duration between periodic checks for a new signing policy.
+	MachinePathListFetchInterval time.Duration   `toml:"machine_path_list_fetch_interval"` // Duration between periodic checks for a newly signed machine path list. Defaults to 10m.
+	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between DB sync retries on startup. Defaults to 10m.
+	Logging                      logger.Config   `toml:"logging"`                          // Logging configurations. Default is "DEBUG" level in consol.
+	Direct                       Direct          `toml:"direct"`                           // Direct endpoint configuration.
+	Storage                      Storage         `toml:"storage"`                          // TTLs applied to Redis/GCS-backed persistent storage.
+	Attestation                  Attestation     `toml:"attestation"`                      // Bootstrap attestation verification configuration.
+	Metrics                      Metrics         `toml:"metrics"`                          // Prometheus metrics. Off by default; opt-in via [metrics] enable.
 }
 
 // Attestation controls bootstrap attestation verification.
@@ -94,6 +121,7 @@ type Proxy struct {
 type Attestation struct {
 	Enable bool `toml:"enable"`
 
+	Audience              string   `toml:"audience"`                // expected aud claim; empty skips the audience check
 	ExpectedCodeHashes    []string `toml:"expected_code_hashes"`    // 32-byte hex; accepts an optional 0x or sha256: prefix, but not both
 	ExpectedPlatforms     []string `toml:"expected_platforms"`      // hwmodel strings, e.g. "AMD_SEV_SNP_VM"
 	ExpectedDebugStatuses []string `toml:"expected_debug_statuses"` // dbgstat values, e.g. "disabled-since-boot"
@@ -148,7 +176,7 @@ func parseCodeHash(s string) (common.Hash, error) {
 	return common.BytesToHash(b), nil
 }
 
-// Storage holds TTLs for persistent stores (Redis/Firestore).
+// Storage holds TTLs for persistent stores (Redis/GCS).
 type Storage struct {
 	ActionTTL       time.Duration `toml:"action_ttl"`        // Retention for queued action bodies. Defaults to 14 days.
 	ResultTTL       time.Duration `toml:"result_ttl"`        // Retention for Threshold/End results. Defaults to 14 days.
@@ -178,6 +206,43 @@ func (s *Storage) validate() error {
 	return nil
 }
 
+// Metrics controls the Prometheus metrics subsystem, off by default.
+// Each group is a *bool: unset inherits Enable, an explicit false omits just that group.
+type Metrics struct {
+	Enable bool `toml:"enable"` // Master switch. When false, the whole subsystem is inert.
+
+	HTTP         *bool `toml:"http"`          // Per-request count and latency middleware.
+	Storage      *bool `toml:"storage"`       // Generic Redis/GCS operation count and errors.
+	Queue        *bool `toml:"queue"`         // Action enqueue/dequeue counters and queue-depth gauge.
+	Voting       *bool `toml:"voting"`        // Instruction and votings-started counters, threshold-duration histogram.
+	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters and weight, initiators, top providers, voting threshold).
+	Result       *bool `toml:"result"`        // Result throughput, lost, discarded, rejected, and channel-dropped counters; rejected{reason=wrong_tee_id} is the TEE tamper/mis-route signal.
+	Wallet       *bool `toml:"wallet"`        // Wallet key/proof sync-cycle outcome counter and cached-key gauge.
+	Info         *bool `toml:"info"`          // TEE info per-stage refresh failures and end-to-end refresh-duration histogram.
+	Attestation  *bool `toml:"attestation"`   // Attestation verify outcomes.
+	Policy       *bool `toml:"policy"`        // Active signing-policy reward-epoch gauge.
+	Liveness     *bool `toml:"liveness"`      // Readiness gauge and info-staleness gauge.
+	Node         *bool `toml:"node"`          // TEE-node response-wait latency and outcomes (info, wallet, machinepath).
+	Runtime      *bool `toml:"runtime"`       // Go runtime/process collectors and build info.
+}
+
+// validate rejects an enabled subsystem with every group turned off, which would
+// run the endpoint while collecting nothing.
+func (m Metrics) validate() error {
+	if !m.Enable {
+		return nil
+	}
+
+	// A nil group inherits Enable (on); only an explicit false omits it.
+	for _, g := range []*bool{m.HTTP, m.Storage, m.Queue, m.Voting, m.ActiveVoters, m.Result, m.Wallet, m.Info, m.Attestation, m.Policy, m.Liveness, m.Node, m.Runtime} {
+		if g == nil || *g {
+			return nil
+		}
+	}
+
+	return errMetricsNoGroups
+}
+
 // Direct holds configuration for the /direct endpoint.
 type Direct struct {
 	Enable         bool   `toml:"enable"`           // Enable registers the /direct endpoint on the external server.
@@ -203,9 +268,10 @@ func Read(path string) (Proxy, error) {
 			FinalizedBufferSize: defaultFinalizedBufferSize,
 		},
 
-		InitialSigningPolicyOffset: defaultInitialSigningPolicyOffset,
-		SigningPolicyFetchInterval: defaultSigningPolicyFetchInterval,
-		DBSyncMaxSleepTime:         defaultDBSyncMaxSleepTime,
+		InitialSigningPolicyOffset:   defaultInitialSigningPolicyOffset,
+		SigningPolicyFetchInterval:   defaultSigningPolicyFetchInterval,
+		MachinePathListFetchInterval: defaultMachinePathListFetchInterval,
+		DBSyncMaxSleepTime:           defaultDBSyncMaxSleepTime,
 
 		Storage: Storage{
 			ActionTTL:       defaultActionTTL,
@@ -229,8 +295,8 @@ func Read(path string) (Proxy, error) {
 		return c, err
 	}
 
-	if c.ChainID == nil {
-		return c, errors.New("chain ID not set")
+	if c.ChainID == 0 {
+		return c, errors.New("chain ID must be a positive integer")
 	}
 
 	err = c.Voting.validate()
@@ -241,6 +307,17 @@ func Read(path string) (Proxy, error) {
 	err = c.Addresses.validate()
 	if err != nil {
 		return c, err
+	}
+
+	err = c.Governance.validate()
+	if err != nil {
+		return c, err
+	}
+
+	// governance configures machine-path pre-verification only; without the
+	// manager address the whole block would be silently inert
+	if c.Governance.IsSet() && c.Addresses.MachinePathManager == (common.Address{}) {
+		return c, errGovernanceWithoutManager
 	}
 
 	err = c.Ports.validate()
@@ -261,7 +338,16 @@ func Read(path string) (Proxy, error) {
 		return c, errInitialSigningPolicyOffsetNegative
 	}
 
+	if c.MachinePathListFetchInterval <= 0 {
+		return c, errMachinePathListFetchIntervalPositive
+	}
+
 	err = c.Storage.validate()
+	if err != nil {
+		return c, err
+	}
+
+	err = c.GCS.validate()
 	if err != nil {
 		return c, err
 	}
@@ -278,6 +364,11 @@ func Read(path string) (Proxy, error) {
 	}
 
 	err = c.Attestation.validate()
+	if err != nil {
+		return c, err
+	}
+
+	err = c.Metrics.validate()
 	if err != nil {
 		return c, err
 	}
@@ -304,9 +395,10 @@ type Addresses struct {
 	FlareSystemsManager common.Address `toml:"flare_systems_manager"`
 	Relay               common.Address `toml:"relay"`
 	VoterRegistry       common.Address `toml:"voter_registry"`
+	MachinePathManager  common.Address `toml:"machine_path_manager"` // optional: when unset, the machine path list service is disabled.
 }
 
-// validate checks that all addresses have nonzero value.
+// validate checks that all required addresses have nonzero value.
 func (a Addresses) validate() error {
 	zero := common.Address{}
 
@@ -322,6 +414,67 @@ func (a Addresses) validate() error {
 		return errVoterRegistryAddressNotSet
 	}
 
+	return nil
+}
+
+// Governance is the extension's TEE governance. It is required for Safe-backed
+// governance and optional otherwise:
+//
+//   - Safe-backed governance: set all fields so the proxy can collect and
+//     pre-verify the approveMachinePathList Safe transactions that authorize a
+//     machine-path list. Without them the proxy cannot assemble Safe
+//     authorization and the node rejects every list update. Configuring it also
+//     cross-checks the governance hash against the node's attested hash at
+//     startup, refusing to run on a mismatch.
+//   - direct-signature governance: leave it unset — the proxy recovers the
+//     on-chain governance signatures itself and forwards them for the node to
+//     verify. Setting Signers and Threshold alone (no Safe) is optional and only
+//     enables the startup governance-hash cross-check.
+//
+// Signers and Threshold are the plain governance signer set / threshold, or —
+// for Safe-backed governance — the Safe owners' snapshot and threshold. Safe
+// and TeeManager are set together only for Safe-backed governance.
+//
+// A set governance requires addresses.machine_path_manager: the block exists
+// only for the machine-path service, so configuring one without the other is
+// rejected at load time.
+type Governance struct {
+	Signers    []common.Address `toml:"signers"`
+	Threshold  uint64           `toml:"threshold"`
+	Safe       common.Address   `toml:"safe"`
+	TeeManager common.Address   `toml:"tee_manager"`
+}
+
+// IsSet reports whether any governance field was configured.
+func (g Governance) IsSet() bool {
+	zero := common.Address{}
+	return len(g.Signers) > 0 || g.Threshold != 0 || g.Safe != zero || g.TeeManager != zero
+}
+
+// SafeBacked reports whether the configured governance is Safe-backed.
+func (g Governance) SafeBacked() bool {
+	return g.Safe != (common.Address{})
+}
+
+// validate checks the internal consistency of a configured governance. An
+// unset governance is valid (direct-signature governance needs no config).
+func (g Governance) validate() error {
+	if !g.IsSet() {
+		return nil
+	}
+	if len(g.Signers) == 0 || g.Threshold == 0 {
+		return errGovernanceIncomplete
+	}
+	if g.Threshold > uint64(len(g.Signers)) {
+		return errGovernanceThresholdTooHigh
+	}
+	zero := common.Address{}
+	if slices.Contains(g.Signers, zero) {
+		return errGovernanceZeroSigner
+	}
+	if (g.Safe == zero) != (g.TeeManager == zero) {
+		return errGovernanceSafePairing
+	}
 	return nil
 }
 

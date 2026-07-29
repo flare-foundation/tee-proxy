@@ -11,12 +11,15 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
+	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
 	cinstruction "github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/instruction"
@@ -47,6 +50,7 @@ var (
 	errInvalidSubmissionTag = fmt.Errorf("%w: invalid submission tag (end, threshold, or submit)", status.HTTP[http.StatusBadRequest])
 	errSystemDirect         = fmt.Errorf("%w: system op types not allowed in external direct requests", status.HTTP[http.StatusBadRequest])
 	errUnauthorized         = fmt.Errorf("%w: unauthorized", status.HTTP[http.StatusUnauthorized])
+	errEnqueueFailed        = fmt.Errorf("%w: could not enqueue action", status.HTTP[http.StatusServiceUnavailable])
 )
 
 // External is the client-facing HTTP server exposing instruction, result, wallet, and TEE info endpoints.
@@ -60,7 +64,10 @@ type External struct {
 	wallet             *wallets.Service
 
 	privKey *ecdsa.PrivateKey
+	chainID uint64
 	direct  DirectConfig
+
+	metrics *metrics.Metrics
 }
 
 // DirectConfig holds configuration for the /direct endpoint.
@@ -79,8 +86,10 @@ func NewExternal(
 	teeInfo *info.Service,
 	wallet *wallets.Service,
 	privateKey *ecdsa.PrivateKey,
+	chainID uint64,
 	actionQueues *queue.ActionQueues,
 	direct DirectConfig,
+	m *metrics.Metrics,
 ) *External {
 	addr := fmt.Sprintf(":%s", port)
 
@@ -101,7 +110,9 @@ func NewExternal(
 		teeInfo:            teeInfo,
 		wallet:             wallet,
 		privKey:            privateKey,
+		chainID:            chainID,
 		direct:             direct,
+		metrics:            m,
 	}
 
 	e.registerRoutes(direct.Enable)
@@ -124,7 +135,6 @@ func (e *External) Close(ctx context.Context) error {
 // With enableDirect set to true /direct endpoint is added.
 func (e *External) registerRoutes(enableDirect bool) {
 	mux := http.NewServeMux()
-	e.server.Handler = mux
 
 	mux.HandleFunc("POST /instruction", prepareHandler(e.instructionH, instructionSizeLimit, false))
 	mux.HandleFunc(fmt.Sprintf("GET /action/result/{%s}", actionID), prepareHandler(e.resultH, noBody, false))
@@ -143,6 +153,8 @@ func (e *External) registerRoutes(enableDirect bool) {
 
 		mux.HandleFunc("POST /direct", prepareHandler(e.directH, sizeLimit, false))
 	}
+
+	e.server.Handler = instrumentHTTP(e.metrics, "external", mux)
 }
 
 // instructionH handles instruction endpoint.
@@ -163,7 +175,7 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	signedReceipt, err := receipt.Sign(e.privKey)
+	signedReceipt, err := receipt.Sign(e.privKey, e.chainID)
 	if err != nil {
 		return err
 	}
@@ -180,6 +192,11 @@ func (e *External) instructionH(w http.ResponseWriter, r *http.Request) error {
 func (e *External) verifyAPIKey(r *http.Request) error {
 	key := r.Header.Get("X-API-Key")
 	if subtle.ConstantTimeCompare([]byte(key), []byte(e.direct.APIKey)) != 1 {
+		reason := "invalid"
+		if key == "" {
+			reason = "missing"
+		}
+		logger.Warnf("rejected %s request from %s: %s API key", r.Pattern, r.RemoteAddr, reason)
 		return errUnauthorized
 	}
 
@@ -217,7 +234,8 @@ func (e *External) directH(w http.ResponseWriter, r *http.Request) error {
 
 	err = e.actionQueues.Enqueue(r.Context(), a, processorutils.Direct)
 	if err != nil {
-		return ErrInvalidBody
+		logger.Warnf("enqueueing direct action: %v", err)
+		return errEnqueueFailed
 	}
 
 	err = json.NewEncoder(w).Encode(a)
@@ -261,7 +279,11 @@ func (e *External) resultH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	response.ProxySignature, err = crypto.Sign(accounts.TextHash(response.Result.Hash()), e.privKey)
+	resultSignHash, err := csigning.NewPayload(csigning.ProxyActionResult, e.chainID, common.BytesToHash(response.Result.Hash())).Hash()
+	if err != nil {
+		return err
+	}
+	response.ProxySignature, err = crypto.Sign(accounts.TextHash(resultSignHash[:]), e.privKey)
 	if err != nil {
 		return err
 	}
@@ -321,7 +343,15 @@ func (e *External) infoH(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	sig, err := crypto.Sign(accounts.TextHash(h), e.privKey)
+	// Bind with the chainID carried inside the attestation itself so the
+	// recovering client (which only has the transmitted TeeInfo) reconstructs
+	// the same preimage without relying on a separately-configured chainID.
+	infoSignHash, err := csigning.NewPayload(csigning.ProxyTeeInfo, result.TeeInfo.ChainID, common.BytesToHash(h)).Hash()
+	if err != nil {
+		return err
+	}
+
+	sig, err := crypto.Sign(accounts.TextHash(infoSignHash[:]), e.privKey)
 	if err != nil {
 		return err
 	}
