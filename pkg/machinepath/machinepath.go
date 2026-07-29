@@ -38,9 +38,14 @@ const (
 
 var (
 	errNoPaths       = errors.New("no machine paths found for list")
-	errNoSignatures  = errors.New("no governance signatures or safe approvals found for list")
 	errInvalidInputs = errors.New("invalid calldata inputs")
 )
+
+// ErrNoAuthorization marks an activated list with no forwardable authorization
+// evidence: neither direct governance signatures nor a verifiable Safe approval.
+// A governance-configuration condition, not an infra fault — callers classify it
+// apart from other build failures.
+var ErrNoAuthorization = errors.New("no governance signatures or safe approvals found for list")
 
 // SetMachinePathListAction builds the SET_MACHINE_PATH_LIST direct action for
 // the governance-approved list identified by (extensionID, nonce). It
@@ -49,8 +54,9 @@ var (
 // from successful signMachinePathList transactions up to toBlock, and — when
 // the node's governance is Safe-backed (gov.Safe nonzero) — one locally
 // pre-verified approveMachinePathList Safe transaction. At least one form
-// must be found. The TEE node re-verifies either against its own governance
-// set and threshold; gov is that same snapshot, as reported by the node.
+// must be found; otherwise ErrNoAuthorization is returned. The TEE node
+// re-verifies either against its own governance set and threshold; gov is
+// that same snapshot, as reported by the node.
 func SetMachinePathListAction(
 	ctx context.Context,
 	db *gorm.DB,
@@ -89,7 +95,7 @@ func SetMachinePathListAction(
 	}
 
 	if len(sigs) == 0 && approval == nil {
-		return nil, errNoSignatures
+		return nil, ErrNoAuthorization
 	}
 
 	req := types.SetMachinePathListRequest{

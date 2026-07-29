@@ -235,6 +235,21 @@ func TestGovernanceValidate(t *testing.T) {
 	}
 }
 
+// TestReadGovernanceWithoutManager guards the cross-field check: [governance]
+// configures machine-path pre-verification only, so setting it without
+// addresses.machine_path_manager would be silently inert — Read refuses it.
+func TestReadGovernanceWithoutManager(t *testing.T) {
+	base, err := os.ReadFile("./test_configs/config.toml")
+	require.NoError(t, err)
+
+	gov := "\n[governance]\nsigners = [\"0x1111111111111111111111111111111111111111\", \"0x2222222222222222222222222222222222222222\"]\nthreshold = 2\n"
+	path := filepath.Join(t.TempDir(), "config.toml")
+	require.NoError(t, os.WriteFile(path, append(base, gov...), 0o600))
+
+	_, err = Read(path)
+	require.ErrorIs(t, err, errGovernanceWithoutManager)
+}
+
 func TestMetricsValidate(t *testing.T) {
 	off := func() *bool { b := false; return &b }
 	on := func() *bool { b := true; return &b }

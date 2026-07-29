@@ -4,9 +4,23 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 )
+
+// logGovernancePosture records the machine-path governance mode at startup so a
+// silent downgrade to the legacy direct-signature path is visible in the log.
+func logGovernancePosture(cfg config.Governance) {
+	switch {
+	case !cfg.IsSet():
+		logger.Info("governance: not configured; forwarding direct signatures only, nothing cross-checked")
+	case cfg.SafeBacked():
+		logger.Infof("governance: Safe-backed (safe %s, %d signers, threshold %d); Safe approvals pre-verified", cfg.Safe, len(cfg.Signers), cfg.Threshold)
+	default:
+		logger.Infof("governance: plain (%d signers, threshold %d)", len(cfg.Signers), cfg.Threshold)
+	}
+}
 
 // resolveGovernance converts the optional governance config into the
 // types.Governance the machine-path service uses to pre-verify Safe approvals,

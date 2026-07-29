@@ -114,6 +114,19 @@ type signedListFixture struct {
 // newSignedListFixture builds a signedListFixture in a fresh in-memory DB named dbName.
 func newSignedListFixture(t *testing.T, dbName string) signedListFixture {
 	t.Helper()
+	return newListFixture(t, dbName, true)
+}
+
+// newUnauthorizedListFixture is newSignedListFixture without the governance
+// signMachinePathList transaction: the list is activated on chain but carries no
+// forwardable authorization evidence.
+func newUnauthorizedListFixture(t *testing.T, dbName string) signedListFixture {
+	t.Helper()
+	return newListFixture(t, dbName, false)
+}
+
+func newListFixture(t *testing.T, dbName string, signed bool) signedListFixture {
+	t.Helper()
 
 	const chainID = uint64(14)
 	managerAddress := common.HexToAddress("0x1111111111111111111111111111111111111111")
@@ -194,17 +207,36 @@ func newSignedListFixture(t *testing.T, dbName string) signedListFixture {
 		BlockNumber:     signedBlock,
 	}).Error)
 
-	require.NoError(t, db.Create(&database.Transaction{
-		Hash:        "aaaa000000000000000000000000000000000000000000000000000000000003",
-		FunctionSig: hex.EncodeToString(signMethod.ID),
-		Input:       hex.EncodeToString(txInput),
-		BlockNumber: txBlock,
-		ToAddress:   hex.EncodeToString(managerAddress[:]),
-		Status:      1,
-		Timestamp:   1_500,
-	}).Error)
+	if signed {
+		require.NoError(t, db.Create(&database.Transaction{
+			Hash:        "aaaa000000000000000000000000000000000000000000000000000000000003",
+			FunctionSig: hex.EncodeToString(signMethod.ID),
+			Input:       hex.EncodeToString(txInput),
+			BlockNumber: txBlock,
+			ToAddress:   hex.EncodeToString(managerAddress[:]),
+			Status:      1,
+			Timestamp:   1_500,
+		}).Error)
+	}
 
 	return signedListFixture{db: db, managerAddress: managerAddress, extensionID: extensionID, chainID: chainID, nonce: nonce}
+}
+
+// TestPollNoAuthorizationIncrementsMachinepathPoll guards the ErrNoAuthorization path: an
+// activated list with no authorization evidence (no signMachinePathList transaction, no
+// Safe approval) must increment machinepath_poll_total{result="no_authorization"} — not
+// "build_error" — and leave lastNonce unchanged so the next poll retries the same list.
+func TestPollNoAuthorizationIncrementsMachinepathPoll(t *testing.T) {
+	fx := newUnauthorizedListFixture(t, "machinepath-no-authorization")
+
+	m := metrics.New(metrics.Config{Enable: true, Node: true})
+	s := NewService(nil, nil, fx.managerAddress, types.Governance{}, fx.extensionID, fx.chainID, 0, m)
+
+	s.poll(context.Background(), fx.db)
+
+	require.Equal(t, float64(1), machinepathPollCount(t, m, "no_authorization"))
+	require.Equal(t, float64(0), machinepathPollCount(t, m, "build_error"))
+	require.Zero(t, s.lastNonce, "lastNonce must not advance until the node confirms the action")
 }
 
 // TestPollEnqueueErrorIncrementsMachinepathPoll guards the aq.Enqueue error path: a genuine

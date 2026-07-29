@@ -109,6 +109,7 @@ type Metrics struct {
 	nodeWaitTotal    *prometheus.CounterVec
 
 	machinepathPollTotal *prometheus.CounterVec
+	governancePosture    *prometheus.GaugeVec
 
 	policyEpoch     prometheus.Gauge
 	policyLastFetch prometheus.Gauge
@@ -339,9 +340,13 @@ func New(cfg Config) *Metrics {
 			Help: "Machine-path poll cycles by result (including a node rejection as result=\"rejected\" and a failed or timed-out confirmation wait as result=\"wait_error\"); wait latency is in node_response_wait_total.",
 		}, []string{"result"})
 		// Pre-initialize so the poll-error/rejected warnings fire on the first occurrence.
-		for _, result := range []string{"fetch_error", "no_change", "build_error", "enqueue_error", "wait_error", "rejected", "confirmed"} {
+		for _, result := range []string{"fetch_error", "no_change", "build_error", "no_authorization", "enqueue_error", "wait_error", "rejected", "confirmed"} {
 			m.machinepathPollTotal.WithLabelValues(result).Add(0)
 		}
+		m.governancePosture = f.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace, Name: "governance_posture",
+			Help: "Machine-path governance posture: 1 if the named setting is active, else 0.",
+		}, []string{"setting"})
 	}
 
 	if cfg.Policy {
@@ -506,6 +511,44 @@ func (m *Metrics) RegisterActiveDataProviderVoters(count func() float64) {
 	}, count))
 }
 
+// RegisterActiveDataProviderWeight registers a scrape-time gauge of bips(), the combined
+// weight of the current reward epoch's data-provider voters. No-op when active-voters is
+// disabled.
+func (m *Metrics) RegisterActiveDataProviderWeight(bips func() float64) {
+	if !m.ActiveVotersEnabled() || bips == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "active_data_provider_weight_bips",
+		Help: "Combined signing-policy weight, in BIPS of the policy total, of the distinct data-provider voters counted by active_data_provider_voters.",
+	}, bips))
+}
+
+// RegisterMaxVotingWeight registers a scrape-time gauge of bips(), the highest provider weight
+// any single voting accumulated in the reported reward epoch. No-op when active-voters is
+// disabled.
+func (m *Metrics) RegisterMaxVotingWeight(bips func() float64) {
+	if !m.ActiveVotersEnabled() || bips == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "max_voting_weight_bips",
+		Help: "Highest provider weight, in BIPS of the policy total, accumulated by any single voting in the reported reward epoch.",
+	}, bips))
+}
+
+// RegisterVotingThreshold registers a scrape-time gauge of bips(), the reported reward epoch's
+// signing-policy finalization threshold. No-op when active-voters is disabled.
+func (m *Metrics) RegisterVotingThreshold(bips func() float64) {
+	if !m.ActiveVotersEnabled() || bips == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "voting_threshold_bips",
+		Help: "Signing-policy finalization threshold in BIPS of total voter weight for the reported reward epoch; default votings finalize on weight strictly greater than this.",
+	}, bips))
+}
+
 // ProviderPending pairs a provider address with its count of unfinalized proposals.
 type ProviderPending struct {
 	Provider string
@@ -626,7 +669,10 @@ func nodeWaitResult(err error) string {
 }
 
 // MachinepathPollObserved records one machine-path poll-loop outcome under a bounded result
-// ("fetch_error"/"build_error"/"enqueue_error"/"wait_error"/"no_change"/"rejected"/"confirmed");
+// ("fetch_error"/"build_error"/"no_authorization"/"enqueue_error"/"wait_error"/"no_change"/"rejected"/"confirmed");
+// "no_authorization" is an activated list with no forwardable authorization evidence (neither
+// direct signatures nor a verifiable Safe approval — a governance-config condition, split out
+// of "build_error" so it does not read as an infra fault),
 // "rejected" is a node status!=1 rejection (err==nil, so invisible to node_response_wait_total),
 // "wait_error" a failed or timed-out confirmation wait (shutdown cancellations excluded).
 func (m *Metrics) MachinepathPollObserved(result string) {
@@ -634,6 +680,44 @@ func (m *Metrics) MachinepathPollObserved(result string) {
 		return
 	}
 	m.machinepathPollTotal.WithLabelValues(result).Inc()
+}
+
+// SetGovernancePosture records the machine-path governance posture, setting the
+// governance_posture gauge to 1 for each active setting and 0 otherwise. The setting
+// key set is closed — the sole caller passes a fixed-key literal map: configured,
+// safe_backed. Set unconditionally at startup (pure config), so the series exists
+// even when the machine-path service itself is disabled.
+func (m *Metrics) SetGovernancePosture(settings map[string]bool) {
+	if m == nil || m.governancePosture == nil {
+		return
+	}
+	for k, on := range settings {
+		v := 0.0
+		if on {
+			v = 1
+		}
+		m.governancePosture.WithLabelValues(k).Set(v)
+	}
+}
+
+// NodeEnabled reports whether node-interaction metrics are collected.
+func (m *Metrics) NodeEnabled() bool {
+	return m != nil && m.cfg.Enable && m.cfg.Node
+}
+
+// RegisterGovernanceHashMatch registers a scrape-time gauge reporting whether the
+// governance hash the tee-node last reported still equals the proxy's startup-resolved
+// snapshot (1 = match, 0 = the node's governance rotated after startup, so Safe
+// pre-verification runs against a stale snapshot). Registered only when [governance]
+// is configured; no-op when the node group is disabled.
+func (m *Metrics) RegisterGovernanceHashMatch(match func() float64) {
+	if !m.NodeEnabled() || match == nil {
+		return
+	}
+	m.reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace, Name: "governance_hash_match",
+		Help: "1 if the node's last-reported governance hash equals the proxy's startup snapshot, else 0.",
+	}, match))
 }
 
 // SetActiveRewardEpoch records the reward epoch of the active signing policy.

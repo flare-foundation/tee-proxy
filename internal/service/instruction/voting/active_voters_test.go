@@ -7,12 +7,22 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
+	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
+)
+
+const (
+	// policyTotalWeight is testutil.TestSigningPolicy's total voter weight (1+3+3).
+	policyTotalWeight = 7.0
+	bipsDelta         = 1e-6
 )
 
 // TestRoundMarkProviderVoterConcurrent guards the votersMu synchronization the per-epoch
@@ -66,11 +76,42 @@ func TestRoundMarkProviderVoterAndProposerDistinct(t *testing.T) {
 
 func TestRoundNotCollectingParticipantsStaysZero(t *testing.T) {
 	r := createRound(testutil.TestSigningPolicy, 10, false)
-	r.markProviderVoter(common.HexToAddress("0x1"))
+	// A real policy voter, so a weight leak would show up instead of being masked by a
+	// VoterDataMap miss.
+	r.markProviderVoter(crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey))
 	r.markProposer(common.HexToAddress("0x1"))
+	r.recordVotingWeight(3)
 
 	require.Zero(t, r.ProviderVoterCount(), "data-provider voters must not be tracked when collection is off")
 	require.Zero(t, r.ProposerCount(), "initiators must not be tracked when collection is off")
+	require.Zero(t, r.VotedWeightBips(), "voted weight must not be tracked when collection is off")
+	require.Zero(t, r.MaxVotingWeightBips(), "the voting-weight watermark must not be tracked when collection is off")
+	// The threshold is policy-derived, so it is available regardless of collection.
+	require.InDelta(t, maxBIPS*3/policyTotalWeight, r.ThresholdBips(), bipsDelta)
+}
+
+// TestRoundWeightBips uses the real policy voters (weights 1, 3, 3 of total 7): synthetic
+// addresses miss VoterDataMap and would make every weight assertion pass vacuously.
+func TestRoundWeightBips(t *testing.T) {
+	r := createRound(testutil.TestSigningPolicy, 10, true)
+
+	require.Zero(t, r.VotedWeightBips())
+	require.Zero(t, r.MaxVotingWeightBips())
+	require.InDelta(t, maxBIPS*3/policyTotalWeight, r.ThresholdBips(), bipsDelta)
+
+	r.markProviderVoter(crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)) // weight 1
+	require.InDelta(t, maxBIPS*1/policyTotalWeight, r.VotedWeightBips(), bipsDelta)
+
+	r.markProviderVoter(crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey)) // weight 3
+	r.markProviderVoter(crypto.PubkeyToAddress(testutil.PrivKey3.PublicKey)) // weight 3
+	require.InDelta(t, float64(maxBIPS), r.VotedWeightBips(), bipsDelta, "the whole voter set sums to TotalWeight")
+
+	r.markProviderVoter(common.HexToAddress("0xdead")) // outside the policy: carries no weight
+	require.InDelta(t, float64(maxBIPS), r.VotedWeightBips(), bipsDelta)
+
+	r.recordVotingWeight(3)
+	r.recordVotingWeight(2) // the watermark is monotone
+	require.InDelta(t, maxBIPS*3/policyTotalWeight, r.MaxVotingWeightBips(), bipsDelta)
 }
 
 func TestCurrentRoundParticipantCounts(t *testing.T) {
@@ -79,6 +120,9 @@ func TestCurrentRoundParticipantCounts(t *testing.T) {
 
 	require.Zero(t, s.CurrentRoundProviderVoterCount(), "no round stored yet")
 	require.Zero(t, s.CurrentRoundInitiatorCount())
+	require.Zero(t, s.CurrentVotedWeightBips())
+	require.Zero(t, s.CurrentMaxVotingWeightBips())
+	require.Zero(t, s.CurrentVotingThresholdBips())
 	require.Empty(t, s.CurrentRoundTopPending(3))
 
 	s.StoreNewRound(testutil.TestSigningPolicy)
@@ -89,6 +133,7 @@ func TestCurrentRoundParticipantCounts(t *testing.T) {
 	r.markProposer(common.HexToAddress("0x2"))
 	require.Equal(t, 1, s.CurrentRoundProviderVoterCount())
 	require.Equal(t, 1, s.CurrentRoundInitiatorCount())
+	require.InDelta(t, maxBIPS*3/policyTotalWeight, s.CurrentVotingThresholdBips(), bipsDelta)
 
 	// Two open proposals from one voter surface as that voter's pending count.
 	addr := common.HexToAddress("0x9")
@@ -123,57 +168,101 @@ func TestOldestStoredEpoch(t *testing.T) {
 	require.Equal(t, uint32(101), oldest)
 }
 
-// TestActiveVoterGaugesSurviveEpochOverlap guards the MA-11 fix: when a new signing policy is
-// announced, its empty round advances currentEpoch, but the active-voter gauges must keep
-// reporting the still-voting predecessor's counts (the max of the two resident rounds), not dip
-// to zero. It also confirms the newer round wins once it accrues more participants.
-func TestActiveVoterGaugesSurviveEpochOverlap(t *testing.T) {
+// TestActiveVoterGaugesFollowReportedRound pins the scalar gauges' round selection: they report
+// the newest resident round and fall back to its predecessor only while that round has no
+// accepted provider votes (the policy-adoption overlap). Reporting the max across both rounds
+// instead would mask a participation collapse for the whole epoch, since the predecessor stays
+// resident and both values are monotone.
+func TestActiveVoterGaugesFollowReportedRound(t *testing.T) {
 	m := metrics.New(metrics.Config{Enable: true, ActiveVoters: true, Voting: true})
 	s := newTestStorage(t, m)
 
 	const epochN, epochNext = uint32(100), uint32(101)
+	v1 := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey) // weight 1
+	v2 := crypto.PubkeyToAddress(testutil.PrivKey2.PublicKey) // weight 3
+	v3 := crypto.PubkeyToAddress(testutil.PrivKey3.PublicKey) // weight 3
 
 	s.StoreNewRound(policyAtEpoch(epochN))
 	rN, ok := s.Get(epochN)
 	require.True(t, ok)
 
-	rN.markProviderVoter(common.HexToAddress("0x1"))
-	rN.markProviderVoter(common.HexToAddress("0x2"))
-	rN.markProposer(common.HexToAddress("0x1"))
+	rN.markProviderVoter(v1)
+	rN.markProviderVoter(v2)
+	rN.markProviderVoter(v3)
+	rN.markProposer(v1)
+	rN.markProposer(v2)
+	rN.recordVotingWeight(4)
 
 	pending := common.HexToAddress("0x9")
 	rN.limiter.Add(pending)
 	require.NoError(t, rN.limiter.Increment(pending))
 	require.NoError(t, rN.limiter.Increment(pending))
 
-	require.Equal(t, 2, s.CurrentRoundProviderVoterCount())
-	require.Equal(t, 1, s.CurrentRoundInitiatorCount())
+	require.Equal(t, 3, s.CurrentRoundProviderVoterCount())
+	require.Equal(t, 2, s.CurrentRoundInitiatorCount())
+	require.InDelta(t, float64(maxBIPS), s.CurrentVotedWeightBips(), bipsDelta)
+	require.InDelta(t, maxBIPS*4/policyTotalWeight, s.CurrentMaxVotingWeightBips(), bipsDelta)
+	require.InDelta(t, maxBIPS*3/policyTotalWeight, s.CurrentVotingThresholdBips(), bipsDelta)
 
 	// A newly announced, empty round advances currentEpoch but must not zero the gauges.
 	s.StoreNewRound(policyAtEpoch(epochNext))
 	require.Equal(t, epochNext, s.currentEpoch.Load())
 
-	require.Equal(t, 2, s.CurrentRoundProviderVoterCount(), "provider voters must survive the epoch overlap")
-	require.Equal(t, 1, s.CurrentRoundInitiatorCount(), "initiators must survive the epoch overlap")
+	require.Equal(t, 3, s.CurrentRoundProviderVoterCount(), "provider voters must survive the epoch overlap")
+	require.Equal(t, 2, s.CurrentRoundInitiatorCount(), "initiators must survive the epoch overlap")
+	require.InDelta(t, float64(maxBIPS), s.CurrentVotedWeightBips(), bipsDelta, "voted weight must survive the epoch overlap")
+	require.InDelta(t, maxBIPS*4/policyTotalWeight, s.CurrentMaxVotingWeightBips(), bipsDelta)
 
+	// Unfinalized proposals genuinely span the overlap, so top-pending keeps merging both rounds.
 	top := s.CurrentRoundTopPending(3)
 	require.Len(t, top, 1)
 	require.Equal(t, pending, top[0].Address)
 	require.Equal(t, uint(2), top[0].Pending)
 
-	// Once the newer round accrues MORE participants, the max follows it (not previous-only).
+	// The first accepted provider vote in the new round switches every scalar gauge to it, even
+	// though the predecessor's values are higher — a collapse must not stay hidden.
 	rNext, ok := s.Get(epochNext)
 	require.True(t, ok)
-	for _, a := range []common.Address{
-		common.HexToAddress("0xa"), common.HexToAddress("0xb"), common.HexToAddress("0xc"),
-	} {
-		rNext.markProviderVoter(a)
-	}
-	rNext.markProposer(common.HexToAddress("0xa"))
-	rNext.markProposer(common.HexToAddress("0xb"))
+	rNext.markProviderVoter(v1)
 
-	require.Equal(t, 3, s.CurrentRoundProviderVoterCount(), "newer round wins the max when it has more voters")
-	require.Equal(t, 2, s.CurrentRoundInitiatorCount())
+	require.Equal(t, 1, s.CurrentRoundProviderVoterCount(), "the newest round is reported, not the max")
+	require.Zero(t, s.CurrentRoundInitiatorCount(), "all scalar gauges report the same round")
+	require.InDelta(t, maxBIPS*1/policyTotalWeight, s.CurrentVotedWeightBips(), bipsDelta)
+	require.Zero(t, s.CurrentMaxVotingWeightBips(), "no voting weight recorded in the newest round yet")
+	require.InDelta(t, maxBIPS*3/policyTotalWeight, s.CurrentVotingThresholdBips(), bipsDelta)
+}
+
+// TestAddVoteRaisesWeightGauges covers the AddVote path end to end: an accepted provider vote
+// must land both in the epoch's voted-weight sum and in the per-voting watermark.
+func TestAddVoteRaisesWeightGauges(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, ActiveVoters: true, Voting: true})
+	s := newTestStorage(t, m)
+	s.StoreNewRound(testutil.TestSigningPolicy)
+
+	i := &instruction.Data{
+		DataFixed: instruction.DataFixed{
+			InstructionID:          crypto.Keccak256Hash([]byte("weight")),
+			TeeID:                  common.HexToAddress("dead"),
+			Timestamp:              uint64(time.Now().Unix()),
+			RewardEpochID:          testutil.TestSigningPolicy.RewardEpochID,
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyGenerate.Hash(),
+			OriginalMessage:        []byte("weight"),
+			AdditionalFixedMessage: hexutil.Bytes{},
+		},
+		AdditionalVariableMessage: hexutil.Bytes{},
+	}
+
+	h, err := i.HashForSigning(voteTestChainID)
+	require.NoError(t, err)
+	sig, err := instruction.SignInstructionHash(h, testutil.PrivKey1) // weight 1, below threshold 3
+	require.NoError(t, err)
+
+	_, err = s.AddVote(i, crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey), sig)
+	require.NoError(t, err)
+
+	require.InDelta(t, maxBIPS*1/policyTotalWeight, s.CurrentVotedWeightBips(), bipsDelta)
+	require.InDelta(t, maxBIPS*1/policyTotalWeight, s.CurrentMaxVotingWeightBips(), bipsDelta)
 }
 
 // TestTopPendingMergePerProviderMax guards that the cross-round top-pending merge takes the max

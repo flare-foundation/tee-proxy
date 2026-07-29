@@ -88,6 +88,17 @@ func (s *Service) LastAppliedPolicyID() uint32 {
 	return s.Latest.TeeInfo.LastSigningPolicyID
 }
 
+// LastGovernanceHash returns the governance hash the tee-node most recently
+// reported in its machine data.
+func (s *Service) LastGovernanceHash() common.Hash {
+	s.RLock()
+	defer s.RUnlock()
+	if s.Latest == nil {
+		return common.Hash{}
+	}
+	return s.Latest.MachineData.GovernanceHash
+}
+
 // Run starts the periodic update of TEE info.
 func (s *Service) Run(ctx context.Context) error {
 	errCount := 0

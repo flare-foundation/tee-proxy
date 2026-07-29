@@ -27,7 +27,7 @@ For the histograms, use `histogram_quantile(0.95, rate(<name>_bucket[5m]))` for 
 | `storage`       | Redis/GCS operation count, latency, and errors                                                                   |
 | `queue`         | enqueue and dequeue counters, queue-depth gauge, and depth-read failure counter                                        |
 | `voting`        | instruction and votings-started counters, threshold-duration histogram                                                 |
-| `active_voters` | per-epoch participant gauges                                                                                           |
+| `active_voters` | per-epoch participant gauges, participating and per-voting weight, and the voting-threshold gauge                       |
 | `result`        | result throughput, lost, discarded, and rejected counters                                                              |
 | `wallet`        | wallet sync-cycle outcome counter, key-update/backup-apply failure counters, and cached-key gauge                      |
 | `info`          | TEE info refresh duration and per-stage failures                                                                       |
@@ -76,6 +76,9 @@ Availability — probe/heartbeat-driven, so traffic-independent:
 | `TeeProxyDown`        | `up{job="tee-proxy"} == 0` for 2m                    | Prometheus cannot scrape the proxy. **Example only** — keys on the synthetic `up` metric; the `job` selector must match your scrape config. |
 | `TeeProxyPolicyFetchStalled` | `time() - teeproxy_policy_last_fetch_timestamp_seconds > 7200 and teeproxy_policy_last_fetch_timestamp_seconds > 0` for 5m | Signing-policy rollover stuck >2h (overdue gate); the heartbeat freezes once a rollover cannot complete, so it catches any stuck stage. |
 
+A startup config refusal — a governance-hash mismatch, or any of the other `Panicf` exits before `SignalStartupFinished` — is intentionally metric-free: the proxy dies before steady state, and in the resulting crash loop per-restart counter resets defeat `increase()`-based alerting, so a metric would only appear to provide coverage.
+Detection is the panic log line plus `TeeProxyDown`/`TeeProxyNotReady` and platform restart counts.
+
 Sustained degradation — pages after the condition persists (most have a warning sibling below; `TeeProxyWalletSyncWedged` pages directly):
 
 | Alert                                   | Condition                                                                                 | Why it pages                                                                                |
@@ -113,8 +116,12 @@ Other warnings (lead time / degradation that self-heals):
 | `TeeProxyNodeWaitTimeouts`                          | `sum by (path) (increase(teeproxy_node_response_wait_total{result="timeout"}[15m])) > 0`                                                   | TEE node slow or unreachable on a path; `increase()` with no `for:` so it fires at any path cadence (a `rate>0` dwell can never complete on the hourly wallet paths). |
 | `TeeProxyMachinepathPollErrors`                     | `increase(teeproxy_machinepath_poll_total{result=~"fetch_error\|build_error\|enqueue_error\|wait_error"}[15m]) > 0`                        | A machine-path poll cycle failed before the node saw the action, or waiting for its confirmation.  |
 | `TeeProxyActionDequeueFailing`                      | `sum by (queue) (increase(teeproxy_action_dequeue_total{result="dequeue_error"}[5m])) > 0`                                                 | Dequeue pops failing at Redis (no ID consumed, nothing lost); node-poll-driven, so traffic-independent. |
+| `TeeProxyMachinepathNoAuthorization`                | `increase(teeproxy_machinepath_poll_total{result="no_authorization"}[15m]) > 0`                                                            | An activated list has no forwardable authorization evidence (no direct signatures, no verifiable Safe approval) — a governance-config condition, retried every poll until resolved. |
+| `TeeProxyGovernanceNotConfigured`                   | `teeproxy_governance_posture{setting="configured"} == 0` for 15m                                                                           | Running without `[governance]` — legacy direct-signature path, nothing cross-checked. **Deployment-pinned rule** (enable where governance is mandatory).                            |
+| `TeeProxyGovernanceHashDrift`                       | `teeproxy_governance_hash_match == 0` for 15m                                                                                              | Node governance rotated after startup; Safe pre-verification is stale — update `[governance]` and restart.                                                                          |
 | `TeeProxyMachinepathRejected`                       | `increase(teeproxy_machinepath_poll_total{result="rejected"}[15m]) > 0`                                                                    | Node returned a non-success status for the machine-path action.                                    |
 | `TeeProxyConsensusStall`                            | votings started but none finalized in 15m                                                                                                  | Offline voters / mis-set threshold / partition.                                                    |
+| `TeeProxyLowVotingParticipation`                    | `teeproxy_active_data_provider_weight_bips <= teeproxy_voting_threshold_bips and increase(teeproxy_votings_started_total[1h]) > 0` for 1h   | Participating provider weight this epoch never exceeded the threshold, so default-threshold votings cannot finalize; the activity guard keeps idle epochs and restarts from paging. |
 | `TeeProxyPolicyUpdateFailing`                       | `sum(increase(teeproxy_policy_update_total{result=~"build_failed\|indexer\|enqueue_failed\|await_failed\|rejected"}[15m])) > 3` for 15m | A rollover keeps failing on a fast-retry reason (build/indexer/enqueue/await/rejected); a genuine wedge pages via `TeeProxyPolicyFetchStalled`.                         |
 | `TeeProxySigningPolicySignaturesShort` | `increase(teeproxy_policy_update_total{result="sig_deadline"}[35m]) > 0` | Stage-2 signature collection hit its 30m deadline; normal early in a rollover, pages via the overdue gate if it persists. |
 | `TeeProxyPolicyReconcileFrequent` | `increase(teeproxy_policy_update_total{result="reconciled"}[6h]) > 1` | Repeated reconciles — stage-4 confirmations timing out though the node applied the policy. |
@@ -195,16 +202,29 @@ All three `reason` series are pre-initialized to 0 at startup so the first, poss
 
 ## `active_voters`
 
-All gauges are per current reward epoch and scrape-time.
+All gauges are scrape-time and per reward epoch.
+The scalar gauges report the current reward epoch's round, falling back to its predecessor only while the current round has no accepted provider votes — the ~2h policy-adoption overlap, where the next policy's round already exists but voting continues in the previous epoch.
+All five report the same round, so their values are directly comparable.
+Reporting a max across both resident rounds instead would mask a participation collapse for the whole epoch, because the predecessor stays resident and both values are monotone.
+`top_provider_unfinalized_proposals` still merges both rounds, since an unfinalized proposal genuinely spans the overlap.
 
-| Metric                                        | Type                | Labels     | Description                                                                                                                                                                       |
-| --------------------------------------------- | ------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `teeproxy_active_data_provider_voters`        | gauge (scrape-time) | —          | Distinct data-provider voters (policy-registered, weight-bearing) that cast at least one accepted vote in the current reward epoch.                                               |
-| `teeproxy_active_initiators`                  | gauge (scrape-time) | —          | Distinct initiators (proposers) that opened at least one voting in the current reward epoch.                                                                                      |
-| `teeproxy_top_provider_unfinalized_proposals` | gauge (scrape-time) | `provider` | Unfinalized proposals held by each of the top 3 providers (by count) in the current reward epoch; providers with none are omitted, so the metric has no series when all are zero. |
+| Metric                                          | Type                | Labels     | Description                                                                                                                                                                       |
+| ----------------------------------------------- | ------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `teeproxy_active_data_provider_voters`          | gauge (scrape-time) | —          | Distinct data-provider voters (policy-registered, weight-bearing) that cast at least one accepted vote in the current reward epoch.                                               |
+| `teeproxy_active_initiators`                    | gauge (scrape-time) | —          | Distinct initiators (proposers) that opened at least one voting in the current reward epoch.                                                                                      |
+| `teeproxy_active_data_provider_weight_bips`     | gauge (scrape-time) | —          | Combined signing-policy weight, in BIPS of the policy total, of the distinct data-provider voters counted by `active_data_provider_voters`.                                        |
+| `teeproxy_max_voting_weight_bips`               | gauge (scrape-time) | —          | Highest provider weight, in BIPS of the policy total, accumulated by any single voting in the reported reward epoch.                                                               |
+| `teeproxy_voting_threshold_bips`                | gauge (scrape-time) | —          | Signing-policy finalization threshold in BIPS of total voter weight for the reported reward epoch.                                                                                 |
+| `teeproxy_top_provider_unfinalized_proposals`   | gauge (scrape-time) | `provider` | Unfinalized proposals held by each of the top 3 providers (by count) in the current reward epoch; providers with none are omitted, so the metric has no series when all are zero. |
 
 The `provider` label on `top_provider_unfinalized_proposals` is a voter address.
 It is bounded to at most 3 series per scrape, but the set of addresses that appear changes over time as different providers enter the top 3 (the usual cost of an address-valued label).
+
+The three BIPS gauges exist for the decentralized deployment requirement: more than 50% of data-provider signing-policy weight must participate in instruction voting, and weight — not voter count — is what finalizes a voting.
+All three are per-epoch cumulative and monotone within an epoch (weight is only ever added, and the watermark only rises), so they answer "has enough weight participated yet", not "at what rate".
+They are in-memory only, so after a restart they rebuild from live votes and read low until the epoch's traffic repopulates them.
+`active_data_provider_weight_bips` is the epoch-wide participation figure, `max_voting_weight_bips` answers the sharper deployment-readiness question — has any single proposal gathered enough weight to finalize — and `voting_threshold_bips` is the comparison line for both.
+The threshold gauge is the signing policy's own threshold, which covers default-threshold votings; a per-instruction FDC threshold (4000–9999 BIPS) overrides it for that box, so votings carrying one can finalize above or below the gauge's line.
 
 ## `result`
 
@@ -306,17 +326,24 @@ It gives lead time before the 140s readiness cutoff and attributes a readiness f
 
 | Metric                                         | Type      | Labels           | Description                                        |
 | ---------------------------------------------- | --------- | ---------------- | -------------------------------------------------- |
-| `teeproxy_node_response_wait_duration_seconds` | histogram | `path`           | Synchronous wait for a TEE-node response, by path. |
-| `teeproxy_node_response_wait_total`            | counter   | `path`, `result` | TEE-node response waits by path and outcome.       |
-| `teeproxy_machinepath_poll_total`              | counter   | `result`         | Machine-path poll cycles by result.                |
+| `teeproxy_node_response_wait_duration_seconds` | histogram | `path`           | Synchronous wait for a TEE-node response, by path.                                  |
+| `teeproxy_node_response_wait_total`            | counter   | `path`, `result` | TEE-node response waits by path and outcome.                                        |
+| `teeproxy_machinepath_poll_total`              | counter   | `result`         | Machine-path poll cycles by result.                                                 |
+| `teeproxy_governance_posture`                  | gauge     | `setting`        | Machine-path governance posture: 1 if the named setting is active, else 0.          |
+| `teeproxy_governance_hash_match`               | gauge (scrape-time) | —      | 1 if the node's last-reported governance hash equals the proxy's startup snapshot.  |
 
-Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`enqueue_error`/`wait_error`/`no_change`/`rejected`/`confirmed`.
+Label values: `path` is `info`/`machinepath`/`wallet_key_info`/`wallet_key_proof`/`policy_update`; `result` (node-wait) is `ok`/`timeout`/`cancelled`/`error`; `result` (machinepath poll) is `fetch_error`/`build_error`/`no_authorization`/`enqueue_error`/`wait_error`/`no_change`/`rejected`/`confirmed`.
 The `timeout` and `error` node-wait series are pre-initialized to 0 for every path so a first, possibly one-shot wait failure satisfies `increase(...) > 0`.
 `policy_update` is the `UPDATE_POLICY` confirmation wait (2m timeout), fired roughly once per reward epoch during a signing-policy rollover.
 This is the proxy's synchronous round-trip to the TEE node (the wait inside `WaitOnResponse`).
 A rising `timeout` share, or a p99 approaching the per-path response timeout (2–3 minutes), is the leading signal that the node is slow or unreachable — and the `path` label localizes partial degradation (e.g. `wallet_key_proof` slow while `info` is fine).
-`machinepath_poll_total` covers the poll loop's pre-delivery legs (`fetch_error`/`build_error`/`enqueue_error`/`no_change`), its wait leg (`wait_error`, a failed or timed-out confirmation wait; shutdown cancellations are not counted), and its post-wait outcomes (`rejected`/`confirmed`); wait latency is in `teeproxy_node_response_wait_total{path="machinepath"}`.
+`machinepath_poll_total` covers the poll loop's pre-delivery legs (`fetch_error`/`build_error`/`no_authorization`/`enqueue_error`/`no_change`), its wait leg (`wait_error`, a failed or timed-out confirmation wait; shutdown cancellations are not counted), and its post-wait outcomes (`rejected`/`confirmed`); wait latency is in `teeproxy_node_response_wait_total{path="machinepath"}`.
+`build_error` covers every action-build failure — indexer reads, hash/marshal errors, and, under Safe-backed governance, errors while locating the `MachinePathListApproved` log or its `execTransaction` — except the authorization-absence case, which is split out as `no_authorization`: an activated list with no direct signatures and no Safe approval that passes local pre-verification (failing candidates are skipped and logged at debug).
+`no_authorization` is a governance-configuration condition (e.g. a Safe-backed node paired with a proxy whose `[governance]` block is unset), not an infra fault, and repeats every poll until authorization evidence appears on chain or the config is fixed.
 `rejected` is a node `status != 1` rejection — `WaitOnResponse` returns `err == nil` for it, so the node-wait metric records it as `result="ok"`, and only this counter (and `teeproxy_results_processed_total{op_command="SET_MACHINE_PATH_LIST"}`) distinguishes it.
+`governance_posture` (settings `configured`/`safe_backed`) is a config-derived gauge in the mold of `attestation_posture`, set once at startup regardless of whether the machine-path service runs: a deploy that drops the `[governance]` block silently regresses to the legacy direct-signature path, and this gauge is the only immediate signal — the functional symptom (`no_authorization`) appears only at the next Safe-only list activation.
+`governance_hash_match` is registered only when `[governance]` is set and the machine-path service is enabled; at scrape time it compares the governance hash from the node's latest info refresh against the startup-resolved snapshot.
+A mismatch at startup is a fatal refusal, but the same condition arising later — the node redeployed with rotated governance — would otherwise be silent while Safe pre-verification goes stale; `TeeProxyGovernanceHashDrift` alerts on it at the info-refresh cadence, before the next list activation.
 
 ## `runtime`
 

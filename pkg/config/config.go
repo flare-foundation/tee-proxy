@@ -68,6 +68,7 @@ var (
 	errGovernanceThresholdTooHigh           = errors.New("governance: threshold exceeds the number of signers")
 	errGovernanceZeroSigner                 = errors.New("governance: signer is the zero address")
 	errGovernanceSafePairing                = errors.New("governance: safe and tee_manager must be set together")
+	errGovernanceWithoutManager             = errors.New("governance: set but addresses.machine_path_manager is unset")
 	errMetricsNoGroups                      = errors.New("metrics enabled but all groups are disabled; enable at least one group or set enable = false")
 )
 
@@ -214,7 +215,7 @@ type Metrics struct {
 	Storage      *bool `toml:"storage"`       // Generic Redis/GCS operation count and errors.
 	Queue        *bool `toml:"queue"`         // Action enqueue/dequeue counters and queue-depth gauge.
 	Voting       *bool `toml:"voting"`        // Instruction and votings-started counters, threshold-duration histogram.
-	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters, initiators, top providers).
+	ActiveVoters *bool `toml:"active_voters"` // Per-epoch participant gauges (data-provider voters and weight, initiators, top providers, voting threshold).
 	Result       *bool `toml:"result"`        // Result throughput, lost, discarded, rejected, and channel-dropped counters; rejected{reason=wrong_tee_id} is the TEE tamper/mis-route signal.
 	Wallet       *bool `toml:"wallet"`        // Wallet key/proof sync-cycle outcome counter and cached-key gauge.
 	Info         *bool `toml:"info"`          // TEE info per-stage refresh failures and end-to-end refresh-duration histogram.
@@ -311,6 +312,12 @@ func Read(path string) (Proxy, error) {
 	err = c.Governance.validate()
 	if err != nil {
 		return c, err
+	}
+
+	// governance configures machine-path pre-verification only; without the
+	// manager address the whole block would be silently inert
+	if c.Governance.IsSet() && c.Addresses.MachinePathManager == (common.Address{}) {
+		return c, errGovernanceWithoutManager
 	}
 
 	err = c.Ports.validate()
@@ -427,6 +434,10 @@ func (a Addresses) validate() error {
 // Signers and Threshold are the plain governance signer set / threshold, or —
 // for Safe-backed governance — the Safe owners' snapshot and threshold. Safe
 // and TeeManager are set together only for Safe-backed governance.
+//
+// A set governance requires addresses.machine_path_manager: the block exists
+// only for the machine-path service, so configuring one without the other is
+// rejected at load time.
 type Governance struct {
 	Signers    []common.Address `toml:"signers"`
 	Threshold  uint64           `toml:"threshold"`
