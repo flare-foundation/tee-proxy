@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -239,6 +240,13 @@ func (vb *voteBox) Status() voting.Status {
 		cosignersThreshold = vb.proposal.cosignerThreshold
 	}
 
+	// Sorted for a deterministic response; these are the voters whose weights sum to Weight.
+	voters := make([]common.Address, 0, len(vb.votes))
+	for v := range vb.votes {
+		voters = append(voters, v)
+	}
+	slices.SortFunc(voters, func(a, b common.Address) int { return a.Cmp(b) })
+
 	return voting.Status{
 		InstructionHash:    vb.iHash,
 		Finalized:          vb.Finalized,
@@ -246,6 +254,7 @@ func (vb *voteBox) Status() voting.Status {
 		Start:              uint64(vb.StartTime.Unix()),
 		End:                uint64(vb.EndTime.Unix()),
 		Weight:             vb.weight,
+		Voters:             voters,
 		Threshold:          threshold,
 		Cosigners:          vb.cosignerWeight,
 		CosignersThreshold: cosignersThreshold,
