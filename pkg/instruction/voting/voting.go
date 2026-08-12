@@ -15,15 +15,16 @@ import (
 
 // Status holds the voting state for a single instruction hash within a round.
 type Status struct {
-	InstructionHash    common.Hash `json:"instructionHash"`
-	Finalized          bool        `json:"finalized"`
-	Deleted            bool        `json:"deleted"`
-	Start              uint64      `json:"start"`
-	End                uint64      `json:"end"`
-	Weight             uint16      `json:"weight"`
-	Threshold          uint16      `json:"threshold"`
-	Cosigners          uint16      `json:"cosigners"`
-	CosignersThreshold uint16      `json:"cosignersThreshold"`
+	InstructionHash    common.Hash      `json:"instructionHash"`
+	Finalized          bool             `json:"finalized"`
+	Deleted            bool             `json:"deleted"`
+	Start              uint64           `json:"start"`
+	End                uint64           `json:"end"`
+	Weight             uint16           `json:"weight"`
+	Voters             []common.Address `json:"voters"` // addresses that successfully voted; their individual weights sum to Weight.
+	Threshold          uint16           `json:"threshold"`
+	Cosigners          uint16           `json:"cosigners"`
+	CosignersThreshold uint16           `json:"cosignersThreshold"`
 }
 
 // Statuses aggregates all voting statuses for a given instruction ID within a reward epoch.
