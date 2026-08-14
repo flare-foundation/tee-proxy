@@ -145,6 +145,18 @@ func (s *RedisStorage[T]) Enqueue(ctx context.Context, item T) error {
 	return nil
 }
 
+// Requeue pushes an item back to the dequeue end of the queue, so it is dequeued next.
+func (s *RedisStorage[T]) Requeue(ctx context.Context, item T) error {
+	data, err := json.Marshal(item)
+	if err != nil {
+		return fmt.Errorf("marshaling value for redis queue %s: %w", s.prefix(""), err)
+	}
+	if err := s.client.RPush(ctx, s.prefix(""), data).Err(); err != nil {
+		return fmt.Errorf("pushing back to redis queue %s: %w", s.prefix(""), err)
+	}
+	return nil
+}
+
 // ErrEmptyQueue signals that Dequeue had no item to return; callers use it to distinguish empty from error.
 var ErrEmptyQueue = errors.New("empty queue")
 

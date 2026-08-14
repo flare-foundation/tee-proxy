@@ -38,9 +38,9 @@ func makeSignedProof(t *testing.T, walletID common.Hash, keyID uint64) *wallets.
 // dequeueDirect polls the Direct queue until an action is available or ctx ends.
 func dequeueDirect(ctx context.Context, aq *queue.ActionQueues) (*types.Action, error) {
 	for {
-		action, err := aq.Dequeue(ctx, processorutils.Direct)
+		d, err := aq.Dequeue(ctx, processorutils.Direct)
 		if err == nil {
-			return action, nil
+			return d.Action, nil
 		}
 		if !errors.Is(err, storage.ErrEmptyQueue) {
 			return nil, err

@@ -28,15 +28,31 @@ const (
 
 	// queueDepthTimeout bounds the Redis LLEN issued when the depth gauge is scraped.
 	queueDepthTimeout = 2 * time.Second
+
+	// queueOpTimeout bounds the Redis operations of a delivery, which run detached from
+	// the caller's cancellation.
+	queueOpTimeout = 5 * time.Second
+
+	// MaxDeliveryAttempts caps how many times an action is offered to the node before it
+	// is given up, so an action the node can never accept cannot block its queue forever.
+	MaxDeliveryAttempts = 5
 )
 
-// ErrInvalidQueueID is returned when an unrecognized queue ID is provided.
-var ErrInvalidQueueID = errors.New("invalid queue id")
+var (
+	// ErrInvalidQueueID is returned when an unrecognized queue ID is provided.
+	ErrInvalidQueueID = errors.New("invalid queue id")
+
+	// ErrDeliveryExhausted is returned by Delivery.Restore once MaxDeliveryAttempts is spent.
+	ErrDeliveryExhausted = errors.New("delivery attempts exhausted")
+)
 
 // ActionSubmissionID uniquely identifies an action by its action ID and submission tag.
 type ActionSubmissionID struct {
 	ActionID      common.Hash
 	SubmissionTag types.SubmissionTag
+	// Attempt counts the deliveries already attempted; absent on entries queued before
+	// redelivery existed, and never part of the action's storage key.
+	Attempt uint8 `json:"attempt,omitempty"`
 }
 
 // String returns a combined string representation of the action ID and submission tag.
@@ -166,8 +182,76 @@ func (as *ActionQueues) Enqueue(ctx context.Context, action *types.Action, queue
 	return nil
 }
 
-// Dequeue dequeues action from indicated queue. If no action is available, wrapped ErrEmptyQueue is dequeued.
-func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.QueueID) (*types.Action, error) {
+// Delivery is an action taken off its queue whose body is still stored.
+// Exactly one of Commit or Restore must be called once the send outcome is known;
+// calling neither leaves the action off its queue until the body expires.
+type Delivery struct {
+	// Action is the dequeued action.
+	Action *types.Action
+
+	id      ActionSubmissionID
+	queue   storage.Queue[*ActionSubmissionID]
+	queueID processorutils.QueueID
+	actions storage.Storage[*types.Action]
+	metrics *metrics.Metrics
+}
+
+// Commit drops the action body once the node has received the action.
+func (d *Delivery) Commit() error {
+	// Cancellation is deliberately not honoured: the queue ID is already consumed.
+	ctx, cancel := context.WithTimeout(context.Background(), queueOpTimeout)
+	defer cancel()
+
+	if err := d.actions.Remove(ctx, d.id.String()); err != nil {
+		return fmt.Errorf("removing delivered action %s: %w", d.id.String(), err)
+	}
+
+	return nil
+}
+
+// Restore returns an action the node did not receive to the dequeue end of its queue,
+// so the next poll retries it. A non-nil error means the action was given up instead:
+// its attempts are spent or the queue write failed, and the action is lost.
+func (d *Delivery) Restore() error {
+	ql := queueLabel(d.queueID)
+
+	// Cancellation is deliberately not honoured: the queue ID is already consumed.
+	ctx, cancel := context.WithTimeout(context.Background(), queueOpTimeout)
+	defer cancel()
+
+	next := d.id
+	next.Attempt = d.id.Attempt + 1
+
+	if next.Attempt >= MaxDeliveryAttempts {
+		d.metrics.ActionRedelivery(ql, "exhausted")
+		d.actions.Remove(ctx, d.id.String()) //nolint:errcheck // best effort; the body expires with its TTL
+		logger.Errorf("action %v (tag %v, queue %v) undelivered after %d attempts, action lost",
+			d.id.ActionID, d.id.SubmissionTag, d.queueID, MaxDeliveryAttempts)
+
+		return fmt.Errorf("%w for action %s", ErrDeliveryExhausted, d.id.String())
+	}
+
+	if err := d.queue.Requeue(ctx, &next); err != nil {
+		d.metrics.ActionRedelivery(ql, "requeue_failed")
+		logger.Errorf("requeueing undelivered action %v (tag %v, queue %v) failed, action lost: %v",
+			d.id.ActionID, d.id.SubmissionTag, d.queueID, err)
+
+		return fmt.Errorf("requeueing action %s: %w", d.id.String(), err)
+	}
+
+	d.metrics.ActionRedelivery(ql, "requeued")
+	logger.Warnf("action %v (tag %v, queue %v) undelivered, requeued after attempt %d of %d",
+		d.id.ActionID, d.id.SubmissionTag, d.queueID, next.Attempt, MaxDeliveryAttempts)
+
+	return nil
+}
+
+// Dequeue takes the next action off the indicated queue and returns it as a Delivery the
+// caller must Commit or Restore. If no action is available, wrapped ErrEmptyQueue is returned.
+//
+// ctx cancellation is honoured only before the queue ID is consumed: an interrupted body
+// fetch would leave the action neither queued nor delivered.
+func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.QueueID) (*Delivery, error) {
 	queue, err := as.queueByID(queueID)
 	if err != nil {
 		return nil, err
@@ -175,14 +259,20 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 
 	ql := queueLabel(queueID)
 
-	storingID, err := queue.Dequeue(ctx)
+	if err := ctx.Err(); err != nil {
+		// caller went away before the poll; no ID consumed, nothing orphaned
+		as.metrics.ActionDequeued(ql, "cancelled")
+		return nil, fmt.Errorf("dequeuing %v: %w", queueID, err)
+	}
+
+	opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), queueOpTimeout)
+	defer cancel()
+
+	storingID, err := queue.Dequeue(opCtx)
 	if err != nil {
 		switch {
 		case errors.Is(err, storage.ErrEmptyQueue):
 			as.metrics.ActionDequeued(ql, "empty")
-		case errors.Is(err, context.Canceled):
-			// caller went away mid-poll; no ID consumed, nothing orphaned
-			as.metrics.ActionDequeued(ql, "cancelled")
 		default:
 			// the pop itself failed; no ID consumed, so distinct from the orphan-signalling "error"
 			as.metrics.ActionDequeued(ql, "dequeue_error")
@@ -190,7 +280,7 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 		return nil, fmt.Errorf("dequeuing %v: %w", queueID, err)
 	}
 
-	action, err := as.actions.Get(ctx, storingID.String())
+	action, err := as.actions.Get(opCtx, storingID.String())
 	if errors.Is(err, storage.ErrNotFound) {
 		as.metrics.ActionDequeued(ql, "action_not_found")
 		return nil, fmt.Errorf("queued action not found: %s", storingID.String())
@@ -200,11 +290,16 @@ func (as *ActionQueues) Dequeue(ctx context.Context, queueID processorutils.Queu
 		return nil, fmt.Errorf("fetching queued action %s: %w", storingID.String(), err)
 	}
 
-	as.actions.Remove(ctx, storingID.String()) //nolint:errcheck // error can only happen if context is canceled
-
 	as.metrics.ActionDequeued(ql, "success")
 
-	return action, nil
+	return &Delivery{
+		Action:  action,
+		id:      *storingID,
+		queue:   queue,
+		queueID: queueID,
+		actions: as.actions,
+		metrics: as.metrics,
+	}, nil
 }
 
 // QueueLength returns the number of elements in the main queue.

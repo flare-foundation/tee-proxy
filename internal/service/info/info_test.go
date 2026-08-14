@@ -96,9 +96,12 @@ func TestInsertBlock(t *testing.T) {
 
 	var a *types.Action
 	require.Eventually(t, func() bool {
-		var err error
-		a, err = aq.Dequeue(t.Context(), processorutils.Direct)
-		return err == nil
+		d, err := aq.Dequeue(t.Context(), processorutils.Direct)
+		if err != nil {
+			return false
+		}
+		a = d.Action
+		return true
 	}, 2*time.Second, 10*time.Millisecond)
 	require.Equal(t, types.Submit, a.Data.SubmissionTag)
 	require.Equal(t, types.Direct, a.Data.Type)
@@ -171,9 +174,12 @@ func TestAttestationStickyError(t *testing.T) {
 
 	var a *types.Action
 	require.Eventually(t, func() bool {
-		var err error
-		a, err = aq.Dequeue(t.Context(), processorutils.Direct)
-		return err == nil
+		d, err := aq.Dequeue(t.Context(), processorutils.Direct)
+		if err != nil {
+			return false
+		}
+		a = d.Action
+		return true
 	}, 2*time.Second, 10*time.Millisecond)
 
 	key, err := crypto.GenerateKey()
@@ -364,9 +370,12 @@ func runInfoRefresh(t *testing.T, svc *Service, aq *queue.ActionQueues) (action 
 	}()
 
 	require.Eventually(t, func() bool {
-		var err error
-		action, err = aq.Dequeue(context.Background(), processorutils.Direct)
-		return err == nil
+		d, err := aq.Dequeue(context.Background(), processorutils.Direct)
+		if err != nil {
+			return false
+		}
+		action = d.Action
+		return true
 	}, 2*time.Second, 10*time.Millisecond)
 
 	var di types.DirectInstruction

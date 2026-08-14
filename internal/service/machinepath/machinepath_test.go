@@ -326,9 +326,12 @@ func TestPollConfirmedAdvancesLastNonce(t *testing.T) {
 
 	var action *types.Action
 	require.Eventually(t, func() bool {
-		var err error
-		action, err = aq.Dequeue(ctx, processorutils.Direct)
-		return err == nil
+		d, err := aq.Dequeue(ctx, processorutils.Direct)
+		if err != nil {
+			return false
+		}
+		action = d.Action
+		return true
 	}, 3*time.Second, 10*time.Millisecond, "poll did not enqueue the SET_MACHINE_PATH_LIST action")
 
 	require.NoError(t, rs.StoreResponse(ctx, &types.ActionResponse{

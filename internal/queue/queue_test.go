@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
+	proxytest "github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
@@ -29,9 +30,30 @@ func TestActionQueues(t *testing.T) {
 
 	ctx := context.Background()
 
-	action := &types.Action{
+	action := testAction("id")
+
+	err := q.Enqueue(ctx, action, processorutils.Main)
+	require.NoError(t, err)
+
+	d, err := q.Dequeue(ctx, processorutils.Main)
+	require.NoError(t, err)
+
+	require.Equal(t, *action, *d.Action)
+
+	// The body outlives the dequeue so an undelivered action can be requeued.
+	id := ActionSubmissionID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
+	key := "Action-" + id.String()
+	require.True(t, mr.Exists(key))
+
+	require.NoError(t, d.Commit())
+	require.False(t, mr.Exists(key))
+}
+
+// testAction returns a minimal action identified by name.
+func testAction(name string) *types.Action {
+	return &types.Action{
 		Data: types.ActionData{
-			ID:            crypto.Keccak256Hash([]byte("id")),
+			ID:            crypto.Keccak256Hash([]byte(name)),
 			Type:          types.Direct,
 			SubmissionTag: types.Threshold,
 			Message:       hexutil.Bytes{},
@@ -41,14 +63,134 @@ func TestActionQueues(t *testing.T) {
 		AdditionalActionData:       hexutil.Bytes{},
 		Signatures:                 []hexutil.Bytes{},
 	}
+}
 
-	err := q.Enqueue(ctx, action, processorutils.Main)
+// redeliveryCount reads teeproxy_action_redelivery_total for the main queue and given result.
+func redeliveryCount(t *testing.T, m *metrics.Metrics, result string) float64 {
+	t.Helper()
+
+	return counterValue(t, m, "teeproxy_action_redelivery_total", "main", result)
+}
+
+// TestRestoreRequeuesForNextPoll proves an undelivered action goes back to the dequeue end
+// of its queue with its body intact, so the next poll delivers the very same action.
+func TestRestoreRequeuesForNextPoll(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Queue: true})
+	q := NewActionQueues(c, time.Hour, m)
+	ctx := context.Background()
+
+	first, second := testAction("first"), testAction("second")
+	require.NoError(t, q.Enqueue(ctx, first, processorutils.Main))
+	require.NoError(t, q.Enqueue(ctx, second, processorutils.Main))
+
+	d, err := q.Dequeue(ctx, processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, first.Data.ID, d.Action.Data.ID)
+
+	require.NoError(t, d.Restore())
+	require.Equal(t, float64(1), redeliveryCount(t, m, "requeued"))
+
+	// Requeued at the dequeue end, so ordering is preserved: first again, then second.
+	again, err := q.Dequeue(ctx, processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, first.Data.ID, again.Action.Data.ID)
+	require.Equal(t, *first, *again.Action)
+
+	require.NoError(t, again.Commit())
+
+	last, err := q.Dequeue(ctx, processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, second.Data.ID, last.Action.Data.ID)
+}
+
+// TestRestoreGivesUpAfterMaxAttempts proves redelivery is bounded: an action the node never
+// accepts is dropped after MaxDeliveryAttempts instead of blocking its queue forever.
+func TestRestoreGivesUpAfterMaxAttempts(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Queue: true})
+	q := NewActionQueues(c, time.Hour, m)
+	ctx := context.Background()
+
+	action := testAction("undeliverable")
+	require.NoError(t, q.Enqueue(ctx, action, processorutils.Main))
+
+	for attempt := 1; attempt < MaxDeliveryAttempts; attempt++ {
+		d, err := q.Dequeue(ctx, processorutils.Main)
+		require.NoErrorf(t, err, "attempt %d", attempt)
+		require.NoErrorf(t, d.Restore(), "attempt %d", attempt)
+	}
+
+	d, err := q.Dequeue(ctx, processorutils.Main)
+	require.NoError(t, err)
+	require.ErrorIs(t, d.Restore(), ErrDeliveryExhausted)
+
+	require.Equal(t, float64(MaxDeliveryAttempts-1), redeliveryCount(t, m, "requeued"))
+	require.Equal(t, float64(1), redeliveryCount(t, m, "exhausted"))
+
+	// Nothing left behind: neither the queue ID nor the body.
+	_, err = q.Dequeue(ctx, processorutils.Main)
+	require.ErrorIs(t, err, storage.ErrEmptyQueue)
+
+	id := ActionSubmissionID{ActionID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag}
+	require.False(t, mr.Exists("Action-"+id.String()))
+}
+
+// TestRestoreFailureIsLost pins the last loss path: if the queue write fails the action is
+// gone, and the caller must be told so it can be counted as a loss.
+func TestRestoreFailureIsLost(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Queue: true})
+	q := NewActionQueues(c, time.Hour, m)
+	ctx := context.Background()
+
+	require.NoError(t, q.Enqueue(ctx, testAction("lost"), processorutils.Main))
+
+	d, err := q.Dequeue(ctx, processorutils.Main)
 	require.NoError(t, err)
 
-	retrievedAction, err := q.Dequeue(ctx, processorutils.Main)
-	require.NoError(t, err)
+	mr.Close() // sever the backing store so the requeue fails
 
-	require.Equal(t, *action, *retrievedAction)
+	require.Error(t, d.Restore())
+	require.Equal(t, float64(1), redeliveryCount(t, m, "requeue_failed"))
+	require.Equal(t, float64(0), redeliveryCount(t, m, "requeued"))
+}
+
+// TestDequeueBodyFetchSurvivesCancel proves the body fetch is detached from the caller: a
+// poll abandoned after the pop must still yield a Delivery, never strand the popped ID.
+func TestDequeueBodyFetchSurvivesCancel(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+
+	defer mr.Close()
+	defer c.Close() //nolint:errcheck
+
+	q := NewActionQueues(c, time.Hour, nil)
+
+	action := testAction("cancelled midway")
+	require.NoError(t, q.Enqueue(context.Background(), action, processorutils.Main))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.AddHook(proxytest.AfterCommand("rpop", cancel))
+
+	d, err := q.Dequeue(ctx, processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, action.Data.ID, d.Action.Data.ID)
+	require.Error(t, ctx.Err())
 }
 
 // TestActionQueuesRecordsMetrics verifies the dequeue counter and depth gauge are
@@ -162,11 +304,19 @@ teeproxy_action_dequeue_total{queue="main",result="error"} 0
 func dequeueCount(t *testing.T, m *metrics.Metrics, result string) float64 {
 	t.Helper()
 
+	return counterValue(t, m, "teeproxy_action_dequeue_total", "main", result)
+}
+
+// counterValue reads the named queue/result counter from m's registry, returning 0 if no
+// such series exists.
+func counterValue(t *testing.T, m *metrics.Metrics, name, queue, result string) float64 {
+	t.Helper()
+
 	fams, err := m.Registry().Gather()
 	require.NoError(t, err)
 
 	for _, f := range fams {
-		if f.GetName() != "teeproxy_action_dequeue_total" {
+		if f.GetName() != name {
 			continue
 		}
 		for _, mc := range f.GetMetric() {
@@ -179,7 +329,7 @@ func dequeueCount(t *testing.T, m *metrics.Metrics, result string) float64 {
 					gotResult = l.GetValue()
 				}
 			}
-			if gotQueue == "main" && gotResult == result {
+			if gotQueue == queue && gotResult == result {
 				return mc.GetCounter().GetValue()
 			}
 		}

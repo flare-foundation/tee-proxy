@@ -98,6 +98,7 @@ type Metrics struct {
 
 	actionDequeued         *prometheus.CounterVec
 	actionEnqueued         *prometheus.CounterVec
+	actionRedelivery       *prometheus.CounterVec
 	queueDepthReadFailures *prometheus.CounterVec
 
 	infoRefreshFailures *prometheus.CounterVec
@@ -270,13 +271,20 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "action_enqueue_total",
 			Help: "Action enqueue attempts by queue and result.",
 		}, []string{"queue", "result"})
-		// Pre-initialize the alertable error series so the enqueue/dequeue-failure/orphaned-action warnings fire on the first event.
+		m.actionRedelivery = f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace, Name: "action_redelivery_total",
+			Help: "Undelivered actions put back on their queue by queue and result: requeued is retried on the next poll; exhausted spent all delivery attempts and requeue_failed could not be written back, both losing the action.",
+		}, []string{"queue", "result"})
+		// Pre-initialize the alertable error series so the enqueue/dequeue-failure/orphaned-action
+		// and lost-redelivery warnings fire on the first event.
 		for _, queue := range []string{"main", "direct", "backup"} {
 			m.actionEnqueued.WithLabelValues(queue, "store_error").Add(0)
 			m.actionEnqueued.WithLabelValues(queue, "queue_error").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "error").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "action_not_found").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "dequeue_error").Add(0)
+			m.actionRedelivery.WithLabelValues(queue, "exhausted").Add(0)
+			m.actionRedelivery.WithLabelValues(queue, "requeue_failed").Add(0)
 		}
 		m.queueDepthReadFailures = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "action_queue_depth_read_failures_total",
@@ -848,6 +856,14 @@ func (m *Metrics) ActionEnqueued(queue, result string) {
 		return
 	}
 	m.actionEnqueued.WithLabelValues(queue, result).Inc()
+}
+
+// ActionRedelivery records the outcome of putting an undelivered action back on its queue.
+func (m *Metrics) ActionRedelivery(queue, result string) {
+	if m == nil || m.actionRedelivery == nil {
+		return
+	}
+	m.actionRedelivery.WithLabelValues(queue, result).Inc()
 }
 
 // QueueDepthReadFailed records a scrape-time queue-depth (LLEN) read failure for the given queue.

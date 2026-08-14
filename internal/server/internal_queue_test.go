@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
+	proxytest "github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
@@ -57,38 +59,152 @@ func lostSendFailed(t *testing.T, m *metrics.Metrics) float64 {
 	return 0
 }
 
-// TestQueueHSendFailed proves a failed write of a dequeued action returns an error
-// and increments send_failed for the main queue only.
-func TestQueueHSendFailed(t *testing.T) {
-	mr := miniredis.RunT(t)
-	c := storage.NewClient(mr.Addr())
-	defer c.Close() //nolint:errcheck
+// queueRequest builds a POST /queue/{queueID} request bound to ctx.
+func queueRequest(ctx context.Context, queueID processorutils.QueueID) *http.Request {
+	r := httptest.NewRequest(http.MethodPost, "/queue/"+string(queueID), nil).WithContext(ctx)
+	r.SetPathValue("queueID", string(queueID))
 
-	m := metrics.New(metrics.Config{Enable: true, Voting: true})
-	srv := &Internal{actionQueues: queue.NewActionQueues(c, time.Hour, nil), metrics: m}
+	return r
+}
 
-	action := &types.Action{
+func testAction() *types.Action {
+	return &types.Action{
 		Data: types.ActionData{
 			ID:            crypto.Keccak256Hash([]byte("id")),
 			SubmissionTag: types.Threshold,
 		},
 	}
+}
 
+// TestQueueHSendFailureRequeues proves a failed write does not consume the action: it goes
+// back on the queue for the next poll and is not yet counted as a finalized-action loss.
+func TestQueueHSendFailureRequeues(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Voting: true, Queue: true})
+	aq := queue.NewActionQueues(c, time.Hour, m)
+	srv := &Internal{actionQueues: aq, metrics: m}
+
+	action := testAction()
+	require.NoError(t, aq.Enqueue(context.Background(), action, processorutils.Main))
+
+	err := srv.queueH(&errWriter{}, queueRequest(context.Background(), processorutils.Main))
+	require.ErrorContains(t, err, "action requeued")
+	require.Equal(t, float64(0), lostSendFailed(t, m), "a requeued action is not lost")
+
+	// The same action, body and all, is available to the next poll.
+	d, err := aq.Dequeue(context.Background(), processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, action.Data.ID, d.Action.Data.ID)
+}
+
+// TestQueueHSendFailureExhausts proves redelivery is bounded and that only giving up counts
+// as a finalized-action loss, for the main queue alone.
+func TestQueueHSendFailureExhausts(t *testing.T) {
 	tests := []struct {
-		queue processorutils.QueueID
-		want  float64
+		queue    processorutils.QueueID
+		wantLost float64
 	}{
-		{queue: processorutils.Main, want: 1},
-		{queue: processorutils.Direct, want: 1}, // non-main losses are logged, not counted
+		{queue: processorutils.Main, wantLost: 1},
+		{queue: processorutils.Direct, wantLost: 0}, // non-main losses are logged, not counted
 	}
 	for _, tc := range tests {
-		require.NoError(t, srv.actionQueues.Enqueue(context.Background(), action, tc.queue))
+		t.Run(string(tc.queue), func(t *testing.T) {
+			mr := miniredis.RunT(t)
+			c := storage.NewClient(mr.Addr())
+			defer c.Close() //nolint:errcheck
 
-		r := httptest.NewRequest(http.MethodPost, "/queue/"+string(tc.queue), nil)
-		r.SetPathValue("queueID", string(tc.queue))
+			m := metrics.New(metrics.Config{Enable: true, Voting: true, Queue: true})
+			aq := queue.NewActionQueues(c, time.Hour, m)
+			srv := &Internal{actionQueues: aq, metrics: m}
 
-		err := srv.queueH(&errWriter{}, r)
-		require.ErrorContains(t, err, "action lost")
-		require.Equal(t, tc.want, lostSendFailed(t, m), "queue %s", tc.queue)
+			require.NoError(t, aq.Enqueue(context.Background(), testAction(), tc.queue))
+
+			for attempt := 1; attempt < queue.MaxDeliveryAttempts; attempt++ {
+				err := srv.queueH(&errWriter{}, queueRequest(context.Background(), tc.queue))
+				require.ErrorContainsf(t, err, "action requeued", "attempt %d", attempt)
+			}
+
+			err := srv.queueH(&errWriter{}, queueRequest(context.Background(), tc.queue))
+			require.ErrorContains(t, err, "action lost")
+			require.Equal(t, tc.wantLost, lostSendFailed(t, m))
+
+			_, err = aq.Dequeue(context.Background(), tc.queue)
+			require.ErrorIs(t, err, storage.ErrEmptyQueue)
+		})
 	}
+}
+
+// TestQueueHRequeuesWhenNodeGone covers the node's poll timing out while the action is being
+// dequeued: nothing is written to the dead connection and the action stays deliverable.
+func TestQueueHRequeuesWhenNodeGone(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Voting: true, Queue: true})
+	aq := queue.NewActionQueues(c, time.Hour, m)
+	srv := &Internal{actionQueues: aq, metrics: m}
+
+	action := testAction()
+	require.NoError(t, aq.Enqueue(context.Background(), action, processorutils.Main))
+
+	// Drop the request context once the ID is popped, as a node whose poll timed out does.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	c.AddHook(proxytest.AfterCommand("rpop", cancel))
+
+	w := httptest.NewRecorder()
+	err := srv.queueH(w, queueRequest(ctx, processorutils.Main))
+	require.ErrorContains(t, err, "action requeued")
+	require.Empty(t, w.Body.String(), "no action may be written to a connection the node closed")
+	require.Equal(t, float64(0), lostSendFailed(t, m))
+
+	d, err := aq.Dequeue(context.Background(), processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, action.Data.ID, d.Action.Data.ID)
+}
+
+// TestQueueEndpointRequeuesOnNodeTimeout drives the endpoint over a real connection with a
+// client that gives up mid-dequeue, as the node's poll timeout does, and proves the action
+// survives for the next poll.
+func TestQueueEndpointRequeuesOnNodeTimeout(t *testing.T) {
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	defer c.Close() //nolint:errcheck
+
+	m := metrics.New(metrics.Config{Enable: true, Voting: true, Queue: true})
+	aq := queue.NewActionQueues(c, time.Hour, m)
+	srv := &Internal{actionQueues: aq, metrics: m}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /queue/{queueID}", prepareHandler(srv.queueH, noBody, true))
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	action := testAction()
+	require.NoError(t, aq.Enqueue(context.Background(), action, processorutils.Main))
+
+	// Stall the first dequeue past the client's timeout, so its connection is gone before the write.
+	var once sync.Once
+	c.AddHook(proxytest.AfterCommand("rpop", func() {
+		once.Do(func() { time.Sleep(300 * time.Millisecond) })
+	}))
+
+	client := http.Client{Timeout: 100 * time.Millisecond}
+	resp, err := client.Post(ts.URL+"/queue/main", "", nil) //nolint:bodyclose // the request times out, so there is no body
+	require.Error(t, err, "the node's poll must time out")
+	require.Nil(t, resp)
+
+	require.Eventually(t, func() bool {
+		n, err := aq.QueueLength(context.Background())
+		return err == nil && n == 1
+	}, 2*time.Second, 10*time.Millisecond, "action was not requeued")
+
+	d, err := aq.Dequeue(context.Background(), processorutils.Main)
+	require.NoError(t, err)
+	require.Equal(t, action.Data.ID, d.Action.Data.ID)
+	require.Equal(t, float64(0), lostSendFailed(t, m))
 }

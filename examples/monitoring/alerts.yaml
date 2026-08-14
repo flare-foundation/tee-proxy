@@ -78,11 +78,11 @@ groups:
         annotations:
           summary: "Finalized action lost sending to the node"
           description: >-
-            A consensus-finalized action was dequeued — its body already deleted from the main
-            queue — but the response write to the TEE node failed, so the action is irrecoverably
-            lost. The action ID is in the proxy log line "sending action ... failed after dequeue".
-            The series is pre-initialized to 0, so this pages on the first occurrence. Requires the
-            `voting` metric group.
+            A consensus-finalized action was given up after its delivery attempts to the TEE node
+            were spent, or could not be put back on the main queue, so it is irrecoverably lost.
+            A single failed send is only a retry — see TeeProxyActionRedelivering. The action ID is
+            in the proxy log line "undelivered after ... attempts". The series is pre-initialized to
+            0, so this pages on the first occurrence. Requires the `voting` metric group.
 
   # ---- Security: the proxy's trust assumptions about the TEE (page on first) ----------
   - name: tee-proxy.security
@@ -642,6 +642,30 @@ groups:
             unreachable. No queue ID is consumed, so nothing is lost yet. Driven by the node's
             own polling, so it fires without client traffic; a sustained Redis outage pages via
             TeeProxyNotReady (readiness pings Redis). Requires the `queue` metric group.
+
+      - alert: TeeProxyActionRedelivering
+        expr: sum by (queue) (increase(teeproxy_action_redelivery_total{result="requeued"}[5m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Actions not reaching the node on {{ $labels.queue }}"
+          description: >-
+            A dequeued action was not delivered — the node's poll timed out or its connection broke
+            before the action was written — so it went back on the queue for the next poll. Nothing
+            is lost yet; each action gets 5 attempts. Escalates via TeeProxyActionRedeliveryLost.
+            Requires the `queue` metric group.
+
+      - alert: TeeProxyActionRedeliveryLost
+        expr: sum by (queue) (increase(teeproxy_action_redelivery_total{result=~"exhausted|requeue_failed"}[5m])) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Action given up on {{ $labels.queue }}"
+          description: >-
+            An action was dropped after 5 undelivered sends to the node, or could not be written back
+            to its queue at all — irrecoverably lost. Unlike TeeProxyFinalizedActionSendFailed this
+            covers the direct and backup queues too. Both series are pre-initialized to 0, so this
+            pages on the first occurrence. Requires the `queue` metric group.
 
       - alert: TeeProxyActionOrphaned
         expr: sum by (queue) (increase(teeproxy_action_dequeue_total{result=~"error|action_not_found"}[5m])) > 0

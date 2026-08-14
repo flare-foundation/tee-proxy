@@ -37,5 +37,7 @@ type Notifier interface {
 type Queue[T any] interface {
 	Enqueue(ctx context.Context, item T) error
 	Dequeue(ctx context.Context) (T, error)
+	// Requeue returns an item to the end it was dequeued from, so it is dequeued next.
+	Requeue(ctx context.Context, item T) error
 	QueueLength(ctx context.Context) (int64, error)
 }
