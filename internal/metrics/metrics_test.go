@@ -121,8 +121,8 @@ func TestResultMetrics(t *testing.T) {
 	m.ResultLost()
 	require.Equal(t, float64(2), testutil.ToFloat64(m.resultsLost))
 
-	m.ResultDiscarded()
-	require.Equal(t, float64(1), testutil.ToFloat64(m.resultsDiscarded))
+	m.ResultMissingActionID()
+	require.Equal(t, float64(1), testutil.ToFloat64(m.resultsNoActionID))
 
 	m.ResultRejected("wrong_tee_id")
 	m.ResultRejected("bad_signer")
@@ -144,7 +144,7 @@ func TestResultDisabledIsNoOp(t *testing.T) {
 	require.NotPanics(t, func() {
 		m.ResultProcessed(op.KeyGenerate.Hash(), 1)
 		m.ResultLost()
-		m.ResultDiscarded()
+		m.ResultMissingActionID()
 		m.ResultRejected("wrong_tee_id")
 		m.ResultChannelDropped("key_actions")
 	})

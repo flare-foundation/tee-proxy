@@ -105,7 +105,7 @@ func TestProcessAndStoreDropsZeroIDResult(t *testing.T) {
 func TestProcessAndStoreResultMetrics(t *testing.T) {
 	const (
 		lost      = "teeproxy_results_lost_total"
-		discarded = "teeproxy_results_discarded_total"
+		discarded = "teeproxy_results_missing_action_id_total"
 		processed = "teeproxy_results_processed_total"
 		rejected  = "teeproxy_results_rejected_total"
 	)

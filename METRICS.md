@@ -238,7 +238,7 @@ The threshold gauge is the signing policy's own threshold, which covers default-
 | ------------------------------------------ | ------- | ---------------------------- | ---------------------------------------------------------------------------------------- |
 | `teeproxy_results_processed_total`         | counter | `op_command`, `status_class` | Results processed by op command and status class.                                        |
 | `teeproxy_results_lost_total`              | counter | —                            | Results acknowledged to the node but never persisted.                                    |
-| `teeproxy_results_discarded_total` | counter | — | Node delivery-failure notifications discarded for lacking an action ID. |
+| `teeproxy_results_missing_action_id_total` | counter | —                            | Results discarded for carrying no action ID — the node's delivery-failure notifications. |
 | `teeproxy_results_rejected_total`          | counter | `reason`                     | Results rejected before storage, by reason.                                              |
 | `teeproxy_result_channel_dropped_total`    | counter | `channel`                    | Result fan-out messages dropped because the target channel was full, by channel.         |
 
@@ -373,7 +373,7 @@ These are recommendations, not applied changes, except the three new gauges and 
 
 ### Keep, but wire the missing alert
 
-These carry a unique signal that no alert currently consumes: `action_dequeue_total` (`action_not_found` = an orphaned finalized action), `http_request_duration_seconds` (a p99 latency SLO), `wallet_keys_cached` (a mass-eviction drop), and `results_discarded_total`.
+These carry a unique signal that no alert currently consumes: `action_dequeue_total` (`action_not_found` = an orphaned finalized action), `http_request_duration_seconds` (a p99 latency SLO), `wallet_keys_cached` (a mass-eviction drop), and `results_missing_action_id_total`.
 
 ### Coverage gaps
 

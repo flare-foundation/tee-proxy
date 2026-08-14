@@ -98,7 +98,7 @@ func (s *Service) ProcessAndStore(ctx context.Context, r *types.ActionResponse) 
 	if r.Result.ID == (common.Hash{}) {
 		logger.Warnf("discarding result with empty action ID, tag %s, status %d, log: %s",
 			r.Result.SubmissionTag, r.Result.Status, r.Result.Log)
-		s.metrics.ResultDiscarded()
+		s.metrics.ResultMissingActionID()
 		return nil
 	}
 

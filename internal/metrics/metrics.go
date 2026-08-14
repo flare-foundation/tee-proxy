@@ -81,7 +81,7 @@ type Metrics struct {
 
 	resultsProcessed     *prometheus.CounterVec
 	resultsLost          prometheus.Counter
-	resultsDiscarded     prometheus.Counter
+	resultsNoActionID    prometheus.Counter
 	resultsRejected      *prometheus.CounterVec
 	resultChannelDropped *prometheus.CounterVec
 
@@ -172,9 +172,9 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "results_lost_total",
 			Help: "Results acknowledged to the node but never persisted.",
 		})
-		m.resultsDiscarded = f.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace, Name: "results_discarded_total",
-			Help: "Node delivery-failure notifications discarded for lacking an action ID.",
+		m.resultsNoActionID = f.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace, Name: "results_missing_action_id_total",
+			Help: "Results discarded for carrying no action ID — the node's delivery-failure notifications.",
 		})
 		m.resultsRejected = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "results_rejected_total",
@@ -951,12 +951,13 @@ func (m *Metrics) ResultLost() {
 	m.resultsLost.Inc()
 }
 
-// ResultDiscarded records a node delivery-failure notification dropped for lacking an action ID.
-func (m *Metrics) ResultDiscarded() {
-	if m == nil || m.resultsDiscarded == nil {
+// ResultMissingActionID records a result discarded for naming no action: the node's
+// delivery-failure notifications carry no action ID.
+func (m *Metrics) ResultMissingActionID() {
+	if m == nil || m.resultsNoActionID == nil {
 		return
 	}
-	m.resultsDiscarded.Inc()
+	m.resultsNoActionID.Inc()
 }
 
 // ResultRejected records one result rejected before storage under a bounded reason
