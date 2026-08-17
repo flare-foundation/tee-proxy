@@ -101,10 +101,11 @@ type Metrics struct {
 	actionRedelivery       *prometheus.CounterVec
 	queueDepthReadFailures *prometheus.CounterVec
 
-	infoRefreshFailures *prometheus.CounterVec
-	infoRefreshDuration *prometheus.HistogramVec
-	attestationVerify   *prometheus.CounterVec
-	attestationPosture  *prometheus.GaugeVec
+	infoRefreshFailures  *prometheus.CounterVec
+	infoRefreshExhausted *prometheus.CounterVec
+	infoRefreshDuration  *prometheus.HistogramVec
+	attestationVerify    *prometheus.CounterVec
+	attestationPosture   *prometheus.GaugeVec
 
 	nodeWaitDuration *prometheus.HistogramVec
 	nodeWaitTotal    *prometheus.CounterVec
@@ -295,18 +296,25 @@ func New(cfg Config) *Metrics {
 	if cfg.Info {
 		m.infoRefreshFailures = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "info_refresh_failures_total",
-			Help: "TEE info refresh failures by pipeline stage.",
+			Help: "TEE info refresh attempt failures by pipeline stage; a retried attempt counts here too.",
+		}, []string{"stage"})
+		m.infoRefreshExhausted = f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace, Name: "info_refresh_exhausted_total",
+			Help: "TEE info refreshes given up on, by the stage of the last attempt; retries did not recover.",
 		}, []string{"stage"})
 		// Pre-initialize so a first, possibly one-shot failure satisfies increase()>0 (a series born at 1 never does).
+		// "unknown" covers a give-up on an untagged error; unreachable today, alertable if it ever happens.
 		for _, stage := range []string{
 			"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
 			"unmarshal", "parse_tee_id", "signing_hash", "verify_signature", "verify_attestation",
+			"unknown",
 		} {
 			m.infoRefreshFailures.WithLabelValues(stage).Add(0)
+			m.infoRefreshExhausted.WithLabelValues(stage).Add(0)
 		}
 		m.infoRefreshDuration = f.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace, Name: "info_refresh_duration_seconds",
-			Help: "End-to-end TEE info refresh latency by outcome.", Buckets: infoRefreshBuckets,
+			Help: "Single TEE info refresh attempt latency by outcome.", Buckets: infoRefreshBuckets,
 		}, []string{"result"})
 	}
 
@@ -596,7 +604,8 @@ func (m *Metrics) RegisterTopUnfinalizedProposals(top func() []ProviderPending) 
 	})
 }
 
-// InfoRefreshFailed records a TEE info refresh failure at the given pipeline stage.
+// InfoRefreshFailed records a failed TEE info refresh attempt at the given pipeline stage.
+// A retried attempt is counted too, so this is not by itself an incident — see InfoRefreshExhausted.
 func (m *Metrics) InfoRefreshFailed(stage string) {
 	if m == nil || m.infoRefreshFailures == nil {
 		return
@@ -604,7 +613,16 @@ func (m *Metrics) InfoRefreshFailed(stage string) {
 	m.infoRefreshFailures.WithLabelValues(stage).Inc()
 }
 
-// InfoRefreshObserved records one completed TEE-info refresh by duration and outcome
+// InfoRefreshExhausted records a TEE info refresh given up on after its retries, labelled with
+// the stage of the last attempt. This is the alertable signal; retried-away failures are not.
+func (m *Metrics) InfoRefreshExhausted(stage string) {
+	if m == nil || m.infoRefreshExhausted == nil {
+		return
+	}
+	m.infoRefreshExhausted.WithLabelValues(stage).Inc()
+}
+
+// InfoRefreshObserved records one completed TEE-info refresh attempt by duration and outcome
 // ("ok"/"error"). It gives the failure counter a denominator; the per-stage breakdown
 // stays in info_refresh_failures_total.
 func (m *Metrics) InfoRefreshObserved(d time.Duration, err error) {

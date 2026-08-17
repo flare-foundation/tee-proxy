@@ -3,6 +3,7 @@ package info
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -103,6 +104,11 @@ func (s *Service) LastGovernanceHash() common.Hash {
 func (s *Service) Run(ctx context.Context) error {
 	errCount := 0
 	ticker := time.NewTicker(s.timingConfig.CycleInternal)
+	defer ticker.Stop()
+
+	// config validation guarantees ≥ 1; the clamp keeps a hand-built InfoTiming
+	// from turning a cycle into an unbounded retry loop
+	attempts := max(s.timingConfig.MaxAttempts, 1)
 
 	for {
 		select {
@@ -111,29 +117,115 @@ func (s *Service) Run(ctx context.Context) error {
 			logger.Info("tee info storage exiting")
 			return ctx.Err()
 		}
-		_, err := s.updateInfo(ctx, s.timingConfig.CycleQueueResponseWait)
-		if err != nil {
-			errCount++
-			logger.Debugf("tee info update failed (attempt %d): %v", errCount, err)
-		} else {
-			errCount = 0
-		}
 
-		if errCount > 5 && (errCount == 6 || errCount%30 == 0) {
-			logger.Warnf("tee info update unsuccessful in %d attempts: latest error: %v", errCount, err)
+		_, err := s.retryUpdate(ctx, s.timingConfig.CycleQueueResponseWait, attempts)
+		switch {
+		case err == nil:
+			errCount = 0
+		case ctx.Err() != nil: // shutting down, not a refresh failure
+		default:
+			errCount++
+			// a failed cycle has already spent every attempt, so the first one is warned about
+			if errCount == 1 || errCount%30 == 0 {
+				logger.Warnf("tee info update unsuccessful in %d consecutive cycles: latest error: %v", errCount, err)
+			} else {
+				logger.Debugf("tee info update failed (cycle %d): %v", errCount, err)
+			}
 		}
 	}
 }
 
 // FetchInfo updates info and returns the update along with the challenge that was sent.
+// It retries until it succeeds or budget is spent; budget 0 means retry indefinitely.
 // Callers verify TeeInfo.Challenge against the returned challenge to confirm the response answers their request.
-func (s *Service) FetchInfo(ctx context.Context, timeout time.Duration) (*types.TeeInfoResponse, common.Hash, error) {
-	challenge, err := s.updateInfo(ctx, timeout)
+func (s *Service) FetchInfo(ctx context.Context, budget time.Duration) (*types.TeeInfoResponse, common.Hash, error) {
+	if budget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, budget)
+		defer cancel()
+	}
+
+	// no attempt limit: budget is the only bound, so a node that is slow to attest
+	// (cold launcher at boot) does not take the proxy down with it
+	challenge, err := s.retryUpdate(ctx, s.timingConfig.CycleQueueResponseWait, 0)
 	if err != nil {
 		return nil, common.Hash{}, err
 	}
 
 	return s.Latest, challenge, nil
+}
+
+// retryUpdate refreshes the info, retrying an attempt that failed on an operational stage.
+// attempts bounds the tries; attempts < 1 retries until ctx ends. wait bounds each attempt's
+// wait for the node's response.
+func (s *Service) retryUpdate(ctx context.Context, wait time.Duration, attempts int) (common.Hash, error) {
+	for attempt := 1; ; attempt++ {
+		challenge, err := s.updateInfo(ctx, wait)
+		if err == nil {
+			return challenge, nil
+		}
+
+		spent := attempts >= 1 && attempt >= attempts
+		if spent || !retryableStage(err) || ctx.Err() != nil {
+			if ctx.Err() == nil {
+				s.metrics.InfoRefreshExhausted(refreshStage(err))
+			}
+			if attempt > 1 {
+				return common.Hash{}, fmt.Errorf("after %d attempts: %w", attempt, err)
+			}
+			return common.Hash{}, err
+		}
+
+		// an unbounded retry is the bootstrap fetch: no per-cycle warning above it, and a
+		// boot that keeps retrying must not be silent
+		if attempts < 1 {
+			logger.Warnf("tee info attempt %d failed, retrying in %v: %v", attempt, s.timingConfig.RetryDelay, err)
+		} else {
+			logger.Debugf("tee info attempt %d failed, retrying in %v: %v", attempt, s.timingConfig.RetryDelay, err)
+		}
+
+		select {
+		case <-time.After(s.timingConfig.RetryDelay):
+		case <-ctx.Done():
+			// keep the last failure: on a spent bootstrap budget it is the reason the proxy dies
+			return common.Hash{}, fmt.Errorf("after %d attempts, %w: last error: %v", attempt, ctx.Err(), err)
+		}
+	}
+}
+
+// stageError tags a refresh failure with the pipeline stage that produced it.
+type stageError struct {
+	stage string
+	err   error
+}
+
+func (e *stageError) Error() string { return e.err.Error() }
+
+func (e *stageError) Unwrap() error { return e.err }
+
+// stages whose failure is a security signal rather than a transient one: a retry cannot fix it,
+// and re-verifying multiplies the page the first occurrence already raised.
+var nonRetryableStages = map[string]bool{"verify_signature": true, "verify_attestation": true}
+
+// fail counts a refresh failure at stage and tags err with it.
+func (s *Service) fail(stage string, err error) error {
+	s.metrics.InfoRefreshFailed(stage)
+
+	return &stageError{stage: stage, err: err}
+}
+
+// refreshStage returns the pipeline stage err comes from; "unknown" for anything not raised by an attempt.
+func refreshStage(err error) string {
+	var se *stageError
+	if errors.As(err, &se) {
+		return se.stage
+	}
+
+	return "unknown"
+}
+
+func retryableStage(err error) bool {
+	return !nonRetryableStages[refreshStage(err)]
 }
 
 // newInfoAction returns an action with opType GET, opCommand TEE_INFO,
@@ -153,69 +245,62 @@ func newInfoAction(challenge common.Hash) (*types.Action, error) {
 
 // updateInfo updates the latest info by sending a TEE_INFO action to the TEE and waiting for the response.
 // Returns the challenge that was sent so callers can verify the response binds to it.
+// Every failure carries its pipeline stage, which decides retryability; see retryUpdate.
 func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ common.Hash, err error) {
 	refreshStart := time.Now()
 	defer func() { s.metrics.InfoRefreshObserved(time.Since(refreshStart), err) }()
 
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
-		s.metrics.InfoRefreshFailed("fetch_block")
-		return common.Hash{}, fmt.Errorf("fetching latest block: %w", err)
+		return common.Hash{}, s.fail("fetch_block", fmt.Errorf("fetching latest block: %w", err))
 	}
 
 	challenge := common.HexToHash(block.Hash)
 
 	action, err := newInfoAction(challenge)
 	if err != nil {
-		s.metrics.InfoRefreshFailed("create_action")
-		return common.Hash{}, fmt.Errorf("creating info action: %w", err)
+		return common.Hash{}, s.fail("create_action", fmt.Errorf("creating info action: %w", err))
 	}
 
 	err = s.actionQueues.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
-		s.metrics.InfoRefreshFailed("enqueue")
-		return common.Hash{}, fmt.Errorf("enqueueing info action: %w", err)
+		return common.Hash{}, s.fail("enqueue", fmt.Errorf("enqueueing info action: %w", err))
 	}
 
 	start := time.Now()
 	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	s.metrics.ObserveNodeWait("info", time.Since(start), err)
 	if err != nil {
-		s.metrics.InfoRefreshFailed("wait_response")
-		return common.Hash{}, fmt.Errorf("waiting for info response: %w", err)
+		return common.Hash{}, s.fail("wait_response", fmt.Errorf("waiting for info response: %w", err))
 	}
 	if response.Result.Status != 1 {
-		s.metrics.InfoRefreshFailed("action_status")
-		return common.Hash{}, fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log)
+		// the node reports a failed attestation this way, e.g. when its token endpoint is slow
+		return common.Hash{}, s.fail("action_status", fmt.Errorf("TEE_INFO action failed: %s", response.Result.Log))
 	}
 
 	var result types.TeeInfoResponse
 
 	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
-		s.metrics.InfoRefreshFailed("unmarshal")
-		return common.Hash{}, fmt.Errorf("unmarshaling info response: %w", err)
+		return common.Hash{}, s.fail("unmarshal", fmt.Errorf("unmarshaling info response: %w", err))
 	}
 
 	if s.attestationCfg != nil {
 		teeID, err := ParseTeeID(&result)
 		if err != nil {
-			s.metrics.InfoRefreshFailed("parse_tee_id")
-			return common.Hash{}, fmt.Errorf("parsing tee ID: %w", err)
+			return common.Hash{}, s.fail("parse_tee_id", fmt.Errorf("parsing tee ID: %w", err))
 		}
 
 		signingHash, err := signing.NewPayload(signing.TEEActionResult, result.TeeInfo.ChainID, [32]byte(response.Result.Hash())).Hash()
 		if err != nil {
-			s.metrics.InfoRefreshFailed("signing_hash")
-			return common.Hash{}, fmt.Errorf("computing signing hash: %w", err)
+			return common.Hash{}, s.fail("signing_hash", fmt.Errorf("computing signing hash: %w", err))
 		}
 
 		err = utils.VerifySignature(signingHash[:], response.Signature, teeID)
 		if err != nil {
-			s.metrics.InfoRefreshFailed("verify_signature")
-			// set-site Warn: the alert pages on one occurrence, but Run() Debug-logs one-shot failures
+			// set-site Warn: the alert pages on one occurrence, and this failure is never retried
 			logger.Warnf("TEE info response signature verification failed: %v", err)
-			return common.Hash{}, fmt.Errorf("verifying response signature: %w", err)
+			return common.Hash{}, s.fail("verify_signature", fmt.Errorf("verifying response signature: %w", err))
 		}
 
 		vErr := attestation.Verify(&result, challenge, s.attestationCfg)
@@ -231,8 +316,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 			if changed {
 				logger.Warnf("attestation verification failed (sticky, readiness fails until restart): %v", vErr)
 			}
-			s.metrics.InfoRefreshFailed("verify_attestation")
-			return common.Hash{}, fmt.Errorf("verifying attestation: %w", vErr)
+			return common.Hash{}, s.fail("verify_attestation", fmt.Errorf("verifying attestation: %w", vErr))
 		}
 	}
 

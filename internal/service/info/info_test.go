@@ -255,11 +255,24 @@ func TestNewServiceLastUpdatedStartsNow(t *testing.T) {
 func infoFailureCount(t *testing.T, m *metrics.Metrics, stage string) float64 {
 	t.Helper()
 
+	return infoStageCount(t, m, "teeproxy_info_refresh_failures_total", stage)
+}
+
+// infoExhaustedCount reads teeproxy_info_refresh_exhausted_total for the given stage label.
+func infoExhaustedCount(t *testing.T, m *metrics.Metrics, stage string) float64 {
+	t.Helper()
+
+	return infoStageCount(t, m, "teeproxy_info_refresh_exhausted_total", stage)
+}
+
+func infoStageCount(t *testing.T, m *metrics.Metrics, name, stage string) float64 {
+	t.Helper()
+
 	fams, err := m.Registry().Gather()
 	require.NoError(t, err)
 
 	for _, f := range fams {
-		if f.GetName() != "teeproxy_info_refresh_failures_total" {
+		if f.GetName() != name {
 			continue
 		}
 		for _, mc := range f.GetMetric() {
@@ -351,23 +364,20 @@ func newInfoServiceWithBlock(t *testing.T, m *metrics.Metrics, ac *attestation.C
 	aq := queue.NewActionQueues(c, time.Hour, nil)
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
-	tc := &config.InfoTiming{CycleInternal: time.Hour, CycleQueueResponseWait: time.Second}
+	tc := &config.InfoTiming{
+		CycleInternal:          time.Hour,
+		CycleQueueResponseWait: time.Second,
+		MaxAttempts:            3,
+		RetryDelay:             10 * time.Millisecond,
+	}
 
 	return NewService(db, aq, rs, tc, ac, m), aq, rs
 }
 
-// runInfoRefresh runs updateInfo against svc in the background and returns the TEE_INFO
-// action it enqueued (decoding the challenge it carries) along with a channel receiving
-// updateInfo's returned error once it completes. The caller drives a specific failure stage
-// by answering (or not answering) the action via rs.StoreResponse.
-func runInfoRefresh(t *testing.T, svc *Service, aq *queue.ActionQueues) (action *types.Action, challenge common.Hash, errCh <-chan error) {
+// nextInfoAction waits for the next TEE_INFO action on the direct queue and returns it
+// along with the challenge it carries.
+func nextInfoAction(t *testing.T, aq *queue.ActionQueues) (action *types.Action, challenge common.Hash) {
 	t.Helper()
-
-	ch := make(chan error, 1)
-	go func() {
-		_, err := svc.updateInfo(context.Background(), 2*time.Second)
-		ch <- err
-	}()
 
 	require.Eventually(t, func() bool {
 		d, err := aq.Dequeue(context.Background(), processorutils.Direct)
@@ -383,7 +393,123 @@ func runInfoRefresh(t *testing.T, svc *Service, aq *queue.ActionQueues) (action 
 	var req types.TeeInfoRequest
 	require.NoError(t, json.Unmarshal(di.Message, &req))
 
-	return action, req.Challenge, ch
+	return action, req.Challenge
+}
+
+// runInfoRefresh runs updateInfo against svc in the background and returns the TEE_INFO
+// action it enqueued (decoding the challenge it carries) along with a channel receiving
+// updateInfo's returned error once it completes. The caller drives a specific failure stage
+// by answering (or not answering) the action via rs.StoreResponse.
+func runInfoRefresh(t *testing.T, svc *Service, aq *queue.ActionQueues) (action *types.Action, challenge common.Hash, errCh <-chan error) {
+	t.Helper()
+
+	ch := make(chan error, 1)
+	go func() {
+		_, err := svc.updateInfo(context.Background(), 2*time.Second)
+		ch <- err
+	}()
+
+	action, challenge = nextInfoAction(t, aq)
+
+	return action, challenge, ch
+}
+
+// failingInfoResponse answers action with the status-0 response the node returns when it
+// cannot produce an attestation in time.
+func failingInfoResponse(t *testing.T, action *types.Action) *types.ActionResponse {
+	t.Helper()
+
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	ar := signedTeeInfoResponse(t, key, action.Data.ID, action.Data.SubmissionTag, &types.TeeInfoResponse{})
+	ar.Result.Status = 0
+
+	return ar
+}
+
+// TestRetryUpdateRecovers checks that a failing TEE_INFO response is retried and that the
+// recovered refresh is not reported as a give-up: only the exhausted counter is alertable.
+func TestRetryUpdateRecovers(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, Info: true, Node: true})
+	svc, aq, rs := newInfoServiceWithBlock(t, m, &attestation.Config{Enabled: false})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := svc.retryUpdate(context.Background(), 2*time.Second, 3)
+		errCh <- err
+	}()
+
+	first, _ := nextInfoAction(t, aq)
+	require.NoError(t, rs.StoreResponse(context.Background(), failingInfoResponse(t, first)))
+
+	second, challenge := nextInfoAction(t, aq)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	resp := &types.TeeInfoResponse{TeeInfo: types.TeeInfo{Challenge: challenge}}
+	require.NoError(t, rs.StoreResponse(context.Background(),
+		signedTeeInfoResponse(t, key, second.Data.ID, second.Data.SubmissionTag, resp)))
+
+	require.NoError(t, waitInfoRefresh(t, errCh))
+
+	svc.RLock()
+	require.Equal(t, challenge, svc.Latest.TeeInfo.Challenge)
+	svc.RUnlock()
+
+	require.Equal(t, float64(1), infoFailureCount(t, m, "action_status"))
+	require.Equal(t, float64(0), infoExhaustedCount(t, m, "action_status"))
+}
+
+// TestRetryUpdateExhausted checks that a refresh failing on every attempt is counted once
+// as a give-up, under the stage of its last attempt.
+func TestRetryUpdateExhausted(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, Info: true, Node: true})
+	svc, aq, rs := newInfoServiceWithBlock(t, m, &attestation.Config{Enabled: false})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := svc.retryUpdate(context.Background(), 2*time.Second, 2)
+		errCh <- err
+	}()
+
+	for range 2 {
+		action, _ := nextInfoAction(t, aq)
+		require.NoError(t, rs.StoreResponse(context.Background(), failingInfoResponse(t, action)))
+	}
+
+	require.Error(t, waitInfoRefresh(t, errCh))
+	require.Equal(t, float64(2), infoFailureCount(t, m, "action_status"))
+	require.Equal(t, float64(1), infoExhaustedCount(t, m, "action_status"))
+}
+
+// TestRetryUpdateSkipsVerificationFailure checks that a signature failure is not retried:
+// it is a security signal, and every re-verify would multiply the page it raises.
+func TestRetryUpdateSkipsVerificationFailure(t *testing.T) {
+	m := metrics.New(metrics.Config{Enable: true, Info: true, Node: true})
+	svc, aq, rs := newInfoServiceWithBlock(t, m, &attestation.Config{Enabled: false})
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := svc.retryUpdate(context.Background(), 2*time.Second, 3)
+		errCh <- err
+	}()
+
+	action, challenge := nextInfoAction(t, aq)
+	key, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	resp := &types.TeeInfoResponse{TeeInfo: types.TeeInfo{Challenge: challenge}}
+	ar := signedTeeInfoResponse(t, key, action.Data.ID, action.Data.SubmissionTag, resp)
+	ar.Signature[0] ^= 0xFF // corrupt the signature relative to the embedded pubkey
+
+	require.NoError(t, rs.StoreResponse(context.Background(), ar))
+	require.Error(t, waitInfoRefresh(t, errCh))
+
+	require.Equal(t, float64(1), infoFailureCount(t, m, "verify_signature"))
+	require.Equal(t, float64(1), infoExhaustedCount(t, m, "verify_signature"))
+
+	// no second attempt was enqueued
+	_, err = aq.Dequeue(context.Background(), processorutils.Direct)
+	require.Error(t, err)
 }
 
 // waitInfoRefresh blocks for updateInfo's returned error, failing the test if it never arrives.

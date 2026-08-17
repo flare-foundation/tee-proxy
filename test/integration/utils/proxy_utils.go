@@ -69,10 +69,14 @@ var TestTimeConfig = struct {
 var StorageTimeConfig = struct {
 	CycleInternal          time.Duration
 	CycleQueueResponseWait time.Duration
+	MaxAttempts            int
+	RetryDelay             time.Duration
 }{
 
 	CycleInternal:          50 * time.Millisecond,
 	CycleQueueResponseWait: 10 * time.Second,
+	MaxAttempts:            3,
+	RetryDelay:             50 * time.Millisecond,
 }
 
 func mockDB(t *testing.T) *gorm.DB {
@@ -125,6 +129,8 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
+		MaxAttempts:            StorageTimeConfig.MaxAttempts,
+		RetryDelay:             StorageTimeConfig.RetryDelay,
 	}, &attestation.Config{Enabled: false}, nil)
 
 	livenessService := liveness.New(db, c, infoService, resultService, nil)

@@ -61,7 +61,7 @@ Integrity and security — page on the first occurrence:
 | `TeeProxyActionRedeliveryLost`          | `sum by (queue) (increase(teeproxy_action_redelivery_total{result=~"exhausted\|requeue_failed"}[5m])) > 0` | An action was given up after repeated undelivered sends, or could not be put back on its queue — irrecoverable; unlike `…SendFailed` this covers the direct and backup queues too. |
 | `TeeProxyResultWrongTeeID`              | `increase(teeproxy_results_rejected_total{reason="wrong_tee_id"}[5m]) > 0`         | Result signed by a non-bound key on the TEE-only endpoint — tamper / mis-route.             |
 | `TeeProxyResultBadSigner`               | `increase(teeproxy_results_rejected_total{reason="bad_signer"}[5m]) > 0`           | Result with an unrecoverable signature on the TEE-only endpoint — trusted-TEE malfunction.  |
-| `TeeProxyInfoVerifySignatureFailing`    | `increase(teeproxy_info_refresh_failures_total{stage="verify_signature"}[5m]) > 0` | TEE_INFO signature verification failed — info-path sibling of `wrong_tee_id`.               |
+| `TeeProxyInfoVerifySignatureFailing`    | `increase(teeproxy_info_refresh_failures_total{stage="verify_signature"}[5m]) > 0` | TEE_INFO signature verification failed — info-path sibling of `wrong_tee_id`; never retried, so one attempt is one refresh. |
 | `TeeProxyAttestationFailing`            | `increase(teeproxy_attestation_verify_total{result="error"}[10m]) > 0`             | Attestation verification failed — possible compromise.                                      |
 | `TeeProxyMagicPassAccepted`             | `increase(teeproxy_attestation_verify_total{reason="magic_pass"}[10m]) > 0`        | Attestation bypassed via the magic_pass sentinel (`result="ok"`). **Production-only rule.** |
 | `TeeProxyMagicPassAllowed`              | `teeproxy_attestation_posture{setting="magic_pass_allowed"} == 1` for 5m           | Configured to allow the JWT-chain bypass. **Production-only rule.**                         |
@@ -91,7 +91,7 @@ Sustained degradation — pages after the condition persists (most have a warnin
 | `TeeProxyWalletSyncFailingSustained`    | `sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|wait_error\|parse_error"}[3h])) >= 3` | Key/proof cache not refreshed across 3+ hourly cycles.                             |
 | `TeeProxyWalletSyncWedged`              | `increase(teeproxy_wallet_sync_total{result="skipped"}[3h]) >= 3`                         | `syncing` flag wedged 3+ hours.                                                             |
 
-These counters are pre-initialized to 0 at startup (when their group is enabled) so the first, possibly one-shot, event satisfies `increase(...) > 0`: `teeproxy_results_rejected_total`, `teeproxy_finalized_action_lost_total`, `teeproxy_attestation_verify_total`, `teeproxy_info_refresh_failures_total`, `teeproxy_policy_update_total`, `teeproxy_wallet_sync_total`, `teeproxy_action_enqueue_total`, `teeproxy_action_dequeue_total`, `teeproxy_action_redelivery_total`, `teeproxy_machinepath_poll_total`, `teeproxy_node_response_wait_total`, and `teeproxy_result_channel_dropped_total`.
+These counters are pre-initialized to 0 at startup (when their group is enabled) so the first, possibly one-shot, event satisfies `increase(...) > 0`: `teeproxy_results_rejected_total`, `teeproxy_finalized_action_lost_total`, `teeproxy_attestation_verify_total`, `teeproxy_info_refresh_failures_total`, `teeproxy_info_refresh_exhausted_total`, `teeproxy_policy_update_total`, `teeproxy_wallet_sync_total`, `teeproxy_action_enqueue_total`, `teeproxy_action_dequeue_total`, `teeproxy_action_redelivery_total`, `teeproxy_machinepath_poll_total`, `teeproxy_node_response_wait_total`, and `teeproxy_result_channel_dropped_total`.
 `teeproxy_http_requests_total` (dynamic route label) and `teeproxy_storage_operations_total` (backend/namespace fixed at wiring time) are not pre-initialized, so their warnings fire on the second occurrence of a brand-new label series.
 Any future counter feeding an `increase(...) > 0` alert must be pre-initialized the same way — a `CounterVec` series born at 1 never fires `increase > 0`.
 
@@ -106,7 +106,7 @@ First-occurrence awareness for the escalating pairs (each has a `…Sustained`/c
 | `TeeProxyActionEnqueueFailing` | `sum by (queue) (increase(teeproxy_action_enqueue_total{result=~"store_error\|queue_error"}[5m])) > 0`        | Any ingest enqueue error; escalates via `…Sustained`.                                                     |
 | `TeeProxyActionOrphaned`       | `sum by (queue) (increase(teeproxy_action_dequeue_total{result=~"error\|action_not_found"}[5m])) > 0`         | An orphaned action (body unfetchable); a single one can be benign TTL expiry. Escalates via `…Sustained`. |
 | `TeeProxyWalletSyncFailing`    | `increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|wait_error\|parse_error"}[15m]) > 0`             | A sync cycle failed; escalates via `…Sustained`.                                                          |
-| `TeeProxyInfoRefreshFailing`   | `sum(increase(teeproxy_info_refresh_failures_total{stage!~"verify_signature\|verify_attestation"}[10m])) > 0` | An operational refresh stage failed; sustained failure escalates via `TeeProxyInfoStale`.                 |
+| `TeeProxyInfoRefreshFailing`   | `sum(increase(teeproxy_info_refresh_exhausted_total{stage!~"verify_signature\|verify_attestation"}[10m])) > 0` | A refresh failed on an operational stage and its retries did not recover it; sustained failure escalates via `TeeProxyInfoStale`. |
 
 Other warnings (lead time / degradation that self-heals):
 
@@ -266,13 +266,20 @@ Label values: `result` is `success`/`enqueue_error`/`wait_error`/`parse_error`/`
 
 ## `info`
 
-| Metric                                   | Type      | Labels   | Description                                     |
-| ---------------------------------------- | --------- | -------- | ----------------------------------------------- |
-| `teeproxy_info_refresh_failures_total`   | counter   | `stage`  | TEE info refresh failures by pipeline stage.    |
-| `teeproxy_info_refresh_duration_seconds` | histogram | `result` | End-to-end TEE info refresh latency by outcome. |
+| Metric                                   | Type      | Labels   | Description                                                    |
+| ---------------------------------------- | --------- | -------- | -------------------------------------------------------------- |
+| `teeproxy_info_refresh_failures_total`   | counter   | `stage`  | TEE info refresh attempt failures by pipeline stage.           |
+| `teeproxy_info_refresh_exhausted_total`  | counter   | `stage`  | Refreshes given up on, by the stage of their last attempt.     |
+| `teeproxy_info_refresh_duration_seconds` | histogram | `result` | Single TEE info refresh attempt latency by outcome.            |
 
-Label values: `stage` is one of the refresh-pipeline stages (`fetch_block`, `create_action`, `enqueue`, `wait_response`, `action_status`, `unmarshal`, `parse_tee_id`, `signing_hash`, `verify_signature`, `verify_attestation`); `result` is `ok`/`error`.
-The duration histogram is observed once per refresh, so its `_count{result}` is the refresh rate and success ratio — the denominator the per-stage failure counter lacks — and its buckets capture the TEE round-trip latency.
+Label values: `stage` is one of the refresh-pipeline stages (`fetch_block`, `create_action`, `enqueue`, `wait_response`, `action_status`, `unmarshal`, `parse_tee_id`, `signing_hash`, `verify_signature`, `verify_attestation`, plus a defensive `unknown` that no code path reaches today); `result` is `ok`/`error`.
+The duration histogram is observed once per attempt, so its `_count{result}` is the attempt rate and per-attempt success ratio — the denominator the per-stage failure counter lacks — and its buckets capture the TEE round-trip latency.
+
+A refresh makes up to `info_timing.max_attempts` attempts, `info_timing.retry_delay` apart, so `failures_total` counts attempts and is not by itself an incident: the tee-node answers with a failing response (`stage="action_status"`) whenever it cannot produce an attestation within its own 10s token deadline, and the next attempt usually succeeds.
+`exhausted_total` counts only the refreshes that retries did not recover, which is what alerts key on; `sum(increase(failures_total)) - sum(increase(exhausted_total))` is the retried-away churn.
+Attempts are not retried after `verify_signature` or `verify_attestation` — a verification failure is a security signal that a retry cannot fix — so those stages increment both counters together.
+The bootstrap fetch is retried too, bounded by `info_timing.initial_timeout` rather than by `max_attempts`.
+Its attempts land in `failures_total`, but a spent bootstrap budget does not increment `exhausted_total`: the proxy panics, and the resulting crash loop resets counters anyway (see the startup-refusal note under [Alerting](#alerting)).
 
 ## `attestation`
 

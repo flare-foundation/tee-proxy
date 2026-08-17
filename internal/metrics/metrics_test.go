@@ -322,11 +322,24 @@ func TestInfoRefreshFailuresPreInitialized(t *testing.T) {
 	stages := []string{
 		"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
 		"unmarshal", "parse_tee_id", "signing_hash", "verify_signature", "verify_attestation",
+		"unknown",
 	}
 	for _, stage := range stages {
 		require.Zerof(t, testutil.ToFloat64(m.infoRefreshFailures.WithLabelValues(stage)), "stage %q not pre-initialized", stage)
+		require.Zerof(t, testutil.ToFloat64(m.infoRefreshExhausted.WithLabelValues(stage)), "exhausted stage %q not pre-initialized", stage)
 	}
 	require.Equal(t, len(stages), testutil.CollectAndCount(m.infoRefreshFailures), "every stage series must exist before any failure")
+	require.Equal(t, len(stages), testutil.CollectAndCount(m.infoRefreshExhausted), "every stage series must exist before any give-up")
+}
+
+func TestInfoRefreshExhausted(t *testing.T) {
+	m := New(Config{Enable: true, Info: true})
+
+	m.InfoRefreshExhausted("action_status")
+	m.InfoRefreshExhausted("action_status")
+
+	require.Equal(t, float64(2), testutil.ToFloat64(m.infoRefreshExhausted.WithLabelValues("action_status")))
+	require.Equal(t, float64(0), testutil.ToFloat64(m.infoRefreshExhausted.WithLabelValues("wait_response")))
 }
 
 func TestInfoRefreshObserved(t *testing.T) {
@@ -407,6 +420,7 @@ func TestInfoAttestationDisabledIsNoOp(t *testing.T) {
 	m := New(Config{Enable: true, Info: false, Attestation: false})
 	require.NotPanics(t, func() {
 		m.InfoRefreshFailed("x")
+		m.InfoRefreshExhausted("x")
 		m.InfoRefreshObserved(time.Second, nil)
 		m.AttestationVerified("ok", "ok")
 	})
