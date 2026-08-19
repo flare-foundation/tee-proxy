@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 	"testing"
 	"time"
 
@@ -248,6 +252,92 @@ func TestNewServiceLastUpdatedStartsNow(t *testing.T) {
 	}, &attestation.Config{Enabled: false}, nil)
 
 	require.WithinDuration(t, time.Now(), s.LastUpdated, time.Second)
+}
+
+// TestAllStagesCoversEveryConstant parses this file's stage constants and requires allStages to
+// list each one: a stage missing there owns no series until its first failure, which is exactly
+// what the increase(...)>0 alert cannot see.
+func TestAllStagesCoversEveryConstant(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "info.go", nil, 0)
+	require.NoError(t, err)
+
+	listed := make(map[string]bool, len(allStages))
+	for _, s := range allStages {
+		listed[s.String()] = true
+	}
+
+	declared := 0
+
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok || vs.Type == nil {
+				continue
+			}
+			if id, ok := vs.Type.(*ast.Ident); !ok || id.Name != "stage" {
+				continue
+			}
+
+			for _, v := range vs.Values {
+				lit, ok := v.(*ast.BasicLit)
+				require.True(t, ok, "stage constant must be a literal")
+
+				val, err := strconv.Unquote(lit.Value)
+				require.NoError(t, err)
+
+				declared++
+
+				require.Truef(t, listed[val], "stage %q is missing from allStages", val)
+			}
+		}
+	}
+
+	require.Equal(t, declared, len(allStages), "allStages holds a value no stage constant declares")
+}
+
+// TestNewServicePreinitsStageLabels guards the wiring: without it no info_refresh_*_total series
+// exists until the first failure of that stage.
+func TestNewServicePreinitsStageLabels(t *testing.T) {
+	db, _ := testutil.InMemoryDB(t, "preinit-stages")
+
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
+
+	m := metrics.New(metrics.Config{Enable: true, Info: true})
+	NewService(db, aq, rs, &config.InfoTiming{
+		CycleInternal:          time.Hour,
+		CycleQueueResponseWait: time.Second,
+	}, &attestation.Config{Enabled: false}, m)
+
+	for _, name := range []string{
+		"teeproxy_info_refresh_failures_total",
+		"teeproxy_info_refresh_exhausted_total",
+	} {
+		require.Equal(t, len(allStages), infoSeriesCount(t, m, name), "%s must hold one series per stage", name)
+	}
+}
+
+// infoSeriesCount returns how many series the named metric family holds in m's registry.
+func infoSeriesCount(t *testing.T, m *metrics.Metrics, name string) int {
+	t.Helper()
+
+	fams, err := m.Registry().Gather()
+	require.NoError(t, err)
+
+	for _, f := range fams {
+		if f.GetName() == name {
+			return len(f.GetMetric())
+		}
+	}
+
+	return 0
 }
 
 // infoFailureCount reads teeproxy_info_refresh_failures_total for the given stage label

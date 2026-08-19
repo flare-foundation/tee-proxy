@@ -314,22 +314,23 @@ func TestInfoRefreshFailures(t *testing.T) {
 	require.Equal(t, float64(1), testutil.ToFloat64(m.infoRefreshFailures.WithLabelValues("verify_signature")))
 }
 
-// TestInfoRefreshFailuresPreInitialized proves every refresh stage is born at 0, so the
-// critical increase(...)>0 alert on a stage catches its first, possibly one-shot failure.
-func TestInfoRefreshFailuresPreInitialized(t *testing.T) {
+// TestPreinitInfoStages proves a seeded stage is born at 0, so the critical increase(...)>0
+// alert on a stage catches its first, possibly one-shot failure. Labels are arbitrary here:
+// the real set belongs to the info package, which is where it is asserted.
+func TestPreinitInfoStages(t *testing.T) {
 	m := New(Config{Enable: true, Info: true})
 
-	stages := []string{
-		"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
-		"unmarshal", "parse_tee_id", "payload_hash", "verify_signature", "verify_attestation",
-		"unknown",
-	}
+	stages := []string{"alpha", "beta"}
+	m.PreinitInfoStages(stages)
+
+	// counted before any WithLabelValues below, which would create the series itself
+	require.Equal(t, len(stages), testutil.CollectAndCount(m.infoRefreshFailures), "every stage series must exist before any failure")
+	require.Equal(t, len(stages), testutil.CollectAndCount(m.infoRefreshExhausted), "every stage series must exist before any give-up")
+
 	for _, stage := range stages {
 		require.Zerof(t, testutil.ToFloat64(m.infoRefreshFailures.WithLabelValues(stage)), "stage %q not pre-initialized", stage)
 		require.Zerof(t, testutil.ToFloat64(m.infoRefreshExhausted.WithLabelValues(stage)), "exhausted stage %q not pre-initialized", stage)
 	}
-	require.Equal(t, len(stages), testutil.CollectAndCount(m.infoRefreshFailures), "every stage series must exist before any failure")
-	require.Equal(t, len(stages), testutil.CollectAndCount(m.infoRefreshExhausted), "every stage series must exist before any give-up")
 }
 
 func TestInfoRefreshExhausted(t *testing.T) {
@@ -419,6 +420,7 @@ func TestSecurityCountersPreInitialized(t *testing.T) {
 func TestInfoAttestationDisabledIsNoOp(t *testing.T) {
 	m := New(Config{Enable: true, Info: false, Attestation: false})
 	require.NotPanics(t, func() {
+		m.PreinitInfoStages([]string{"x"})
 		m.InfoRefreshFailed("x")
 		m.InfoRefreshExhausted("x")
 		m.InfoRefreshObserved(time.Second, nil)

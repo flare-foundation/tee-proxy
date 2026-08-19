@@ -57,7 +57,10 @@ type Service struct {
 // and, when ac.Enabled, verifies the response's attestation. m may be nil or disabled.
 // LastUpdated starts at construction time so info_service_delay_seconds reports real elapsed
 // time from boot instead of a multi-decade spike before the first refresh.
+// It also seeds the refresh-stage metric labels, which exist only once a Service is wired.
 func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config, m *metrics.Metrics) *Service {
+	m.PreinitInfoStages(stageLabels())
+
 	return &Service{
 		Latest:      new(types.TeeInfoResponse),
 		LastUpdated: time.Now(),
@@ -194,29 +197,48 @@ func (s *Service) retryUpdate(ctx context.Context, wait time.Duration, attempts 
 	}
 }
 
-type Stage string
+type stage string
 
-func (s Stage) String() string {
+func (s stage) String() string {
 	return string(s)
 }
 
 const (
-	FetchBlock        Stage = "fetch_block"
-	CreateAction      Stage = "create_action"
-	Enqueue           Stage = "enqueue"
-	WaitResponse      Stage = "wait_response"
-	ActionStatus      Stage = "action_status"
-	Unmarshal         Stage = "unmarshal"
-	ParseTEEID        Stage = "parse_tee_id"
-	PayloadHash       Stage = "payload_hash"
-	VerifySignature   Stage = "verify_signature"
-	VerifyAttestation Stage = "verify_attestation"
-	Unknown           Stage = "unknown"
+	fetchBlock        stage = "fetch_block"
+	createAction      stage = "create_action"
+	enqueue           stage = "enqueue"
+	waitResponse      stage = "wait_response"
+	actionStatus      stage = "action_status"
+	unmarshal         stage = "unmarshal"
+	parseTEEID        stage = "parse_tee_id"
+	payloadHash       stage = "payload_hash"
+	verifySignature   stage = "verify_signature"
+	verifyAttestation stage = "verify_attestation"
+
+	// unknown tags a give-up on an untagged error; unreachable today, alertable if it happens.
+	unknown stage = "unknown"
 )
+
+// allStages is every stage fail can tag. It seeds the info_refresh_*_total label set, so a
+// new constant must be listed here too or its series is missing until it first fires.
+var allStages = []stage{
+	fetchBlock, createAction, enqueue, waitResponse, actionStatus,
+	unmarshal, parseTEEID, payloadHash, verifySignature, verifyAttestation, unknown,
+}
+
+// stageLabels renders allStages as metric label values.
+func stageLabels() []string {
+	labels := make([]string, 0, len(allStages))
+	for _, s := range allStages {
+		labels = append(labels, s.String())
+	}
+
+	return labels
+}
 
 // stageError tags a refresh failure with the pipeline stage that produced it.
 type stageError struct {
-	stage Stage
+	stage stage
 	err   error
 }
 
@@ -228,23 +250,23 @@ func (e *stageError) Unwrap() error { return e.err }
 
 // stages whose failure is a security signal rather than a transient one: a retry cannot fix it,
 // and re-verifying multiplies the page the first occurrence already raised.
-var nonRetryableStages = map[Stage]bool{VerifySignature: true, VerifyAttestation: true}
+var nonRetryableStages = map[stage]bool{verifySignature: true, verifyAttestation: true}
 
 // fail counts a refresh failure at st and tags err with it.
-func (s *Service) fail(st Stage, err error) error {
+func (s *Service) fail(st stage, err error) error {
 	s.metrics.InfoRefreshFailed(st.String())
 
 	return &stageError{stage: st, err: err}
 }
 
 // refreshStage returns the pipeline stage err comes from; "unknown" for anything not raised by an attempt.
-func refreshStage(err error) Stage {
+func refreshStage(err error) stage {
 	var se *stageError
 	if errors.As(err, &se) {
 		return se.stage
 	}
 
-	return Unknown
+	return unknown
 }
 
 func retryableStage(err error) bool {
@@ -275,55 +297,55 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 
 	block, err := database.FetchLatestBlock(ctx, s.db, nil)
 	if err != nil {
-		return common.Hash{}, s.fail(FetchBlock, err)
+		return common.Hash{}, s.fail(fetchBlock, err)
 	}
 
 	challenge := common.HexToHash(block.Hash)
 
 	action, err := newInfoAction(challenge)
 	if err != nil {
-		return common.Hash{}, s.fail(CreateAction, err)
+		return common.Hash{}, s.fail(createAction, err)
 	}
 
 	err = s.actionQueues.Enqueue(ctx, action, processorutils.Direct)
 	if err != nil {
-		return common.Hash{}, s.fail(Enqueue, err)
+		return common.Hash{}, s.fail(enqueue, err)
 	}
 
 	start := time.Now()
 	response, err := s.responseStorage.WaitOnResponse(ctx, action.Data.ID, action.Data.SubmissionTag, timeout)
 	s.metrics.ObserveNodeWait("info", time.Since(start), err)
 	if err != nil {
-		return common.Hash{}, s.fail(WaitResponse, err)
+		return common.Hash{}, s.fail(waitResponse, err)
 	}
 	if response.Result.Status != 1 {
 		// the node reports a failed attestation this way, e.g. when its token endpoint is slow
-		return common.Hash{}, s.fail(ActionStatus, fmt.Errorf("TEE_INFO response with log: %s", response.Result.Log))
+		return common.Hash{}, s.fail(actionStatus, fmt.Errorf("TEE_INFO response with log: %s", response.Result.Log))
 	}
 
 	var result types.TeeInfoResponse
 
 	err = json.Unmarshal(response.Result.Data, &result)
 	if err != nil {
-		return common.Hash{}, s.fail(Unmarshal, err)
+		return common.Hash{}, s.fail(unmarshal, err)
 	}
 
 	if s.attestationCfg != nil {
 		teeID, err := ParseTeeID(&result)
 		if err != nil {
-			return common.Hash{}, s.fail(ParseTEEID, err)
+			return common.Hash{}, s.fail(parseTEEID, err)
 		}
 
 		signingHash, err := signing.NewPayload(signing.TEEActionResult, result.TeeInfo.ChainID, [32]byte(response.Result.Hash())).Hash()
 		if err != nil {
-			return common.Hash{}, s.fail(PayloadHash, err)
+			return common.Hash{}, s.fail(payloadHash, err)
 		}
 
 		err = utils.VerifySignature(signingHash[:], response.Signature, teeID)
 		if err != nil {
 			// set-site Warn: the alert pages on one occurrence, and this failure is never retried
 			logger.Warnf("TEE info response signature verification failed: %v", err)
-			return common.Hash{}, s.fail(VerifySignature, err)
+			return common.Hash{}, s.fail(verifySignature, err)
 		}
 
 		vErr := attestation.Verify(&result, challenge, s.attestationCfg)
@@ -339,7 +361,7 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 			if changed {
 				logger.Warnf("attestation verification failed (sticky, readiness fails until restart): %v", vErr)
 			}
-			return common.Hash{}, s.fail(VerifyAttestation, vErr)
+			return common.Hash{}, s.fail(verifyAttestation, vErr)
 		}
 	}
 

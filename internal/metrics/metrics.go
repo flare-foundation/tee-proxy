@@ -302,16 +302,6 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "info_refresh_exhausted_total",
 			Help: "TEE info refreshes given up on, by the stage of the last attempt; retries did not recover.",
 		}, []string{"stage"})
-		// Pre-initialize so a first, possibly one-shot failure satisfies increase()>0 (a series born at 1 never does).
-		// "unknown" covers a give-up on an untagged error; unreachable today, alertable if it ever happens.
-		for _, stage := range []string{
-			"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
-			"unmarshal", "parse_tee_id", "payload_hash", "verify_signature", "verify_attestation",
-			"unknown",
-		} {
-			m.infoRefreshFailures.WithLabelValues(stage).Add(0)
-			m.infoRefreshExhausted.WithLabelValues(stage).Add(0)
-		}
 		m.infoRefreshDuration = f.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace, Name: "info_refresh_duration_seconds",
 			Help: "Single TEE info refresh attempt latency by outcome.", Buckets: infoRefreshBuckets,
@@ -602,6 +592,20 @@ func (m *Metrics) RegisterTopUnfinalizedProposals(top func() []ProviderPending) 
 		),
 		top: top,
 	})
+}
+
+// PreinitInfoStages seeds one series per stage at 0, so a first, possibly one-shot failure
+// satisfies increase()>0 (a series born at 1 never does). The stage set belongs to the caller
+// that emits the labels; this package does not restate it.
+func (m *Metrics) PreinitInfoStages(stages []string) {
+	if m == nil || m.infoRefreshFailures == nil || m.infoRefreshExhausted == nil {
+		return
+	}
+
+	for _, s := range stages {
+		m.infoRefreshFailures.WithLabelValues(s).Add(0)
+		m.infoRefreshExhausted.WithLabelValues(s).Add(0)
+	}
 }
 
 // InfoRefreshFailed records a failed TEE info refresh attempt at the given pipeline stage.

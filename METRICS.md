@@ -272,7 +272,7 @@ Label values: `result` is `success`/`enqueue_error`/`wait_error`/`parse_error`/`
 | `teeproxy_info_refresh_exhausted_total`  | counter   | `stage`  | Refreshes given up on, by the stage of their last attempt.     |
 | `teeproxy_info_refresh_duration_seconds` | histogram | `result` | Single TEE info refresh attempt latency by outcome.            |
 
-Label values: `stage` is one of the refresh-pipeline stages (`fetch_block`, `create_action`, `enqueue`, `wait_response`, `action_status`, `unmarshal`, `parse_tee_id`, `signing_hash`, `verify_signature`, `verify_attestation`, plus a defensive `unknown` that no code path reaches today); `result` is `ok`/`error`.
+Label values: `stage` is one of the refresh-pipeline stages (`fetch_block`, `create_action`, `enqueue`, `wait_response`, `action_status`, `unmarshal`, `parse_tee_id`, `payload_hash`, `verify_signature`, `verify_attestation`, plus a defensive `unknown` that no code path reaches today); `result` is `ok`/`error`.
 The duration histogram is observed once per attempt, so its `_count{result}` is the attempt rate and per-attempt success ratio — the denominator the per-stage failure counter lacks — and its buckets capture the TEE round-trip latency.
 
 A refresh makes up to `info_timing.max_attempts` attempts, `info_timing.retry_delay` apart, so `failures_total` counts attempts and is not by itself an incident: the tee-node answers with a failing response (`stage="action_status"`) whenever it cannot produce an attestation within its own 10s token deadline, and the next attempt usually succeeds.
