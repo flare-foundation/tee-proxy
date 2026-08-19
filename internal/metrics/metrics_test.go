@@ -321,7 +321,7 @@ func TestInfoRefreshFailuresPreInitialized(t *testing.T) {
 
 	stages := []string{
 		"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
-		"unmarshal", "parse_tee_id", "signing_hash", "verify_signature", "verify_attestation",
+		"unmarshal", "parse_tee_id", "payload_hash", "verify_signature", "verify_attestation",
 		"unknown",
 	}
 	for _, stage := range stages {

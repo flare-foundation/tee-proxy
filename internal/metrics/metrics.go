@@ -306,7 +306,7 @@ func New(cfg Config) *Metrics {
 		// "unknown" covers a give-up on an untagged error; unreachable today, alertable if it ever happens.
 		for _, stage := range []string{
 			"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
-			"unmarshal", "parse_tee_id", "signing_hash", "verify_signature", "verify_attestation",
+			"unmarshal", "parse_tee_id", "payload_hash", "verify_signature", "verify_attestation",
 			"unknown",
 		} {
 			m.infoRefreshFailures.WithLabelValues(stage).Add(0)
