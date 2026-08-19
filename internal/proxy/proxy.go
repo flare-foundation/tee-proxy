@@ -135,6 +135,8 @@ func Run(ctx context.Context, cfgPath string) {
 	go runServer("internal", internalServer.Serve)
 
 	logger.Info("fetching initial TEE info")
+	// retried until initial_timeout is spent: the node answers a slow attestation with a
+	// failing response, and a cold launcher must not turn into a boot failure
 	initialInfo, sentChallenge, err := infoService.FetchInfo(ctx, cfg.InfoTiming.Initial)
 	if err != nil {
 		logger.Panicf("fetching initial TEE info: %v", err)

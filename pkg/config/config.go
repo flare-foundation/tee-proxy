@@ -21,9 +21,13 @@ const (
 	DefaultPrivateKeyVariable   = "PRIVATE_KEY"
 	DefaultDirectAPIKeyVariable = "DIRECT_API_KEY"
 
-	defaultInitialInfoTimeout         = 5 * time.Minute
-	defaultCycleInternal              = 10 * time.Second
-	defaultCycleQueueResponseWait     = 30 * time.Second
+	defaultInitialInfoTimeout     = 5 * time.Minute
+	defaultCycleInternal          = 10 * time.Second
+	defaultCycleQueueResponseWait = 30 * time.Second
+	// 3 × 30s wait + 2 × 5s delay stays under liveness' 140s info tolerance
+	defaultInfoMaxAttempts = 3
+	defaultInfoRetryDelay  = 5 * time.Second
+
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
 	defaultInitialSigningPolicyOffset = 3
 
@@ -259,6 +263,8 @@ func Read(path string) (Proxy, error) {
 			Initial:                defaultInitialInfoTimeout,
 			CycleInternal:          defaultCycleInternal,
 			CycleQueueResponseWait: defaultCycleQueueResponseWait,
+			MaxAttempts:            defaultInfoMaxAttempts,
+			RetryDelay:             defaultInfoRetryDelay,
 		},
 
 		Voting: Voting{

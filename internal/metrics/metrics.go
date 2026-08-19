@@ -81,7 +81,7 @@ type Metrics struct {
 
 	resultsProcessed     *prometheus.CounterVec
 	resultsLost          prometheus.Counter
-	resultsDiscarded     prometheus.Counter
+	resultsNoActionID    prometheus.Counter
 	resultsRejected      *prometheus.CounterVec
 	resultChannelDropped *prometheus.CounterVec
 
@@ -98,12 +98,14 @@ type Metrics struct {
 
 	actionDequeued         *prometheus.CounterVec
 	actionEnqueued         *prometheus.CounterVec
+	actionRedelivery       *prometheus.CounterVec
 	queueDepthReadFailures *prometheus.CounterVec
 
-	infoRefreshFailures *prometheus.CounterVec
-	infoRefreshDuration *prometheus.HistogramVec
-	attestationVerify   *prometheus.CounterVec
-	attestationPosture  *prometheus.GaugeVec
+	infoRefreshFailures  *prometheus.CounterVec
+	infoRefreshExhausted *prometheus.CounterVec
+	infoRefreshDuration  *prometheus.HistogramVec
+	attestationVerify    *prometheus.CounterVec
+	attestationPosture   *prometheus.GaugeVec
 
 	nodeWaitDuration *prometheus.HistogramVec
 	nodeWaitTotal    *prometheus.CounterVec
@@ -171,9 +173,9 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "results_lost_total",
 			Help: "Results acknowledged to the node but never persisted.",
 		})
-		m.resultsDiscarded = f.NewCounter(prometheus.CounterOpts{
-			Namespace: namespace, Name: "results_discarded_total",
-			Help: "Node delivery-failure notifications discarded for lacking an action ID.",
+		m.resultsNoActionID = f.NewCounter(prometheus.CounterOpts{
+			Namespace: namespace, Name: "results_missing_action_id_total",
+			Help: "Results discarded for carrying no action ID — the node's delivery-failure notifications.",
 		})
 		m.resultsRejected = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "results_rejected_total",
@@ -270,13 +272,20 @@ func New(cfg Config) *Metrics {
 			Namespace: namespace, Name: "action_enqueue_total",
 			Help: "Action enqueue attempts by queue and result.",
 		}, []string{"queue", "result"})
-		// Pre-initialize the alertable error series so the enqueue/dequeue-failure/orphaned-action warnings fire on the first event.
+		m.actionRedelivery = f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace, Name: "action_redelivery_total",
+			Help: "Undelivered actions put back on their queue by queue and result: requeued is retried on the next poll; exhausted spent all delivery attempts and requeue_failed could not be written back, both losing the action.",
+		}, []string{"queue", "result"})
+		// Pre-initialize the alertable error series so the enqueue/dequeue-failure/orphaned-action
+		// and lost-redelivery warnings fire on the first event.
 		for _, queue := range []string{"main", "direct", "backup"} {
 			m.actionEnqueued.WithLabelValues(queue, "store_error").Add(0)
 			m.actionEnqueued.WithLabelValues(queue, "queue_error").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "error").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "action_not_found").Add(0)
 			m.actionDequeued.WithLabelValues(queue, "dequeue_error").Add(0)
+			m.actionRedelivery.WithLabelValues(queue, "exhausted").Add(0)
+			m.actionRedelivery.WithLabelValues(queue, "requeue_failed").Add(0)
 		}
 		m.queueDepthReadFailures = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "action_queue_depth_read_failures_total",
@@ -287,18 +296,15 @@ func New(cfg Config) *Metrics {
 	if cfg.Info {
 		m.infoRefreshFailures = f.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace, Name: "info_refresh_failures_total",
-			Help: "TEE info refresh failures by pipeline stage.",
+			Help: "TEE info refresh attempt failures by pipeline stage; a retried attempt counts here too.",
 		}, []string{"stage"})
-		// Pre-initialize so a first, possibly one-shot failure satisfies increase()>0 (a series born at 1 never does).
-		for _, stage := range []string{
-			"fetch_block", "create_action", "enqueue", "wait_response", "action_status",
-			"unmarshal", "parse_tee_id", "signing_hash", "verify_signature", "verify_attestation",
-		} {
-			m.infoRefreshFailures.WithLabelValues(stage).Add(0)
-		}
+		m.infoRefreshExhausted = f.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace, Name: "info_refresh_exhausted_total",
+			Help: "TEE info refreshes given up on, by the stage of the last attempt; retries did not recover.",
+		}, []string{"stage"})
 		m.infoRefreshDuration = f.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace, Name: "info_refresh_duration_seconds",
-			Help: "End-to-end TEE info refresh latency by outcome.", Buckets: infoRefreshBuckets,
+			Help: "Single TEE info refresh attempt latency by outcome.", Buckets: infoRefreshBuckets,
 		}, []string{"result"})
 	}
 
@@ -588,7 +594,22 @@ func (m *Metrics) RegisterTopUnfinalizedProposals(top func() []ProviderPending) 
 	})
 }
 
-// InfoRefreshFailed records a TEE info refresh failure at the given pipeline stage.
+// PreinitInfoStages seeds one series per stage at 0, so a first, possibly one-shot failure
+// satisfies increase()>0 (a series born at 1 never does). The stage set belongs to the caller
+// that emits the labels; this package does not restate it.
+func (m *Metrics) PreinitInfoStages(stages []string) {
+	if m == nil || m.infoRefreshFailures == nil || m.infoRefreshExhausted == nil {
+		return
+	}
+
+	for _, s := range stages {
+		m.infoRefreshFailures.WithLabelValues(s).Add(0)
+		m.infoRefreshExhausted.WithLabelValues(s).Add(0)
+	}
+}
+
+// InfoRefreshFailed records a failed TEE info refresh attempt at the given pipeline stage.
+// A retried attempt is counted too, so this is not by itself an incident — see InfoRefreshExhausted.
 func (m *Metrics) InfoRefreshFailed(stage string) {
 	if m == nil || m.infoRefreshFailures == nil {
 		return
@@ -596,7 +617,16 @@ func (m *Metrics) InfoRefreshFailed(stage string) {
 	m.infoRefreshFailures.WithLabelValues(stage).Inc()
 }
 
-// InfoRefreshObserved records one completed TEE-info refresh by duration and outcome
+// InfoRefreshExhausted records a TEE info refresh given up on after its retries, labelled with
+// the stage of the last attempt. This is the alertable signal; retried-away failures are not.
+func (m *Metrics) InfoRefreshExhausted(stage string) {
+	if m == nil || m.infoRefreshExhausted == nil {
+		return
+	}
+	m.infoRefreshExhausted.WithLabelValues(stage).Inc()
+}
+
+// InfoRefreshObserved records one completed TEE-info refresh attempt by duration and outcome
 // ("ok"/"error"). It gives the failure counter a denominator; the per-stage breakdown
 // stays in info_refresh_failures_total.
 func (m *Metrics) InfoRefreshObserved(d time.Duration, err error) {
@@ -850,6 +880,14 @@ func (m *Metrics) ActionEnqueued(queue, result string) {
 	m.actionEnqueued.WithLabelValues(queue, result).Inc()
 }
 
+// ActionRedelivery records the outcome of putting an undelivered action back on its queue.
+func (m *Metrics) ActionRedelivery(queue, result string) {
+	if m == nil || m.actionRedelivery == nil {
+		return
+	}
+	m.actionRedelivery.WithLabelValues(queue, result).Inc()
+}
+
 // QueueDepthReadFailed records a scrape-time queue-depth (LLEN) read failure for the given queue.
 func (m *Metrics) QueueDepthReadFailed(queue string) {
 	if m == nil || m.queueDepthReadFailures == nil {
@@ -935,12 +973,13 @@ func (m *Metrics) ResultLost() {
 	m.resultsLost.Inc()
 }
 
-// ResultDiscarded records a node delivery-failure notification dropped for lacking an action ID.
-func (m *Metrics) ResultDiscarded() {
-	if m == nil || m.resultsDiscarded == nil {
+// ResultMissingActionID records a result discarded for naming no action: the node's
+// delivery-failure notifications carry no action ID.
+func (m *Metrics) ResultMissingActionID() {
+	if m == nil || m.resultsNoActionID == nil {
 		return
 	}
-	m.resultsDiscarded.Inc()
+	m.resultsNoActionID.Inc()
 }
 
 // ResultRejected records one result rejected before storage under a bounded reason

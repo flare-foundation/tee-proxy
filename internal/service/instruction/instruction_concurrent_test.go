@@ -369,11 +369,11 @@ func TestConcurrentThresholdFinalization(t *testing.T) {
 
 	var action *types.Action
 	require.Eventually(t, func() bool {
-		a, err := s.aq.Dequeue(context.Background(), processorutils.Main)
+		d, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
 			return false
 		}
-		action = a
+		action = d.Action
 		return true
 	}, 2*time.Second, 10*time.Millisecond, "threshold action was not enqueued")
 
@@ -445,11 +445,11 @@ func TestConcurrentThresholdFinalizationHighLoad(t *testing.T) {
 
 	var action *types.Action
 	require.Eventually(t, func() bool {
-		a, err := s.aq.Dequeue(context.Background(), processorutils.Main)
+		d, err := s.aq.Dequeue(context.Background(), processorutils.Main)
 		if err != nil {
 			return false
 		}
-		action = a
+		action = d.Action
 		return true
 	}, 2*time.Second, 10*time.Millisecond, "threshold action was not enqueued")
 

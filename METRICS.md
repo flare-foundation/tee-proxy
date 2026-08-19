@@ -25,7 +25,7 @@ For the histograms, use `histogram_quantile(0.95, rate(<name>_bucket[5m]))` for 
 | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `http`          | per-request count and latency                                                                                          |
 | `storage`       | Redis/GCS operation count, latency, and errors                                                                   |
-| `queue`         | enqueue and dequeue counters, queue-depth gauge, and depth-read failure counter                                        |
+| `queue`         | enqueue, dequeue and redelivery counters, queue-depth gauge, and depth-read failure counter                             |
 | `voting`        | instruction and votings-started counters, threshold-duration histogram                                                 |
 | `active_voters` | per-epoch participant gauges, participating and per-voting weight, and the voting-threshold gauge                       |
 | `result`        | result throughput, lost, discarded, and rejected counters                                                              |
@@ -57,10 +57,11 @@ Integrity and security — page on the first occurrence:
 | `TeeProxyResultsLost`                   | `increase(teeproxy_results_lost_total[5m]) > 0`                                    | Irrecoverable, client-invisible result loss.                                                |
 | `TeeProxyFinalizedActionEnqueueFailing` | `increase(teeproxy_finalized_action_enqueue_failed_total[5m]) > 0`                 | Consensus reached but the action failed to enqueue to the main queue.                       |
 | `TeeProxyFinalizedActionLost`           | `increase(teeproxy_finalized_action_lost_total{reason="build_error"}[5m]) > 0`     | Finalized action dropped before enqueue (serialize failure) — irrecoverable.                |
-| `TeeProxyFinalizedActionSendFailed`     | `increase(teeproxy_finalized_action_lost_total{reason="send_failed"}[5m]) > 0`     | Finalized action dequeued (body deleted) then lost on send to the node — irrecoverable.     |
+| `TeeProxyFinalizedActionSendFailed`     | `increase(teeproxy_finalized_action_lost_total{reason="send_failed"}[5m]) > 0`     | Finalized action given up after its delivery attempts to the node were spent — irrecoverable. |
+| `TeeProxyActionRedeliveryLost`          | `sum by (queue) (increase(teeproxy_action_redelivery_total{result=~"exhausted\|requeue_failed"}[5m])) > 0` | An action was given up after repeated undelivered sends, or could not be put back on its queue — irrecoverable; unlike `…SendFailed` this covers the direct and backup queues too. |
 | `TeeProxyResultWrongTeeID`              | `increase(teeproxy_results_rejected_total{reason="wrong_tee_id"}[5m]) > 0`         | Result signed by a non-bound key on the TEE-only endpoint — tamper / mis-route.             |
 | `TeeProxyResultBadSigner`               | `increase(teeproxy_results_rejected_total{reason="bad_signer"}[5m]) > 0`           | Result with an unrecoverable signature on the TEE-only endpoint — trusted-TEE malfunction.  |
-| `TeeProxyInfoVerifySignatureFailing`    | `increase(teeproxy_info_refresh_failures_total{stage="verify_signature"}[5m]) > 0` | TEE_INFO signature verification failed — info-path sibling of `wrong_tee_id`.               |
+| `TeeProxyInfoVerifySignatureFailing`    | `increase(teeproxy_info_refresh_failures_total{stage="verify_signature"}[5m]) > 0` | TEE_INFO signature verification failed — info-path sibling of `wrong_tee_id`; never retried, so one attempt is one refresh. |
 | `TeeProxyAttestationFailing`            | `increase(teeproxy_attestation_verify_total{result="error"}[10m]) > 0`             | Attestation verification failed — possible compromise.                                      |
 | `TeeProxyMagicPassAccepted`             | `increase(teeproxy_attestation_verify_total{reason="magic_pass"}[10m]) > 0`        | Attestation bypassed via the magic_pass sentinel (`result="ok"`). **Production-only rule.** |
 | `TeeProxyMagicPassAllowed`              | `teeproxy_attestation_posture{setting="magic_pass_allowed"} == 1` for 5m           | Configured to allow the JWT-chain bypass. **Production-only rule.**                         |
@@ -90,7 +91,7 @@ Sustained degradation — pages after the condition persists (most have a warnin
 | `TeeProxyWalletSyncFailingSustained`    | `sum(increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|wait_error\|parse_error"}[3h])) >= 3` | Key/proof cache not refreshed across 3+ hourly cycles.                             |
 | `TeeProxyWalletSyncWedged`              | `increase(teeproxy_wallet_sync_total{result="skipped"}[3h]) >= 3`                         | `syncing` flag wedged 3+ hours.                                                             |
 
-These counters are pre-initialized to 0 at startup (when their group is enabled) so the first, possibly one-shot, event satisfies `increase(...) > 0`: `teeproxy_results_rejected_total`, `teeproxy_finalized_action_lost_total`, `teeproxy_attestation_verify_total`, `teeproxy_info_refresh_failures_total`, `teeproxy_policy_update_total`, `teeproxy_wallet_sync_total`, `teeproxy_action_enqueue_total`, `teeproxy_action_dequeue_total`, `teeproxy_machinepath_poll_total`, `teeproxy_node_response_wait_total`, and `teeproxy_result_channel_dropped_total`.
+These counters are pre-initialized to 0 at startup (when their group is enabled) so the first, possibly one-shot, event satisfies `increase(...) > 0`: `teeproxy_results_rejected_total`, `teeproxy_finalized_action_lost_total`, `teeproxy_attestation_verify_total`, `teeproxy_info_refresh_failures_total`, `teeproxy_info_refresh_exhausted_total`, `teeproxy_policy_update_total`, `teeproxy_wallet_sync_total`, `teeproxy_action_enqueue_total`, `teeproxy_action_dequeue_total`, `teeproxy_action_redelivery_total`, `teeproxy_machinepath_poll_total`, `teeproxy_node_response_wait_total`, and `teeproxy_result_channel_dropped_total`.
 `teeproxy_http_requests_total` (dynamic route label) and `teeproxy_storage_operations_total` (backend/namespace fixed at wiring time) are not pre-initialized, so their warnings fire on the second occurrence of a brand-new label series.
 Any future counter feeding an `increase(...) > 0` alert must be pre-initialized the same way — a `CounterVec` series born at 1 never fires `increase > 0`.
 
@@ -105,7 +106,7 @@ First-occurrence awareness for the escalating pairs (each has a `…Sustained`/c
 | `TeeProxyActionEnqueueFailing` | `sum by (queue) (increase(teeproxy_action_enqueue_total{result=~"store_error\|queue_error"}[5m])) > 0`        | Any ingest enqueue error; escalates via `…Sustained`.                                                     |
 | `TeeProxyActionOrphaned`       | `sum by (queue) (increase(teeproxy_action_dequeue_total{result=~"error\|action_not_found"}[5m])) > 0`         | An orphaned action (body unfetchable); a single one can be benign TTL expiry. Escalates via `…Sustained`. |
 | `TeeProxyWalletSyncFailing`    | `increase(teeproxy_wallet_sync_total{result=~"enqueue_error\|wait_error\|parse_error"}[15m]) > 0`             | A sync cycle failed; escalates via `…Sustained`.                                                          |
-| `TeeProxyInfoRefreshFailing`   | `sum(increase(teeproxy_info_refresh_failures_total{stage!~"verify_signature\|verify_attestation"}[10m])) > 0` | An operational refresh stage failed; sustained failure escalates via `TeeProxyInfoStale`.                 |
+| `TeeProxyInfoRefreshFailing`   | `sum(increase(teeproxy_info_refresh_exhausted_total{stage!~"verify_signature\|verify_attestation"}[10m])) > 0` | A refresh failed on an operational stage and its retries did not recover it; sustained failure escalates via `TeeProxyInfoStale`. |
 
 Other warnings (lead time / degradation that self-heals):
 
@@ -116,6 +117,7 @@ Other warnings (lead time / degradation that self-heals):
 | `TeeProxyNodeWaitTimeouts`                          | `sum by (path) (increase(teeproxy_node_response_wait_total{result="timeout"}[15m])) > 0`                                                   | TEE node slow or unreachable on a path; `increase()` with no `for:` so it fires at any path cadence (a `rate>0` dwell can never complete on the hourly wallet paths). |
 | `TeeProxyMachinepathPollErrors`                     | `increase(teeproxy_machinepath_poll_total{result=~"fetch_error\|build_error\|enqueue_error\|wait_error"}[15m]) > 0`                        | A machine-path poll cycle failed before the node saw the action, or waiting for its confirmation.  |
 | `TeeProxyActionDequeueFailing`                      | `sum by (queue) (increase(teeproxy_action_dequeue_total{result="dequeue_error"}[5m])) > 0`                                                 | Dequeue pops failing at Redis (no ID consumed, nothing lost); node-poll-driven, so traffic-independent. |
+| `TeeProxyActionRedelivering`                        | `sum by (queue) (increase(teeproxy_action_redelivery_total{result="requeued"}[5m])) > 0`                                                   | Node polls are ending before the action reaches the node (poll timeout or broken connection); the action is retried on the next poll and escalates via `TeeProxyActionRedeliveryLost`. |
 | `TeeProxyMachinepathNoAuthorization`                | `increase(teeproxy_machinepath_poll_total{result="no_authorization"}[15m]) > 0`                                                            | An activated list has no forwardable authorization evidence (no direct signatures, no verifiable Safe approval) — a governance-config condition, retried every poll until resolved. |
 | `TeeProxyGovernanceNotConfigured`                   | `teeproxy_governance_posture{setting="configured"} == 0` for 15m                                                                           | Running without `[governance]` — legacy direct-signature path, nothing cross-checked. **Deployment-pinned rule** (enable where governance is mandatory).                            |
 | `TeeProxyGovernanceHashDrift`                       | `teeproxy_governance_hash_match == 0` for 15m                                                                                              | Node governance rotated after startup; Safe pre-verification is stale — update `[governance]` and restart.                                                                          |
@@ -168,11 +170,14 @@ Of the `operation` values only `get` and `set_with_ttl` are emitted by the wired
 | ------------------------------------------------- | ------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `teeproxy_action_enqueue_total`                   | counter             | `queue`, `result` | Action enqueue attempts by queue and result.                                                                                                               |
 | `teeproxy_action_dequeue_total`                   | counter             | `queue`, `result` | Action dequeue attempts by queue and result; `action_not_found` and `error` consumed a queue ID whose body could not be fetched (an orphaned/lost action), `dequeue_error` failed the pop itself (nothing consumed). |
+| `teeproxy_action_redelivery_total`                | counter             | `queue`, `result` | Undelivered actions put back on their queue; `exhausted` and `requeue_failed` are losses, `requeued` is a retry on the next poll.                           |
 | `teeproxy_action_queue_depth`                     | gauge (scrape-time) | `queue`           | Pending submission IDs per queue.                                                                                                                          |
 | `teeproxy_action_queue_depth_read_failures_total` | counter             | `queue`           | Scrape-time queue-depth (LLEN) read failures; while nonzero the depth gauge reports 0 and the backpressure alert is masked.                                |
 
-Label values: `result` for dequeue is `success`/`empty`/`dequeue_error`/`cancelled`/`error`/`action_not_found`; `result` for enqueue is `success`/`store_error`/`queue_error`/`invalid_queue`; `queue` is `main`/`direct`/`backup` (and `other` only on an invalid queue ID).
-`dequeue_error` is the Redis pop itself failing and `cancelled` a caller-side cancellation during it — in both cases no queue ID was consumed, so they are kept out of the orphan alerts; `error` and `action_not_found` mean an ID was consumed but its body could not be fetched, a real orphan.
+Label values: `result` for dequeue is `success`/`empty`/`dequeue_error`/`cancelled`/`error`/`action_not_found`; `result` for enqueue is `success`/`store_error`/`queue_error`/`invalid_queue`; `result` for redelivery is `requeued`/`exhausted`/`requeue_failed`; `queue` is `main`/`direct`/`backup` (and `other` only on an invalid queue ID).
+`dequeue_error` is the Redis pop itself failing and `cancelled` a caller-side cancellation before it — in both cases no queue ID was consumed, so they are kept out of the orphan alerts; `error` and `action_not_found` mean an ID was consumed but its body could not be fetched, a real orphan.
+A dequeue keeps the action body until the node has the action, so a send that fails is not a loss: the queue ID goes back to the dequeue end and `action_redelivery_total` records the retry, up to `queue.MaxDeliveryAttempts` (5) attempts per action.
+`exhausted` is that cap being reached — an action the node never accepts is dropped rather than blocking its queue forever — and `requeue_failed` a Redis failure while putting the ID back; both lose the action, and for the main queue also count as `finalized_action_lost_total{reason="send_failed"}`.
 During Redis degradation the depth gauge reads 0 and `TeeProxyQueueBackpressure` is expected to be masked; the authoritative Redis-outage signals are `TeeProxyActionDequeueFailing` / `TeeProxyActionEnqueueFailing` and `TeeProxyNotReady` (the storage metrics cover only the results/backups stores, not the Redis queues).
 
 ## `voting`
@@ -196,7 +201,8 @@ Every started voting eventually either finalizes or expires, so expired votings 
 On `finalized_action_lost_total`, `reason` is one of `build_error`/`send_cancelled`/`send_failed`.
 `build_error` is a (practically unreachable) action-serialization failure.
 `send_cancelled` fires only when a finalized action's send to the forwarding channel is aborted during shutdown.
-`send_failed` is an irrecoverable post-dequeue loss: the action was dequeued (its body already deleted from the main queue) but the response write to the node failed; it has its own critical alert `TeeProxyFinalizedActionSendFailed`.
+`send_failed` is an irrecoverable post-dequeue loss: a dequeued action was given up after `queue.MaxDeliveryAttempts` undelivered sends to the node, or could not be put back on the queue at all; it has its own critical alert `TeeProxyFinalizedActionSendFailed`.
+A single failed send is not counted here — it is an `action_redelivery_total{result="requeued"}` retry.
 Enqueue failures are a separate, sibling failure mode counted by `finalized_action_enqueue_failed_total`, so total finalized-action loss is `finalized_action_lost_total` (all three reasons) plus `finalized_action_enqueue_failed_total`.
 All three `reason` series are pre-initialized to 0 at startup so the first, possibly one-shot drop satisfies the `increase(...) > 0` alerts on `build_error` and `send_failed`.
 
@@ -228,13 +234,13 @@ The threshold gauge is the signing policy's own threshold, which covers default-
 
 ## `result`
 
-| Metric                                  | Type    | Labels                       | Description                                                                      |
-| --------------------------------------- | ------- | ---------------------------- | -------------------------------------------------------------------------------- |
-| `teeproxy_results_processed_total`      | counter | `op_command`, `status_class` | Results processed by op command and status class.                                |
-| `teeproxy_results_lost_total`           | counter | —                            | Results acknowledged to the node but never persisted.                            |
-| `teeproxy_results_discarded_total`      | counter | —                            | Node delivery-failure notifications discarded for lacking an action ID.          |
-| `teeproxy_results_rejected_total`       | counter | `reason`                     | Results rejected before storage, by reason.                                      |
-| `teeproxy_result_channel_dropped_total` | counter | `channel`                    | Result fan-out messages dropped because the target channel was full, by channel. |
+| Metric                                     | Type    | Labels                       | Description                                                                              |
+| ------------------------------------------ | ------- | ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `teeproxy_results_processed_total`         | counter | `op_command`, `status_class` | Results processed by op command and status class.                                        |
+| `teeproxy_results_lost_total`              | counter | —                            | Results acknowledged to the node but never persisted.                                    |
+| `teeproxy_results_missing_action_id_total` | counter | —                            | Results discarded for carrying no action ID — the node's delivery-failure notifications. |
+| `teeproxy_results_rejected_total`          | counter | `reason`                     | Results rejected before storage, by reason.                                              |
+| `teeproxy_result_channel_dropped_total`    | counter | `channel`                    | Result fan-out messages dropped because the target channel was full, by channel.         |
 
 Label values: `op_command` is a bounded operation-command name, else `other`; `status_class` is `failed`/`final`/`transient`; `reason` is `bad_signer`/`wrong_tee_id`/`bootstrap`.
 `results_processed_total` is counted after the identity gates but before storage, so a re-delivery that the storage override-guard later rejects (a duplicate of an already-persisted result) still counts here — it measures processed deliveries, not distinct stored results.
@@ -260,13 +266,20 @@ Label values: `result` is `success`/`enqueue_error`/`wait_error`/`parse_error`/`
 
 ## `info`
 
-| Metric                                   | Type      | Labels   | Description                                     |
-| ---------------------------------------- | --------- | -------- | ----------------------------------------------- |
-| `teeproxy_info_refresh_failures_total`   | counter   | `stage`  | TEE info refresh failures by pipeline stage.    |
-| `teeproxy_info_refresh_duration_seconds` | histogram | `result` | End-to-end TEE info refresh latency by outcome. |
+| Metric                                   | Type      | Labels   | Description                                                    |
+| ---------------------------------------- | --------- | -------- | -------------------------------------------------------------- |
+| `teeproxy_info_refresh_failures_total`   | counter   | `stage`  | TEE info refresh attempt failures by pipeline stage.           |
+| `teeproxy_info_refresh_exhausted_total`  | counter   | `stage`  | Refreshes given up on, by the stage of their last attempt.     |
+| `teeproxy_info_refresh_duration_seconds` | histogram | `result` | Single TEE info refresh attempt latency by outcome.            |
 
-Label values: `stage` is one of the refresh-pipeline stages (`fetch_block`, `create_action`, `enqueue`, `wait_response`, `action_status`, `unmarshal`, `parse_tee_id`, `signing_hash`, `verify_signature`, `verify_attestation`); `result` is `ok`/`error`.
-The duration histogram is observed once per refresh, so its `_count{result}` is the refresh rate and success ratio — the denominator the per-stage failure counter lacks — and its buckets capture the TEE round-trip latency.
+Label values: `stage` is one of the refresh-pipeline stages (`fetch_block`, `create_action`, `enqueue`, `wait_response`, `action_status`, `unmarshal`, `parse_tee_id`, `payload_hash`, `verify_signature`, `verify_attestation`, plus a defensive `unknown` that no code path reaches today); `result` is `ok`/`error`.
+The duration histogram is observed once per attempt, so its `_count{result}` is the attempt rate and per-attempt success ratio — the denominator the per-stage failure counter lacks — and its buckets capture the TEE round-trip latency.
+
+A refresh makes up to `info_timing.max_attempts` attempts, `info_timing.retry_delay` apart, so `failures_total` counts attempts and is not by itself an incident: the tee-node answers with a failing response (`stage="action_status"`) whenever it cannot produce an attestation within its own 10s token deadline, and the next attempt usually succeeds.
+`exhausted_total` counts only the refreshes that retries did not recover, which is what alerts key on; `sum(increase(failures_total)) - sum(increase(exhausted_total))` is the retried-away churn.
+Attempts are not retried after `verify_signature` or `verify_attestation` — a verification failure is a security signal that a retry cannot fix — so those stages increment both counters together.
+The bootstrap fetch is retried too, bounded by `info_timing.initial_timeout` rather than by `max_attempts`.
+Its attempts land in `failures_total`, but a spent bootstrap budget does not increment `exhausted_total`: the proxy panics, and the resulting crash loop resets counters anyway (see the startup-refusal note under [Alerting](#alerting)).
 
 ## `attestation`
 
@@ -367,13 +380,13 @@ These are recommendations, not applied changes, except the three new gauges and 
 
 ### Keep, but wire the missing alert
 
-These carry a unique signal that no alert currently consumes: `action_dequeue_total` (`action_not_found` = an orphaned finalized action), `http_request_duration_seconds` (a p99 latency SLO), `wallet_keys_cached` (a mass-eviction drop), and `results_discarded_total`.
+These carry a unique signal that no alert currently consumes: `action_dequeue_total` (`action_not_found` = an orphaned finalized action), `http_request_duration_seconds` (a p99 latency SLO), `wallet_keys_cached` (a mass-eviction drop), and `results_missing_action_id_total`.
 
 ### Coverage gaps
 
 Closed by this change: node/proxy signing-policy epoch divergence → `node_applied_policy_epoch`; a forge-proof consensus-derived epoch witness → `consensus_max_reward_epoch`; c-chain indexer staleness attribution and lead time → `cchain_indexer_delay_seconds`.
-Done since: split `instructions_rejected_total{reason="other"}` into bounded reasons (`rate_limited`/`not_eligible`/`oversized`/`no_round` plus `inconsistent`/`invalid_cosigner_threshold`/`invalid_cosigner_declaration`/`invalid_fdc_threshold`/`non_instruction_command`) — see the `voting` section; count `wallet_backup_apply_failed` before storage — see the `wallet` section.
-Still open, highest value first: add `absent()` meta-alerts for the `info`/`voting`/`liveness` groups; count handler panics distinctly from handled 5xx; count Direct/Backup post-dequeue send loss (only Main is counted today); add an end-to-end finalized→result latency histogram.
+Done since: split `instructions_rejected_total{reason="other"}` into bounded reasons (`rate_limited`/`not_eligible`/`oversized`/`no_round` plus `inconsistent`/`invalid_cosigner_threshold`/`invalid_cosigner_declaration`/`invalid_fdc_threshold`/`non_instruction_command`) — see the `voting` section; count `wallet_backup_apply_failed` before storage — see the `wallet` section; count post-dequeue send loss on every queue → `action_redelivery_total`.
+Still open, highest value first: add `absent()` meta-alerts for the `info`/`voting`/`liveness` groups; count handler panics distinctly from handled 5xx; add an end-to-end finalized→result latency histogram.
 
 ### Doc accuracy fixed here
 

@@ -212,7 +212,7 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 
 	switch queueID {
 	case processorutils.Main, processorutils.Direct, processorutils.Backup:
-		value, err := i.actionQueues.Dequeue(ctx, queueID)
+		delivery, err := i.actionQueues.Dequeue(ctx, queueID)
 		if errors.Is(err, storage.ErrEmptyQueue) {
 			return json.NewEncoder(w).Encode(nil)
 		}
@@ -220,17 +220,25 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
-		logger.Debugf("sending action %v with tag %v to the node on queue %v", value.Data.ID, value.Data.SubmissionTag, queueID)
-		err = json.NewEncoder(w).Encode(value)
+		// The node's poll ended before a single byte was written, so it cannot have the
+		// action: requeue rather than deliver into a dead connection.
+		if err := ctx.Err(); err != nil {
+			return i.undelivered(delivery, queueID, err)
+		}
+
+		logger.Debugf("sending action %v with tag %v to the node on queue %v", delivery.Action.Data.ID, delivery.Action.Data.SubmissionTag, queueID)
+		err = json.NewEncoder(w).Encode(delivery.Action)
 		if err == nil {
-			// Flush so a buffered write failure surfaces here; the body is already deleted from the queue.
+			// Flush so a buffered write failure surfaces while the action can still be requeued.
 			err = http.NewResponseController(w).Flush()
 		}
 		if err != nil {
-			if queueID == processorutils.Main {
-				i.metrics.FinalizedActionLost("send_failed")
-			}
-			return fmt.Errorf("sending action %v (tag %v, queue %v) to node failed after dequeue, action lost: %w", value.Data.ID, value.Data.SubmissionTag, queueID, err)
+			return i.undelivered(delivery, queueID, err)
+		}
+
+		if err := delivery.Commit(); err != nil {
+			// The node has the action; only its body lingers, until the action TTL.
+			logger.Warnf("committing delivered action %v (tag %v, queue %v): %v", delivery.Action.Data.ID, delivery.Action.Data.SubmissionTag, queueID, err)
 		}
 
 	default:
@@ -238,6 +246,22 @@ func (i *Internal) queueH(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return nil
+}
+
+// undelivered requeues an action the node provably did not receive. Only giving up on it
+// counts as a finalized-action loss.
+func (i *Internal) undelivered(d *queue.Delivery, queueID processorutils.QueueID, cause error) error {
+	outcome := "action requeued"
+
+	if err := d.Restore(); err != nil {
+		outcome = "action lost"
+		if queueID == processorutils.Main {
+			i.metrics.FinalizedActionLost("send_failed")
+		}
+	}
+
+	return fmt.Errorf("sending action %v (tag %v, queue %v) to node failed, %s: %w",
+		d.Action.Data.ID, d.Action.Data.SubmissionTag, queueID, outcome, cause)
 }
 
 type livenessHandlers struct {

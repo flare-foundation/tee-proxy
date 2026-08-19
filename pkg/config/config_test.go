@@ -92,6 +92,8 @@ func TestValidateStorageTiming(t *testing.T) {
 	var timing = InfoTiming{
 		CycleInternal:          100 * time.Second,
 		CycleQueueResponseWait: 4 * time.Second,
+		MaxAttempts:            3,
+		RetryDelay:             time.Second,
 	}
 
 	require.NoError(t, timing.validate())
@@ -110,6 +112,13 @@ func TestValidateStorageTiming(t *testing.T) {
 
 	timing.Initial = 0 // "no timeout" sentinel is accepted
 	require.NoError(t, timing.validate())
+
+	timing.MaxAttempts = 0
+	require.Error(t, timing.validate())
+
+	timing.MaxAttempts = 1
+	timing.RetryDelay = 0 // a zero delay would let the bootstrap retry loop hammer the node
+	require.Error(t, timing.validate())
 }
 
 func TestConfig(t *testing.T) {

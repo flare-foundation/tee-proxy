@@ -60,9 +60,11 @@ external = "6662"
 
 
 [info_timing]
-initial_timeout = "5m"           # 0 for no timeout
+initial_timeout = "5m"           # whole bootstrap fetch, retries included; 0 for no timeout
 cycle_internal = "10s"
-cycle_queue_response_wait = "30s"
+cycle_queue_response_wait = "30s" # per attempt
+max_attempts = 3                 # attempts per refresh; keep attempts * wait + delays under the 140s info readiness tolerance
+retry_delay = "5s"
 
 
 [voting]

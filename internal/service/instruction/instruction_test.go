@@ -95,9 +95,12 @@ func TestVoting(t *testing.T) {
 
 	var a *types.Action
 	require.Eventually(t, func() bool {
-		var err error
-		a, err = s.aq.Dequeue(t.Context(), processorutils.Main)
-		return err == nil
+		d, err := s.aq.Dequeue(t.Context(), processorutils.Main)
+		if err != nil {
+			return false
+		}
+		a = d.Action
+		return true
 	}, 2*time.Second, 10*time.Millisecond, "threshold action was not enqueued")
 	require.Equal(t, a.Data.ID, iData.InstructionID)
 	require.Equal(t, a.Data.SubmissionTag, types.Threshold)
