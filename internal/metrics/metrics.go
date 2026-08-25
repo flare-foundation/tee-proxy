@@ -231,7 +231,8 @@ func New(cfg Config) *Metrics {
 			"invalid_voter", "voting_ended", "duplicate_signature", "event_in_future",
 			"no_round", "inconsistent", "rate_limited", "not_eligible",
 			"invalid_cosigner_threshold", "invalid_cosigner_declaration", "invalid_fdc_threshold",
-			"oversized", "non_instruction_command", "malformed_payload", "unknown_wallet", "other",
+			"oversized", "non_instruction_command", "malformed_payload", "unknown_wallet",
+			"zero_policy_threshold", "other",
 		} {
 			m.instructionsRejected.WithLabelValues(reason).Add(0)
 		}

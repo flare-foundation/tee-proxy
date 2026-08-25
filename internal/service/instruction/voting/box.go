@@ -33,6 +33,7 @@ var (
 	errInvalidCosignerThreshold = fmt.Errorf("%w: cosigner threshold exceeds cosigner set", status.HTTP[400])
 	errVotingEnded              = fmt.Errorf("%w: voting already ended", status.HTTP[410])
 	errSignatureAlreadyStored   = fmt.Errorf("%w: signature already stored", status.HTTP[403])
+	errZeroPolicyThreshold      = errors.New("signing policy threshold is zero")
 )
 
 // eventFutureSlack is the allowed slippage between the local clock and the
@@ -132,6 +133,11 @@ func buildVoteBox(data *instruction.Data, signer common.Address, round *Round, m
 	var threshold uint16
 	switch {
 	case t == -1:
+		// zero would finalize on any single vote; the Relay bounds the field to at least
+		// half the total weight, so zero means the policy never came from a chain event
+		if round.policy.Threshold == 0 {
+			return nil, errZeroPolicyThreshold
+		}
 		threshold = round.policy.Threshold
 	case t < -1 || t > maxBIPS:
 		return nil, fmt.Errorf("invalid threshold %d", t)
@@ -438,6 +444,8 @@ func RejectReason(err error) string {
 		return "oversized"
 	case errors.Is(err, errNonInstructionCommand):
 		return "non_instruction_command"
+	case errors.Is(err, errZeroPolicyThreshold):
+		return "zero_policy_threshold"
 	default:
 		return "other"
 	}
@@ -464,16 +472,14 @@ func (vb *voteBox) signersData() (signatures []hexutil.Bytes, additionalVariable
 	return signatures, additionalVariableMessages, timestamps
 }
 
-// computeThreshold matches the computation of the threshold for signing policy.
+// computeThreshold matches Relay.sol's div(mul(totalWeight, overrideBIPS), THRESHOLD_BIPS).
 // It is assumed that 0 <= bips <= 10000.
+//
+// Floor, not ceiling: finalization is strict (weight > threshold), so rounding up would
+// demand one weight unit more than the node and the Relay accept.
 func computeThreshold(total uint16, bips int) uint16 {
 	t64 := uint64(total)
 	b64 := uint64(bips)
-	t := t64 * b64 / maxBIPS
 
-	if (t64*b64)%maxBIPS != 0 {
-		t++
-	}
-
-	return uint16(t) //nolint:gosec
+	return uint16(t64 * b64 / maxBIPS) //nolint:gosec
 }
