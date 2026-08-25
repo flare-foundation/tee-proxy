@@ -6,8 +6,8 @@ require (
 	cloud.google.com/go/storage v1.64.0
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.17.2
-	github.com/flare-foundation/go-flare-common v1.2.2-0.20260727094511-09a10067e6a4
-	github.com/flare-foundation/tee-node v0.0.23
+	github.com/flare-foundation/go-flare-common v1.2.2-0.20260820114858-51165807a89f
+	github.com/flare-foundation/tee-node v0.0.26-0.20260825074205-e0818f8a6375
 	github.com/fsouza/fake-gcs-server v1.55.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.12.1
@@ -17,6 +17,8 @@ require (
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.0
 )
+
+require filippo.io/bigmod v0.1.0 // indirect
 
 require (
 	cel.dev/expr v0.25.1 // indirect

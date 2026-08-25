@@ -56,7 +56,8 @@ func TestNewKey(t *testing.T) {
 	wal, err := wallets.GenerateNewKey(*actionMsg)
 	require.NoError(t, err)
 
-	kep := wal.KeyExistenceProof(teeID)
+	kep, err := wal.KeyExistenceProof(teeID)
+	require.NoError(t, err)
 
 	existenceProofEncoded, err := structs.Encode(wallet.KeyExistenceStructArg, kep)
 	require.NoError(t, err)

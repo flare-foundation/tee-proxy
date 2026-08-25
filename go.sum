@@ -23,6 +23,8 @@ cloud.google.com/go/storage v1.64.0 h1:KLpxI/oX9LxeRsNqn877d2WyeT3ryiEwnGt8pwcSP
 cloud.google.com/go/storage v1.64.0/go.mod h1:lWyAtwvDZHdL3k68WVKbESP6bmWaV23ZJJ/JEVw/ZaQ=
 cloud.google.com/go/trace v1.16.0 h1:GmQovzFc5F0CNfl0VLgL64aoTtu7xsM0YajW2GlG9+E=
 cloud.google.com/go/trace v1.16.0/go.mod h1:r+bdAn16dKLSV1G2D5v3e58IlQlizfxWrUfjx7kM7X0=
+filippo.io/bigmod v0.1.0 h1:UNzDk7y9ADKST+axd9skUpBQeW7fG2KrTZyOE4uGQy8=
+filippo.io/bigmod v0.1.0/go.mod h1:OjOXDNlClLblvXdwgFFOQFJEocLhhtai8vGLy0JCZlI=
 filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
 filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
@@ -127,10 +129,10 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/ferranbt/fastssz v0.1.4 h1:OCDB+dYDEQDvAgtAGnTSidK1Pe2tW3nFV40XyMkTeDY=
 github.com/ferranbt/fastssz v0.1.4/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
-github.com/flare-foundation/go-flare-common v1.2.2-0.20260727094511-09a10067e6a4 h1:B+WFq+c1k1Y1OcJh2jrojcvo4d9lslPNn1ze5IrebbM=
-github.com/flare-foundation/go-flare-common v1.2.2-0.20260727094511-09a10067e6a4/go.mod h1:H9I3pwQAyiOK+jC7tFHYRZa5qxDeOldW+5VpRiUs6rA=
-github.com/flare-foundation/tee-node v0.0.23 h1:wFu6dTIZFrhVBWBd6PKbTQ02UlvU578B0P1R+acRUCM=
-github.com/flare-foundation/tee-node v0.0.23/go.mod h1:4BLiHby94bTeiARRXqXFtFPF850KPG0YpvOaOduv4rA=
+github.com/flare-foundation/go-flare-common v1.2.2-0.20260820114858-51165807a89f h1:4fQkgwCttlfPyK4+jYVP/snMoU1OnE2BQvMxMkv12KU=
+github.com/flare-foundation/go-flare-common v1.2.2-0.20260820114858-51165807a89f/go.mod h1:H9I3pwQAyiOK+jC7tFHYRZa5qxDeOldW+5VpRiUs6rA=
+github.com/flare-foundation/tee-node v0.0.26-0.20260825074205-e0818f8a6375 h1:62AC5id42CnJyO60MHWrTWBoo1j7SrOg/JUypBsF2kQ=
+github.com/flare-foundation/tee-node v0.0.26-0.20260825074205-e0818f8a6375/go.mod h1:Sro66GfC+oWysa4VP5vBgBGPTTdQcOkfPc2zDkLZHSE=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fsouza/fake-gcs-server v1.55.1 h1:8IsUkVFYQnS/QLyci2ORdpn7pkmqs+6hnJ8w51bN7Gg=
