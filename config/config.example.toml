@@ -4,7 +4,6 @@ chain_id = 14                       # must be a positive integer
 private_key_variable = "PRIVATE_KEY"
 
 
-initial_signing_policy_offset = 3
 signing_policy_fetch_interval = "10m"
 machine_path_list_fetch_interval = "10m"
 db_sync_max_sleep_time = "10m"
@@ -70,7 +69,7 @@ retry_delay = "5s"
 [voting]
 proposal_expiration = "120s"
 max_pending_request = 100
-history_size = 3                 # Number of most recent signing policy rounds kept in memory
+history_size = 3                 # Signing policy rounds kept in memory and backfilled at startup (min 2)
 finalized_buffer_size = 10       # Buffer size for the finalized instructions channel
 max_provider_vote = 0.025        # Max fraction of total weight a single provider can hold. Caps per-vote variable message size for restore ops. 0 = no cap.
 

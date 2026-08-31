@@ -29,7 +29,6 @@ const (
 	defaultInfoRetryDelay  = 5 * time.Second
 
 	defaultSigningPolicyFetchInterval = 10 * time.Minute
-	defaultInitialSigningPolicyOffset = 3
 
 	defaultMachinePathListFetchInterval = 10 * time.Minute
 
@@ -49,7 +48,6 @@ const (
 var (
 	errSigningPolicyFetchIntervalPositive   = errors.New("signingPolicyFetchInterval has to be positive")
 	errMachinePathListFetchIntervalPositive = errors.New("machinePathListFetchInterval has to be positive")
-	errInitialSigningPolicyOffsetNegative   = errors.New("initialSigningPolicyOffset cannot be negative")
 	errFlareSystemsManagerAddressNotSet     = errors.New("flareSystemsManager address not set")
 	errRelayAddressNotSet                   = errors.New("relay address not set")
 	errVoterRegistryAddressNotSet           = errors.New("voterRegistry address not set")
@@ -109,7 +107,6 @@ type Proxy struct {
 	InfoTiming                   InfoTiming      `toml:"info_timing"`                      // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
 	Voting                       Voting          `toml:"voting"`                           // Instruction voting configurations.
 	PrivateKeyVariable           string          `toml:"private_key_variable"`             // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
-	InitialSigningPolicyOffset   int             `toml:"initial_signing_policy_offset"`    // Policy history depth n: a fresh init starts at "latest - n"; a restart backfills the last n+1 policies. Defaults to 3.
 	SigningPolicyFetchInterval   time.Duration   `toml:"signing_policy_fetch_interval"`    // Duration between periodic checks for a new signing policy.
 	MachinePathListFetchInterval time.Duration   `toml:"machine_path_list_fetch_interval"` // Duration between periodic checks for a newly signed machine path list. Defaults to 10m.
 	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between DB sync retries on startup. Defaults to 10m.
@@ -274,7 +271,6 @@ func Read(path string) (Proxy, error) {
 			FinalizedBufferSize: defaultFinalizedBufferSize,
 		},
 
-		InitialSigningPolicyOffset:   defaultInitialSigningPolicyOffset,
 		SigningPolicyFetchInterval:   defaultSigningPolicyFetchInterval,
 		MachinePathListFetchInterval: defaultMachinePathListFetchInterval,
 		DBSyncMaxSleepTime:           defaultDBSyncMaxSleepTime,
@@ -338,10 +334,6 @@ func Read(path string) (Proxy, error) {
 
 	if c.SigningPolicyFetchInterval <= 0 {
 		return c, errSigningPolicyFetchIntervalPositive
-	}
-
-	if c.InitialSigningPolicyOffset < 0 {
-		return c, errInitialSigningPolicyOffsetNegative
 	}
 
 	if c.MachinePathListFetchInterval <= 0 {
@@ -504,7 +496,7 @@ func (a Ports) validate() error {
 type Voting struct {
 	ProposalExpiration  time.Duration `toml:"proposal_expiration"`   // Duration the voting for a proposal is open for. Default is 120s
 	MaxPendingRequests  uint          `toml:"max_pending_request"`   // Maximal number of open (unfinalized) proposals per provider. It defaults to 100.
-	HistorySize         int           `toml:"history_size"`          // Number of most recent signing policy rounds to keep in memory. Defaults to 3.
+	HistorySize         int           `toml:"history_size"`          // Number of most recent signing policy rounds to keep in memory; also the policy history depth loaded at startup. Defaults to 3, minimum 2.
 	FinalizedBufferSize int           `toml:"finalized_buffer_size"` // Buffer size for the finalized instructions channel. Defaults to 10.
 	MaxProviderVote     float64       `toml:"max_provider_vote"`     // Maximal possible fraction (0,1] of total weight a single provider can hold. Used to cap per-vote variable message size for restore operations. If unset, no cap is applied.
 }

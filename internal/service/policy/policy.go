@@ -84,6 +84,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		startID := lastID - back
 
 		policies := make([]*cpolicy.SigningPolicy, 0, back+1)
+		skipped := 0
 		for id := startID; id <= lastID; id++ {
 			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, id)
 			if err != nil {
@@ -94,11 +95,17 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 					// indexer retention too short, or the relay address is wrong
 					return fmt.Errorf("loading last policy %d: %w", lastID, errPolicyEventMissing)
 				}
+				skipped++
 				logger.Infof("policy %d not in relay history; skipping backfill", id)
 				continue
 			}
 			policies = append(policies, p)
 		}
+
+		if skipped > 0 {
+			logger.Warnf("restart: %d of %d policies missing — relay history or indexer retention is shallower than voting.history_size", skipped, back+1)
+		}
+		warnIfSinglePolicy(len(policies), lastID)
 
 		lastPolicy := policies[len(policies)-1]
 		s.activePolicy = lastPolicy
@@ -119,8 +126,9 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 	}
 
 	if actualOffset != offset {
-		logger.Warnf("policy initialization set for offset: %d, actual offset: %d", offset, actualOffset)
+		logger.Warnf("policy history: requested %d policies, indexer holds only %d — relay history or indexer retention is shallower than voting.history_size", offset+1, actualOffset+1)
 	}
+	warnIfSinglePolicy(actualOffset+1, p.RewardEpochID)
 
 	s.activePolicy = p
 	s.metrics.SetActiveRewardEpoch(p.RewardEpochID)
@@ -300,6 +308,16 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			return
 		}
 	}
+}
+
+// warnIfSinglePolicy alerts the deployer when only one policy round exists after boot:
+// if it is not the currently active reward epoch, every instruction is rejected until
+// the next rollover.
+func warnIfSinglePolicy(count int, epoch uint32) {
+	if count > 1 {
+		return
+	}
+	logger.Warnf("only signing policy %d is held — make sure it is the currently active reward epoch; instructions for any other epoch are rejected", epoch)
 }
 
 // emit sends p on out, or returns false if ctx is cancelled first.
