@@ -20,10 +20,7 @@ import (
 	"gorm.io/gorm"
 )
 
-var (
-	errNoSigningPolicyLogs = errors.New("no signing policy logs found in db")
-	errInvalidLogCount     = errors.New("invalid number of logs")
-)
+var errNoSigningPolicyLogs = errors.New("no signing policy logs found in db")
 
 // UpdateFailureReason maps an UpdatePolicyAction error to a bounded metric reason
 // (pubkey_mismatch/sig_deadline/indexer/not_consecutive/build_failed); "" for nil.
@@ -125,38 +122,29 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 	return encoded, nil
 }
 
-// FetchSigningPolicy fetches and parses the SigningPolicyInitialized event for the given policy ID from the database.
-func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, error) {
-	topics := [4]common.Hash{}
-	topics[0] = SigningPolicyInitializedEventSel
-	topics[1] = convert.Uint32ToHash(signingPolicyID)
-
-	params := database.LogsFullParams{
-		Address: relayAddress,
-		Topics:  topics,
-		Number:  1,
-	}
-
-	logs, err := database.FetchLogsFull(ctx, db, params)
+// FetchSigningPolicy fetches and parses the SigningPolicyInitialized event for the given
+// policy ID from the database. found is false (with a nil error) when no such event
+// exists — i.e. the reward epoch is not in the relay's indexed history.
+func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, bool, error) {
+	log, found, err := FetchSigningPolicyLog(ctx, db, relayAddress, signingPolicyID)
 	if err != nil {
-		return nil, fmt.Errorf("fetching signing policy %d logs: %w", signingPolicyID, err)
+		return nil, false, err
+	}
+	if !found {
+		return nil, false, nil
 	}
 
-	if len(logs) != 1 {
-		return nil, errInvalidLogCount
-	}
-
-	event, err := policy.ParseSigningPolicyInitializedEvent(logs[0])
+	event, err := policy.ParseSigningPolicyInitializedEvent(log)
 	if err != nil {
-		return nil, fmt.Errorf("parsing signing policy %d event: %w", signingPolicyID, err)
+		return nil, false, fmt.Errorf("parsing signing policy %d event: %w", signingPolicyID, err)
 	}
 
 	p, err := policy.NewSigningPolicy(event, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating signing policy %d instance: %w", signingPolicyID, err)
+		return nil, false, fmt.Errorf("creating signing policy %d instance: %w", signingPolicyID, err)
 	}
 
-	return p, nil
+	return p, true, nil
 }
 
 // FetchSigningPolicyLog fetches the SigningPolicyInitialized event log for the given

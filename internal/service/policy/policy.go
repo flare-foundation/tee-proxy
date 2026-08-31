@@ -82,16 +82,27 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 			startID = lastID - 1
 		}
 
-		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
+		lastPolicy, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
 		if err != nil {
 			return fmt.Errorf("loading last policy %d: %w", lastID, err)
+		}
+		if !found {
+			// indexer retention too short, or the relay address is wrong
+			return fmt.Errorf("loading last policy %d: %w", lastID, errPolicyEventMissing)
 		}
 
 		prevPolicy := lastPolicy
 		if startID != lastID {
-			prevPolicy, err = policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
+			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
 			if err != nil {
 				return fmt.Errorf("loading previous policy %d: %w", startID, err)
+			}
+			if found {
+				prevPolicy = p
+			} else {
+				// a source-bound relay's history can start at lastID: run without the
+				// previous epoch's round, as the lastID == 0 path already does
+				logger.Infof("previous policy %d not in relay history; loading only %d", startID, lastID)
 			}
 		}
 
@@ -100,7 +111,11 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		s.metrics.SetPolicyFetched()
 		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
 
-		logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
+		if prevPolicy == lastPolicy {
+			logger.Infof("restart: loaded policy %d (updates start from %d)", lastID, lastID+1)
+		} else {
+			logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
+		}
 
 		return nil
 	}
@@ -159,6 +174,10 @@ const (
 	warnAfterAttempts = 3
 )
 
+// errPolicyEventMissing reports a policy the node holds whose SigningPolicyInitialized
+// event is absent from the relay's indexed history.
+var errPolicyEventMissing = errors.New("no SigningPolicyInitialized event in db")
+
 var (
 	// updateRetryDelay is the pause before re-attempting the same epoch after a failed
 	// attempt (signatures not yet collectable, node rejection, or transient error).
@@ -186,7 +205,11 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		// confirmation we missed), adopt the node's state rather than re-submitting an
 		// epoch it already has.
 		if nodeID := s.nodeState.LastAppliedPolicyID(); nodeID > s.activePolicy.RewardEpochID {
-			p, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
+			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
+			if err == nil && !found {
+				// impossible in a consistent deployment: the node received nodeID from this db
+				err = errPolicyEventMissing
+			}
 			if err != nil {
 				logger.Warnf("reconciling active signing policy to node's %d: %v", nodeID, err)
 				s.metrics.PolicyUpdate("reconcile_error")
