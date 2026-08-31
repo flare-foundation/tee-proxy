@@ -238,7 +238,7 @@ var policyRolloverSignatureDeadline = 30 * time.Minute
 func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64, chainID *big.Int) ([]byte, error) {
 	deadline := time.Now().Add(policyRolloverSignatureDeadline)
 
-	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy)
+	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy, chainID.Uint64())
 	if err != nil {
 		return nil, fmt.Errorf("collecting signatures: %w", err)
 	}

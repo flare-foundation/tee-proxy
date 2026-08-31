@@ -179,10 +179,11 @@ func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) e
 
 // fdcCheckConsistency checks that signer of the FDC message is the same as the signer of the whole instruction.
 //
-// Data providers and cosigners sign the Relay Mode-2 prefixed hash (matches the
-// on-chain Verification.toCosignersMessageHash + Relay.relay() recovery path);
-// see fdc.RelayPrefixedHash. Verifying against the bare messageHash would fail
-// every provider signature with "signature check fail".
+// Data providers and cosigners sign the chain-bound Relay Mode-2 prefixed hash
+// (matches the on-chain Fdc2ProofVerification.toCosignersMessageHash +
+// Relay.relay() recovery path); see fdc.ChainBoundRelayPrefixedHash. Verifying
+// against the bare messageHash would fail every provider signature with
+// "signature check fail".
 func fdcCheckConsistency(chainID uint64, data *instruction.Data, signer common.Address) error {
 	fdcReq, err := fdc.DecodeRequest(data.OriginalMessage)
 	if err != nil {
@@ -194,7 +195,7 @@ func fdcCheckConsistency(chainID uint64, data *instruction.Data, signer common.A
 	if err != nil {
 		return fmt.Errorf("hashing FDC message: %w", err)
 	}
-	dpSigningHash := fdc.RelayPrefixedHash(h)
+	dpSigningHash := fdc.ChainBoundRelayPrefixedHash(chainID, h)
 
 	sig := data.AdditionalVariableMessage
 	err = utils.VerifySignature(dpSigningHash[:], sig, signer)

@@ -87,9 +87,23 @@ func (s *RedisStorage[T]) Publish(ctx context.Context, channel string) error {
 	return nil
 }
 
-// Subscribe returns a Subscription for the given channel.
-func (s *RedisStorage[T]) Subscribe(ctx context.Context, channel string) Subscription {
-	return &redisSubscription{ps: s.client.Subscribe(ctx, channel)}
+// Subscribe returns a Subscription for the given channel, active once it returns.
+func (s *RedisStorage[T]) Subscribe(ctx context.Context, channel string) (Subscription, error) {
+	ps := s.client.Subscribe(ctx, channel)
+
+	// go-redis only writes SUBSCRIBE; a PUBLISH racing the server's registration is lost
+	// unless the confirmation is awaited first.
+	reply, err := ps.Receive(ctx)
+	if err != nil {
+		ps.Close() //nolint:errcheck // already failing
+		return nil, fmt.Errorf("confirming redis subscription to %s: %w", channel, err)
+	}
+	if _, ok := reply.(*redis.Subscription); !ok {
+		ps.Close() //nolint:errcheck // already failing
+		return nil, fmt.Errorf("confirming redis subscription to %s: unexpected reply %T", channel, reply)
+	}
+
+	return &redisSubscription{ps: ps}, nil
 }
 
 type redisSubscription struct {

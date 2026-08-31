@@ -41,7 +41,7 @@ func TestProxyTeeIntegration2(t *testing.T) {
 	policy, voters, providerPrivKeys, providerPubKeysMap := intactions.InitializePolicy(t, cfg, startingEpochID)
 	require.Eventually(t, func() bool {
 		teeInfo := integrationUtils.GetTeeInfo(t, cfg)
-		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.Hash())
+		return teeInfo.TeeInfo.LastSigningPolicyHash == common.BytesToHash(policy.ChainBoundHash(integrationUtils.TestChainID))
 	}, 5*time.Second, 100*time.Millisecond, "Policy not initialized on TEE")
 	t.Log("Initialized policy")
 

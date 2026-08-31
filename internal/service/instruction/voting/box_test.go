@@ -57,6 +57,8 @@ var rejectReasonCases = []rejectReasonCase{
 	{"additional message too big", errAdditionalMessageTooBig, "oversized"},
 	{"additional variable too big", errAdditionalVariableTooBig, "oversized"},
 	{"non instruction command", errNonInstructionCommand, "non_instruction_command"},
+	// buildVoteBox's guard on a policy whose threshold cannot have come from a chain event.
+	{"zero policy threshold", errZeroPolicyThreshold, "zero_policy_threshold"},
 
 	{"unmatched collapses to other", errors.New("boom"), "other"},
 }

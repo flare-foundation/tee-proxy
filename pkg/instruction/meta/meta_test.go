@@ -71,11 +71,11 @@ func TestFDCMeta(t *testing.T) {
 	require.Len(t, cs, 2)
 	require.Equal(t, uint64(2), cst)
 
-	// consistency: data providers / cosigners sign the Relay Mode-2 prefixed
-	// hash, not messageHash directly (see fdc.RelayPrefixedHash).
+	// consistency: data providers / cosigners sign the chain-bound Relay Mode-2
+	// prefixed hash, not messageHash directly (see fdc.ChainBoundRelayPrefixedHash).
 	hash, _, err := fdc.HashMessage(uint64(14), ar, []byte("todo"), data.Cosigners, data.CosignersThreshold, ts)
 	require.NoError(t, err)
-	dpSigningHash := fdc.RelayPrefixedHash(hash)
+	dpSigningHash := fdc.ChainBoundRelayPrefixedHash(uint64(14), hash)
 
 	sk, err := crypto.GenerateKey()
 	require.NoError(t, err)
