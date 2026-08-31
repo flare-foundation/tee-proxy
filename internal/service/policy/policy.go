@@ -63,59 +63,50 @@ func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, address
 }
 
 // Initialize prepares the service for operation by loading the active signing policy from the database.
-// On a fresh start it submits an INITIALIZE_POLICY action; on restart it loads existing policies from the node.
+// On a fresh start it submits an INITIALIZE_POLICY action for the policy offset epochs back from the
+// latest; on restart it backfills up to offset+1 recent policies from the database without contacting
+// the node.
 func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeInitialInfo *types.TeeInfoResponse) error {
 	if teeInitialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
 		lastID := teeInitialInfo.TeeInfo.LastSigningPolicyID
 
 		// On restart the node already has policies up to lastID.
-		// Load lastID-1 and lastID so the instruction service's cyclic
-		// buffer has rounds for both the current and previous epoch
-		// (needed during the ~2h window when a new policy is initialized
-		// but the old epoch is still active).
+		// Backfill epochs lastID-offset..lastID so the instruction service's
+		// cyclic buffer has rounds for recent epochs; at minimum the previous
+		// epoch matters during the ~2h window when a new policy is initialized
+		// but the old epoch is still active. Epochs before the relay's history
+		// (source-bound relay) or outside indexer retention are skipped.
 		//
-		// Neither policy is sent to the node — it already has them.
+		// None of these policies are sent to the node — it already has them.
 		// activePolicy is set to lastID so that UpdatePolicyAction
 		// collects signatures from the correct voters for lastID+1.
-		var startID uint32
-		if lastID > 0 {
-			startID = lastID - 1
-		}
+		back := min(uint32(offset), lastID) //nolint:gosec // offset is validated non-negative
+		startID := lastID - back
 
-		lastPolicy, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
-		if err != nil {
-			return fmt.Errorf("loading last policy %d: %w", lastID, err)
-		}
-		if !found {
-			// indexer retention too short, or the relay address is wrong
-			return fmt.Errorf("loading last policy %d: %w", lastID, errPolicyEventMissing)
-		}
-
-		prevPolicy := lastPolicy
-		if startID != lastID {
-			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
+		policies := make([]*cpolicy.SigningPolicy, 0, back+1)
+		for id := startID; id <= lastID; id++ {
+			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, id)
 			if err != nil {
-				return fmt.Errorf("loading previous policy %d: %w", startID, err)
+				return fmt.Errorf("loading policy %d: %w", id, err)
 			}
-			if found {
-				prevPolicy = p
-			} else {
-				// a source-bound relay's history can start at lastID: run without the
-				// previous epoch's round, as the lastID == 0 path already does
-				logger.Infof("previous policy %d not in relay history; loading only %d", startID, lastID)
+			if !found {
+				if id == lastID {
+					// indexer retention too short, or the relay address is wrong
+					return fmt.Errorf("loading last policy %d: %w", lastID, errPolicyEventMissing)
+				}
+				logger.Infof("policy %d not in relay history; skipping backfill", id)
+				continue
 			}
+			policies = append(policies, p)
 		}
 
+		lastPolicy := policies[len(policies)-1]
 		s.activePolicy = lastPolicy
 		s.metrics.SetActiveRewardEpoch(lastPolicy.RewardEpochID)
 		s.metrics.SetPolicyFetched()
-		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
+		s.restartPolicies = policies
 
-		if prevPolicy == lastPolicy {
-			logger.Infof("restart: loaded policy %d (updates start from %d)", lastID, lastID+1)
-		} else {
-			logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
-		}
+		logger.Infof("restart: loaded %d policies %d..%d (updates start from %d)", len(policies), policies[0].RewardEpochID, lastID, lastID+1)
 
 		return nil
 	}
@@ -146,7 +137,8 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 		return nil, errors.New("not initialized yet")
 	}
 
-	pChan := make(chan cpolicy.SigningPolicy, 3)
+	// sized to hold the full restart backfill: it is sent below, before a consumer exists
+	pChan := make(chan cpolicy.SigningPolicy, max(3, len(s.restartPolicies)))
 	if s.restartPolicies != nil {
 		// On restart: emit previously loaded policies so the instruction
 		// service creates cyclic buffer rounds for them.  These are NOT

@@ -144,6 +144,12 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 		return nil, false, fmt.Errorf("creating signing policy %d instance: %w", signingPolicyID, err)
 	}
 
+	// epoch 0's topic1 is the zero hash, which the log query cannot filter on and
+	// then matches the newest event instead — reject a row for a different epoch
+	if p.RewardEpochID != signingPolicyID {
+		return nil, false, nil
+	}
+
 	return p, true, nil
 }
 

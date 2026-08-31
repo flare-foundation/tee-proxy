@@ -109,7 +109,7 @@ type Proxy struct {
 	InfoTiming                   InfoTiming      `toml:"info_timing"`                      // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
 	Voting                       Voting          `toml:"voting"`                           // Instruction voting configurations.
 	PrivateKeyVariable           string          `toml:"private_key_variable"`             // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
-	InitialSigningPolicyOffset   int             `toml:"initial_signing_policy_offset"`    // 0 for current signing policy, n for "current - n". If not set it defaults to 3.
+	InitialSigningPolicyOffset   int             `toml:"initial_signing_policy_offset"`    // Policy history depth n: a fresh init starts at "latest - n"; a restart backfills the last n+1 policies. Defaults to 3.
 	SigningPolicyFetchInterval   time.Duration   `toml:"signing_policy_fetch_interval"`    // Duration between periodic checks for a new signing policy.
 	MachinePathListFetchInterval time.Duration   `toml:"machine_path_list_fetch_interval"` // Duration between periodic checks for a newly signed machine path list. Defaults to 10m.
 	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between DB sync retries on startup. Defaults to 10m.
