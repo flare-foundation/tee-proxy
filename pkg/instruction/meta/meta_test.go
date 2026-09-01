@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/fdc2"
 	vrfstruct "github.com/flare-foundation/go-flare-common/pkg/tee/structs/vrf"
 	"github.com/flare-foundation/tee-node/pkg/fdc"
+	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
 	"github.com/stretchr/testify/require"
 
 	"github.com/flare-foundation/tee-proxy/internal/service/wallets"
@@ -322,6 +325,150 @@ func TestVRFCosigners(t *testing.T) {
 			OriginalMessage:    []byte("not abi encoded"),
 			Cosigners:          []common.Address{a, b},
 			CosignersThreshold: 2,
+		})
+		require.ErrorIs(t, err, ErrMalformedPayload)
+	})
+}
+
+func adminKey(t *testing.T) (types.PublicKey, common.Address) {
+	t.Helper()
+
+	sk, err := crypto.GenerateKey()
+	require.NoError(t, err)
+
+	return types.PubKeyToStruct(&sk.PublicKey), crypto.PubkeyToAddress(sk.PublicKey)
+}
+
+func restoreData(t *testing.T, md backup.WalletBackupMetaData, declared []common.Address, threshold uint64) *instruction.DataFixed {
+	t.Helper()
+
+	enc, err := json.Marshal(md)
+	require.NoError(t, err)
+
+	return &instruction.DataFixed{
+		OPType:                 op.Wallet.Hash(),
+		OPCommand:              op.KeyDataProviderRestore.Hash(),
+		AdditionalFixedMessage: enc,
+		Cosigners:              declared,
+		CosignersThreshold:     threshold,
+	}
+}
+
+// TestRestoreBackupMetadata pins the backup-metadata rules the node enforces in
+// keyRestoreDataCheck. The metadata is unauthenticated beyond its backup ID, which does not
+// cover the rosters, so a declared cosigner list can be clean while the metadata is not.
+func TestRestoreBackupMetadata(t *testing.T) {
+	m := New(nil, 14)
+
+	pubA, addrA := adminKey(t)
+	pubB, addrB := adminKey(t)
+
+	c1 := common.HexToAddress("c1")
+	c2 := common.HexToAddress("c2")
+
+	manyAdmins := make([]types.PublicKey, 51)
+	for i := range manyAdmins {
+		manyAdmins[i] = pubA
+	}
+
+	manyCosigners := make([]common.Address, 51)
+	for i := range manyCosigners {
+		manyCosigners[i] = common.BytesToAddress([]byte{byte(i + 1)})
+	}
+
+	tests := []struct {
+		name              string
+		admins            []types.PublicKey
+		adminsThreshold   uint64
+		cosigners         []common.Address
+		cosignerThreshold uint64
+		declared          []common.Address
+		declaredThreshold uint64
+		wantErr           error
+	}{
+		{
+			name: "valid metadata", admins: []types.PublicKey{pubA, pubB}, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c2}, cosignerThreshold: 2,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 2,
+		},
+		{
+			name: "duplicate admins", admins: []types.PublicKey{pubA, pubA, pubB}, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c2}, cosignerThreshold: 2,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 2,
+			wantErr: ErrInvalidBackupMetadata,
+		},
+		{
+			name: "duplicate metadata cosigners", admins: []types.PublicKey{pubA, pubB}, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c1}, cosignerThreshold: 1,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 2,
+			wantErr: ErrInvalidBackupMetadata,
+		},
+		{
+			name: "cosigner threshold exceeds set", admins: []types.PublicKey{pubA, pubB}, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c2}, cosignerThreshold: 3,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 2,
+			wantErr: ErrInvalidBackupMetadata,
+		},
+		{
+			name: "too many admins", admins: manyAdmins, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c2}, cosignerThreshold: 2,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 2,
+			wantErr: ErrInvalidBackupMetadata,
+		},
+		{
+			name: "too many cosigners", admins: []types.PublicKey{pubA, pubB}, adminsThreshold: 2,
+			cosigners: manyCosigners, cosignerThreshold: 2,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 2,
+			wantErr: ErrInvalidBackupMetadata,
+		},
+		{
+			name: "admin key not on curve", admins: []types.PublicKey{{X: common.HexToHash("01"), Y: common.HexToHash("02")}}, adminsThreshold: 1,
+			cosigners: []common.Address{c1}, cosignerThreshold: 1,
+			declared: []common.Address{addrA}, declaredThreshold: 1,
+			wantErr: ErrMalformedPayload,
+		},
+		{
+			name: "declared set does not match admins", admins: []types.PublicKey{pubA, pubB}, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c2}, cosignerThreshold: 2,
+			declared: []common.Address{addrA}, declaredThreshold: 2,
+			wantErr: ErrCosignerMismatch,
+		},
+		{
+			name: "declared threshold does not match admins threshold", admins: []types.PublicKey{pubA, pubB}, adminsThreshold: 2,
+			cosigners: []common.Address{c1, c2}, cosignerThreshold: 2,
+			declared: []common.Address{addrA, addrB}, declaredThreshold: 1,
+			wantErr: ErrCosignerThresholdMismatch,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := restoreData(t, backup.WalletBackupMetaData{
+				AdminsPublicKeys:   tt.admins,
+				AdminsThreshold:    tt.adminsThreshold,
+				Cosigners:          tt.cosigners,
+				CosignersThreshold: tt.cosignerThreshold,
+			}, tt.declared, tt.declaredThreshold)
+
+			cs, threshold, err := m.Cosigners(data)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, map[common.Address]bool{addrA: true, addrB: true}, cs)
+			require.Equal(t, uint64(2), threshold)
+		})
+	}
+
+	t.Run("unparseable metadata", func(t *testing.T) {
+		_, _, err := m.Cosigners(&instruction.DataFixed{
+			OPType:                 op.Wallet.Hash(),
+			OPCommand:              op.KeyDataProviderRestore.Hash(),
+			AdditionalFixedMessage: []byte("not json"),
+			Cosigners:              []common.Address{addrA},
+			CosignersThreshold:     1,
 		})
 		require.ErrorIs(t, err, ErrMalformedPayload)
 	})

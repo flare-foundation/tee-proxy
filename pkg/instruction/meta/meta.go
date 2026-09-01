@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/fdc"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
+	nodewallets "github.com/flare-foundation/tee-node/pkg/wallets"
 	"github.com/flare-foundation/tee-node/pkg/wallets/backup"
 )
 
@@ -105,6 +105,8 @@ var (
 	ErrCosignerThresholdMismatch = fmt.Errorf("%w: invalid cosigner threshold", status.HTTP[400])
 	// ErrDuplicateCosigners reports a declared cosigner list naming the same address more than once.
 	ErrDuplicateCosigners = fmt.Errorf("%w: duplicate cosigners", status.HTTP[400])
+	// ErrInvalidBackupMetadata reports backup metadata failing an integrity rule the node enforces on restore.
+	ErrInvalidBackupMetadata = fmt.Errorf("%w: invalid backup metadata", status.HTTP[400])
 	// ErrMalformedPayload reports an unparseable cosigner-resolution payload.
 	ErrMalformedPayload = fmt.Errorf("%w: malformed payload", status.HTTP[400])
 
@@ -134,21 +136,43 @@ func checkCosigner(cosigners []common.Address, expectedCosigners map[common.Addr
 	return nil
 }
 
+// keyDataProviderRestoreAdmins resolves the restore cosigner roster from backup metadata.
+//
+// The metadata is unauthenticated beyond its backup ID, and that ID does not cover the
+// rosters, so the node revalidates it field by field in keyRestoreDataCheck. Those checks
+// are mirrored here to reject before a restore burns its whole voting window.
 func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
-	cosigners := make(map[common.Address]bool)
-
 	var walletBackupMetadata backup.WalletBackupMetaData
 	err := json.Unmarshal(data.AdditionalFixedMessage, &walletBackupMetadata)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: unmarshaling backup metadata: %v", ErrMalformedPayload, err)
 	}
 
-	for _, admin := range walletBackupMetadata.AdminsPublicKeys {
-		adminPub, err := types.ParsePubKey(admin)
-		if err != nil {
-			return nil, 0, fmt.Errorf("%w: parsing admin public key: %v", ErrMalformedPayload, err)
-		}
-		cosigners[crypto.PubkeyToAddress(*adminPub)] = true
+	err = nodewallets.ValidateWalletMemberCounts(len(walletBackupMetadata.AdminsPublicKeys), len(walletBackupMetadata.Cosigners))
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: %v", ErrInvalidBackupMetadata, err)
+	}
+
+	adminAddresses, err := utils.PubKeysToAddresses(walletBackupMetadata.AdminsPublicKeys)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: parsing admin public key: %v", ErrMalformedPayload, err)
+	}
+
+	if utils.HasDuplicateAddresses(adminAddresses) {
+		return nil, 0, fmt.Errorf("%w: duplicate admin addresses", ErrInvalidBackupMetadata)
+	}
+
+	if utils.HasDuplicateAddresses(walletBackupMetadata.Cosigners) {
+		return nil, 0, fmt.Errorf("%w: duplicate cosigner addresses", ErrInvalidBackupMetadata)
+	}
+
+	if walletBackupMetadata.CosignersThreshold > uint64(len(walletBackupMetadata.Cosigners)) {
+		return nil, 0, fmt.Errorf("%w: cosigners threshold exceeds cosigner set", ErrInvalidBackupMetadata)
+	}
+
+	cosigners := make(map[common.Address]bool, len(adminAddresses))
+	for _, a := range adminAddresses {
+		cosigners[a] = true
 	}
 
 	return cosigners, walletBackupMetadata.AdminsThreshold, nil
