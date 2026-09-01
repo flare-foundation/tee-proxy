@@ -63,44 +63,57 @@ func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, address
 }
 
 // Initialize prepares the service for operation by loading the active signing policy from the database.
-// On a fresh start it submits an INITIALIZE_POLICY action; on restart it loads existing policies from the node.
+// On a fresh start it submits an INITIALIZE_POLICY action for the policy offset epochs back from the
+// latest; on restart it backfills up to offset+1 recent policies from the database without contacting
+// the node.
 func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeInitialInfo *types.TeeInfoResponse) error {
 	if teeInitialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
 		lastID := teeInitialInfo.TeeInfo.LastSigningPolicyID
 
 		// On restart the node already has policies up to lastID.
-		// Load lastID-1 and lastID so the instruction service's cyclic
-		// buffer has rounds for both the current and previous epoch
-		// (needed during the ~2h window when a new policy is initialized
-		// but the old epoch is still active).
+		// Backfill epochs lastID-offset..lastID so the instruction service's
+		// cyclic buffer has rounds for recent epochs; at minimum the previous
+		// epoch matters during the ~2h window when a new policy is initialized
+		// but the old epoch is still active. Epochs before the relay's history
+		// (source-bound relay) or outside indexer retention are skipped.
 		//
-		// Neither policy is sent to the node — it already has them.
+		// None of these policies are sent to the node — it already has them.
 		// activePolicy is set to lastID so that UpdatePolicyAction
 		// collects signatures from the correct voters for lastID+1.
-		var startID uint32
-		if lastID > 0 {
-			startID = lastID - 1
-		}
+		back := min(uint32(offset), lastID) //nolint:gosec // offset is validated non-negative
+		startID := lastID - back
 
-		lastPolicy, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, lastID)
-		if err != nil {
-			return fmt.Errorf("loading last policy %d: %w", lastID, err)
-		}
-
-		prevPolicy := lastPolicy
-		if startID != lastID {
-			prevPolicy, err = policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, startID)
+		policies := make([]*cpolicy.SigningPolicy, 0, back+1)
+		skipped := 0
+		for id := startID; id <= lastID; id++ {
+			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, id)
 			if err != nil {
-				return fmt.Errorf("loading previous policy %d: %w", startID, err)
+				return fmt.Errorf("loading policy %d: %w", id, err)
 			}
+			if !found {
+				if id == lastID {
+					// indexer retention too short, or the relay address is wrong
+					return fmt.Errorf("loading last policy %d: %w", lastID, errPolicyEventMissing)
+				}
+				skipped++
+				logger.Infof("policy %d not in relay history; skipping backfill", id)
+				continue
+			}
+			policies = append(policies, p)
 		}
 
+		if skipped > 0 {
+			logger.Warnf("restart: %d of %d policies missing — relay history or indexer retention is shallower than voting.history_size", skipped, back+1)
+		}
+		warnIfSinglePolicy(len(policies), lastID)
+
+		lastPolicy := policies[len(policies)-1]
 		s.activePolicy = lastPolicy
 		s.metrics.SetActiveRewardEpoch(lastPolicy.RewardEpochID)
 		s.metrics.SetPolicyFetched()
-		s.restartPolicies = []*cpolicy.SigningPolicy{prevPolicy, lastPolicy}
+		s.restartPolicies = policies
 
-		logger.Infof("restart: loaded policies %d and %d (updates start from %d)", startID, lastID, lastID+1)
+		logger.Infof("restart: loaded %d policies %d..%d (updates start from %d)", len(policies), policies[0].RewardEpochID, lastID, lastID+1)
 
 		return nil
 	}
@@ -113,8 +126,9 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 	}
 
 	if actualOffset != offset {
-		logger.Warnf("policy initialization set for offset: %d, actual offset: %d", offset, actualOffset)
+		logger.Warnf("policy history: requested %d policies, indexer holds only %d — relay history or indexer retention is shallower than voting.history_size", offset+1, actualOffset+1)
 	}
+	warnIfSinglePolicy(actualOffset+1, p.RewardEpochID)
 
 	s.activePolicy = p
 	s.metrics.SetActiveRewardEpoch(p.RewardEpochID)
@@ -131,7 +145,8 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 		return nil, errors.New("not initialized yet")
 	}
 
-	pChan := make(chan cpolicy.SigningPolicy, 3)
+	// sized to hold the full restart backfill: it is sent below, before a consumer exists
+	pChan := make(chan cpolicy.SigningPolicy, max(3, len(s.restartPolicies)))
 	if s.restartPolicies != nil {
 		// On restart: emit previously loaded policies so the instruction
 		// service creates cyclic buffer rounds for them.  These are NOT
@@ -158,6 +173,10 @@ const (
 	// after which failure logs escalate from Info to Warn.
 	warnAfterAttempts = 3
 )
+
+// errPolicyEventMissing reports a policy the node holds whose SigningPolicyInitialized
+// event is absent from the relay's indexed history.
+var errPolicyEventMissing = errors.New("no SigningPolicyInitialized event in db")
 
 var (
 	// updateRetryDelay is the pause before re-attempting the same epoch after a failed
@@ -186,7 +205,11 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		// confirmation we missed), adopt the node's state rather than re-submitting an
 		// epoch it already has.
 		if nodeID := s.nodeState.LastAppliedPolicyID(); nodeID > s.activePolicy.RewardEpochID {
-			p, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
+			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
+			if err == nil && !found {
+				// impossible in a consistent deployment: the node received nodeID from this db
+				err = errPolicyEventMissing
+			}
 			if err != nil {
 				logger.Warnf("reconciling active signing policy to node's %d: %v", nodeID, err)
 				s.metrics.PolicyUpdate("reconcile_error")
@@ -285,6 +308,16 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 			return
 		}
 	}
+}
+
+// warnIfSinglePolicy alerts the deployer when only one policy round exists after boot:
+// if it is not the currently active reward epoch, every instruction is rejected until
+// the next rollover.
+func warnIfSinglePolicy(count int, epoch uint32) {
+	if count > 1 {
+		return
+	}
+	logger.Warnf("only signing policy %d is held — make sure it is the currently active reward epoch; instructions for any other epoch are rejected", epoch)
 }
 
 // emit sends p on out, or returns false if ctx is cancelled first.

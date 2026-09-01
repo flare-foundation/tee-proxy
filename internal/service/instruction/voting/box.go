@@ -429,6 +429,10 @@ func RejectReason(err error) string {
 		return "invalid_cosigner_threshold"
 	case errors.Is(err, meta.ErrCosignerMismatch), errors.Is(err, meta.ErrCosignerThresholdMismatch):
 		return "invalid_cosigner_declaration"
+	case errors.Is(err, meta.ErrDuplicateCosigners):
+		return "duplicate_cosigners"
+	case errors.Is(err, meta.ErrInvalidBackupMetadata):
+		return "invalid_backup_metadata"
 	case errors.Is(err, meta.ErrMalformedPayload):
 		return "malformed_payload"
 	case errors.Is(err, wallets.ErrWalletNotFound):

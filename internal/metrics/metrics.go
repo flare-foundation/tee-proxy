@@ -230,7 +230,8 @@ func New(cfg Config) *Metrics {
 			"wrong_tee_id", "invalid_op", "invalid_signature",
 			"invalid_voter", "voting_ended", "duplicate_signature", "event_in_future",
 			"no_round", "inconsistent", "rate_limited", "not_eligible",
-			"invalid_cosigner_threshold", "invalid_cosigner_declaration", "invalid_fdc_threshold",
+			"invalid_cosigner_threshold", "invalid_cosigner_declaration", "duplicate_cosigners",
+			"invalid_backup_metadata", "invalid_fdc_threshold",
 			"oversized", "non_instruction_command", "malformed_payload", "unknown_wallet",
 			"zero_policy_threshold", "other",
 		} {

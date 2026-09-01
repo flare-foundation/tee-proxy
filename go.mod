@@ -7,7 +7,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/ethereum/go-ethereum v1.17.2
 	github.com/flare-foundation/go-flare-common v1.2.2-0.20260820114858-51165807a89f
-	github.com/flare-foundation/tee-node v0.0.26-0.20260825074205-e0818f8a6375
+	github.com/flare-foundation/tee-node v0.0.26
 	github.com/fsouza/fake-gcs-server v1.55.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.12.1

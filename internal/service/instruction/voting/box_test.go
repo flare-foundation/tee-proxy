@@ -43,9 +43,11 @@ var rejectReasonCases = []rejectReasonCase{
 	// meta cosigner errors as surfaced by buildVoteBox ("reading cosigners: %w").
 	{"cosigner set mismatch", fmt.Errorf("reading cosigners: %w", meta.ErrCosignerMismatch), "invalid_cosigner_declaration"},
 	{"cosigner threshold mismatch", fmt.Errorf("reading cosigners: %w", meta.ErrCosignerThresholdMismatch), "invalid_cosigner_declaration"},
+	{"duplicate cosigners", fmt.Errorf("reading cosigners: %w", meta.ErrDuplicateCosigners), "duplicate_cosigners"},
+	{"invalid backup metadata", fmt.Errorf("reading cosigners: %w", fmt.Errorf("%w: duplicate admin addresses", meta.ErrInvalidBackupMetadata)), "invalid_backup_metadata"},
 	// malformed payload from meta.Cosigners resolution, wrapped by meta then by buildVoteBox.
 	{"malformed payload", fmt.Errorf("reading cosigners: %w", fmt.Errorf("%w: parsing payment instruction: %v", meta.ErrMalformedPayload, errors.New("bad rlp"))), "malformed_payload"},
-	// unknown wallet from xrpCosigners->WalletInfo, wrapped by buildVoteBox ("reading cosigners: %w").
+	// unknown wallet from walletCosigners->WalletInfo, wrapped by buildVoteBox ("reading cosigners: %w").
 	{"unknown wallet", fmt.Errorf("reading cosigners: %w", wallets.ErrWalletNotFound), "unknown_wallet"},
 	// meta FDC threshold errors as surfaced by buildVoteBox ("reading threshold: %w").
 	{"fdc threshold too low", fmt.Errorf("reading threshold: %w", meta.ErrFDCThresholdTooLow), "invalid_fdc_threshold"},
