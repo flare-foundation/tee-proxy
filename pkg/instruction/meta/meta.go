@@ -70,6 +70,8 @@ func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, 
 	switch data.OPCommand {
 	case op.Pay.Hash(), op.Reissue.Hash():
 		cosigners, threshold, err = xrpCosigners(data, m.ws)
+	case op.VRF.Hash():
+		cosigners, threshold, err = vrfCosigners(data, m.ws)
 	case op.KeyDataProviderRestore.Hash():
 		cosigners, threshold, err = keyDataProviderRestoreAdmins(data)
 
@@ -154,27 +156,40 @@ func keyDataProviderRestoreAdmins(data *instruction.DataFixed) (map[common.Addre
 
 // xrpCosigners retrieves cosigners for payment instruction from wallets configurations.
 func xrpCosigners(data *instruction.DataFixed, ws *wallets.Service) (map[common.Address]bool, uint64, error) {
-	cosigners := make(map[common.Address]bool)
-
 	originalMessage, err := types.ParsePaymentInstruction(data)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: parsing payment instruction: %v", ErrMalformedPayload, err)
 	}
 
-	wID := originalMessage.WalletId
+	return walletCosigners(originalMessage.WalletId, ws)
+}
 
-	wi, err := ws.WalletInfo(wID)
+// vrfCosigners retrieves cosigners for a VRF instruction from wallets configurations.
+//
+// The node checks the same roster off the named wallet key, so a client-declared set is
+// never authoritative here.
+func vrfCosigners(data *instruction.DataFixed, ws *wallets.Service) (map[common.Address]bool, uint64, error) {
+	originalMessage, err := types.ParseVRFInstruction(data)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%w: parsing VRF instruction: %v", ErrMalformedPayload, err)
+	}
+
+	return walletCosigners(originalMessage.WalletId, ws)
+}
+
+// walletCosigners reads the cosigner roster and threshold off the wallet configuration.
+func walletCosigners(walletID common.Hash, ws *wallets.Service) (map[common.Address]bool, uint64, error) {
+	wi, err := ws.WalletInfo(walletID)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	cosigners := make(map[common.Address]bool, len(wi.ConfigConstants.Cosigners))
 	for _, cs := range wi.ConfigConstants.Cosigners {
 		cosigners[cs] = true
 	}
 
-	cosignerThreshold := wi.ConfigConstants.CosignersThreshold
-
-	return cosigners, cosignerThreshold, nil
+	return cosigners, wi.ConfigConstants.CosignersThreshold, nil
 }
 
 func (m *meta) CheckConsistency(data *instruction.Data, signer common.Address) error {
