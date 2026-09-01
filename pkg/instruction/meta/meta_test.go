@@ -197,3 +197,33 @@ func TestThresholdBIPSFDC2(t *testing.T) {
 		})
 	}
 }
+
+func TestCosignersRejectDuplicates(t *testing.T) {
+	a := common.HexToAddress("a1")
+	b := common.HexToAddress("a2")
+
+	tests := []struct {
+		name    string
+		command op.Command
+	}{
+		{name: "client declared set", command: op.KeyGenerate},
+		{name: "xrp payment", command: op.Pay},
+		{name: "vrf", command: op.VRF},
+		{name: "data provider restore", command: op.KeyDataProviderRestore},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// nil wallets service: the guard must fire before any roster lookup.
+			m := New(nil, 14)
+
+			_, _, err := m.Cosigners(&instruction.DataFixed{
+				OPType:             op.Wallet.Hash(),
+				OPCommand:          tt.command.Hash(),
+				Cosigners:          []common.Address{a, b, a},
+				CosignersThreshold: 2,
+			})
+			require.ErrorIs(t, err, ErrDuplicateCosigners)
+		})
+	}
+}

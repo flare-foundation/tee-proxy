@@ -31,6 +31,7 @@ type Meta interface {
 	// Cosigners returns cosigners' addresses and the cosigners threshold.
 	//
 	// If no cosigners are set, empty set and threshold zero is returned.
+	// A declared list naming the same address twice is rejected.
 	Cosigners(*instruction.DataFixed) (map[common.Address]bool, uint64, error)
 
 	// CheckConsistency validates instruction according to its opType.
@@ -56,6 +57,12 @@ func New(ws *wallets.Service, chainID uint64) Meta {
 }
 
 func (m *meta) Cosigners(data *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	// Set equality below is containment plus equal length, which a repeated address defeats.
+	// The node rejects duplicates outright, so agree here rather than burn a voting round.
+	if utils.HasDuplicateAddresses(data.Cosigners) {
+		return nil, 0, ErrDuplicateCosigners
+	}
+
 	var cosigners map[common.Address]bool
 	var threshold uint64
 	var err error
@@ -94,6 +101,8 @@ var (
 	ErrCosignerMismatch = fmt.Errorf("%w: invalid cosigners", status.HTTP[400])
 	// ErrCosignerThresholdMismatch reports a client-declared cosigner threshold that does not match the authoritative configuration.
 	ErrCosignerThresholdMismatch = fmt.Errorf("%w: invalid cosigner threshold", status.HTTP[400])
+	// ErrDuplicateCosigners reports a declared cosigner list naming the same address more than once.
+	ErrDuplicateCosigners = fmt.Errorf("%w: duplicate cosigners", status.HTTP[400])
 	// ErrMalformedPayload reports an unparseable cosigner-resolution payload.
 	ErrMalformedPayload = fmt.Errorf("%w: malformed payload", status.HTTP[400])
 
