@@ -2,14 +2,20 @@ package testutil
 
 import (
 	"crypto/ecdsa"
+	"encoding/hex"
 	"fmt"
 	"math/big"
 	"math/rand"
+	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
+	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
+	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 var TestSigningPolicy *policy.SigningPolicy
@@ -61,6 +67,48 @@ func init() {
 	if err != nil {
 		panic(fmt.Sprintf("generating test policy: %v", err))
 	}
+}
+
+// InsertSigningPolicyLog stores a SigningPolicyInitialized event log row for epoch,
+// decodable by policy.ParseSigningPolicyInitializedEvent. db must have database.Log migrated.
+func InsertSigningPolicyLog(t *testing.T, db *gorm.DB, relayAddress common.Address, epoch uint32, blockNumber uint64) {
+	t.Helper()
+
+	relayABI, err := relay.RelayMetaData.GetAbi()
+	require.NoError(t, err)
+	event, ok := relayABI.Events["SigningPolicyInitialized"]
+	require.True(t, ok)
+
+	voters := []common.Address{
+		crypto.PubkeyToAddress(PrivKey1.PublicKey),
+		crypto.PubkeyToAddress(PrivKey2.PublicKey),
+		crypto.PubkeyToAddress(PrivKey3.PublicKey),
+	}
+
+	// non-indexed fields only — rewardEpochId is indexed and lives in topic1
+	data, err := event.Inputs.NonIndexed().Pack(
+		uint32(0),         // startVotingRoundId
+		uint16(3),         // threshold
+		big.NewInt(2),     // seed
+		voters,            // voters
+		[]uint16{1, 3, 3}, // weights
+		[]byte{},          // signingPolicyBytes
+		uint64(0),         // timestamp
+	)
+	require.NoError(t, err)
+
+	epochTopic := convert.Uint32ToHash(epoch)
+
+	require.NoError(t, db.Create(&database.Log{
+		Address:         hex.EncodeToString(relayAddress[:]),
+		Data:            hex.EncodeToString(data),
+		Topic0:          hex.EncodeToString(event.ID[:]),
+		Topic1:          hex.EncodeToString(epochTopic[:]),
+		TransactionHash: fmt.Sprintf("%064x", epoch),
+		LogIndex:        0,
+		Timestamp:       uint64(epoch) * 1_000,
+		BlockNumber:     blockNumber,
+	}).Error)
 }
 
 // RandomNormalizedArray generates an array of n random floats that sum to 1

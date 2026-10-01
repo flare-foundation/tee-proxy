@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -184,4 +185,27 @@ func TestRemove(t *testing.T) {
 	err = s.Remove(ctx, item2.ID)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, context.Canceled))
+}
+
+// TestNotifierSubscribeActiveOnReturn guards the subscribe confirmation: a publish issued right
+// after Subscribe returns must be delivered, otherwise waiters can miss their notification.
+func TestNotifierSubscribeActiveOnReturn(t *testing.T) {
+	mr := miniredis.RunT(t)
+	n := NewNotifier(NewClient(mr.Addr()))
+
+	for i := range 500 {
+		channel := "notify-" + strconv.Itoa(i)
+
+		sub, err := n.Subscribe(t.Context(), channel)
+		require.NoError(t, err)
+
+		require.NoError(t, n.Publish(t.Context(), channel))
+
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		_, err = sub.ReceiveMessage(ctx)
+		cancel()
+		require.NoError(t, err, "publish right after Subscribe was not delivered (iteration %d)", i)
+
+		require.NoError(t, sub.Close())
+	}
 }

@@ -64,7 +64,7 @@ func UpdatePolicy(t *testing.T, pc *utils.ProxyConfig, epochID uint32, voters []
 	randSeed := int64(12345)
 	nextPolicy := testutils.GenerateRandomPolicyData(epochID, voters, randSeed)
 
-	policySignatures := testutils.BuildMultiSignedPolicy(nextPolicy.RawBytes(), privKeys)
+	policySignatures := testutils.BuildMultiSignedPolicy(utils.TestChainID, nextPolicy.RawBytes(), privKeys)
 
 	pubKeys := make([]types.PublicKey, len(voters))
 	for i, voter := range voters {

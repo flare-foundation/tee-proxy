@@ -119,19 +119,26 @@ func (rs *ResultStorage) WaitOnResponse(ctx context.Context, actionID common.Has
 		return r, nil
 	}
 
-	sub := rs.n.Subscribe(ctx, id.String())
+	sub, err := rs.n.Subscribe(ctx, id.String())
+	if err != nil {
+		if r, ferr := rs.fetchByID(ctx, id); ferr == nil {
+			return r, nil
+		}
+		return nil, fmt.Errorf("subscribing for the response for %v: %w", id, err)
+	}
 	defer func() {
 		if cerr := sub.Close(); cerr != nil {
 			logger.Warnf("closing sub for %v: %v", id, cerr)
 		}
 	}()
 
-	// Race-safe re-check: StoreResponse may have landed between the fast-path fetch and Subscribe.
+	// Race-safe re-check: StoreResponse may have landed between the fast-path fetch and the
+	// subscription becoming active.
 	if r, err := rs.fetchByID(ctx, id); err == nil {
 		return r, nil
 	}
 
-	_, err := sub.ReceiveMessage(ctx)
+	_, err = sub.ReceiveMessage(ctx)
 	if err != nil {
 		// Hopeful attempt after error or context cancellation.
 		if r, ferr := rs.fetchByID(ctx, id); ferr == nil {

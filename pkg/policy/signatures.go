@@ -110,6 +110,7 @@ func collectSignatures(
 	deadline uint64,
 	newPolicy *policy.SigningPolicy,
 	activePolicy *policy.SigningPolicy,
+	chainID uint64,
 ) ([]*registry.Signature, error) {
 	if newPolicy.RewardEpochID != activePolicy.RewardEpochID+1 {
 		return nil, errNotConsecutivePolicy
@@ -118,7 +119,10 @@ func collectSignatures(
 	from := startBlock
 
 	voters := activePolicy.Voters.Voters()
-	expectedHash := common.BytesToHash(newPolicy.Hash())
+	// Providers sign relay.toSigningPolicyHash(epoch), source-bound from the new
+	// Relay's initialRewardEpochId on. Proxy and node are replaced together at that
+	// boundary, so no pre-boundary epoch is ever collected here.
+	expectedHash := common.BytesToHash(newPolicy.ChainBoundHash(chainID))
 	weightCollected := uint16(0)
 	sigs := make([]*registry.Signature, 0, len(voters))
 

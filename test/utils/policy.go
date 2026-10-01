@@ -155,10 +155,12 @@ func GenerateRandomPolicyData(rewardEpochID uint32, voters []common.Address, see
 	return p
 }
 
-func BuildMultiSignedPolicy(policyBytes []byte, voterPrivKeys []*ecdsa.PrivateKey) types.MultiSignedPolicy {
+// BuildMultiSignedPolicy signs the source-bound policy hash for chainID, matching
+// what data providers put on chain.
+func BuildMultiSignedPolicy(chainID uint64, policyBytes []byte, voterPrivKeys []*ecdsa.PrivateKey) types.MultiSignedPolicy {
 	sigs := make([][]byte, 0, len(voterPrivKeys))
 
-	hash := policy.Hash(policyBytes)
+	hash := policy.ChainBoundHash(chainID, policyBytes)
 	for _, voterPrivKey := range voterPrivKeys {
 		sig, err := utils.Sign(hash, voterPrivKey)
 		if err != nil {

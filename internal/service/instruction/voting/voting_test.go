@@ -2,12 +2,15 @@ package voting
 
 import (
 	"context"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
+	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/fdc2"
@@ -34,6 +37,80 @@ func (*testMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
 
 func (*testMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
 	return -1, nil
+}
+
+// bipsMeta reports a fixed thresholdBIPS; -1 means no override.
+type bipsMeta struct{ bips int }
+
+func (*bipsMeta) Cosigners(_ *instruction.DataFixed) (map[common.Address]bool, uint64, error) {
+	return map[common.Address]bool{}, 0, nil
+}
+
+func (*bipsMeta) CheckConsistency(_ *instruction.Data, _ common.Address) error {
+	return nil
+}
+
+func (m *bipsMeta) ThresholdBIPS(_ *instruction.DataFixed) (int, error) {
+	return m.bips, nil
+}
+
+// policyWithThreshold builds a signing policy with an explicit threshold;
+// testutil.GeneratePolicy always derives one from the weights.
+func policyWithThreshold(t *testing.T, weights []uint16, threshold uint16) *cpolicy.SigningPolicy {
+	t.Helper()
+
+	voters := make([]common.Address, len(weights))
+	for i := range weights {
+		voters[i] = common.BigToAddress(big.NewInt(int64(i + 1)))
+	}
+
+	p, err := cpolicy.NewSigningPolicy(&relay.RelaySigningPolicyInitialized{
+		RewardEpochId:      big.NewInt(1),
+		StartVotingRoundId: 0,
+		Threshold:          threshold,
+		Seed:               big.NewInt(2),
+		Voters:             voters,
+		Weights:            weights,
+		SigningPolicyBytes: []byte{},
+	}, nil)
+	require.NoError(t, err)
+
+	return p
+}
+
+func TestBuildVoteBoxThreshold(t *testing.T) {
+	data := &instruction.Data{DataFixed: instruction.DataFixed{
+		OPType:    op.XRP.Hash(),
+		OPCommand: op.Pay.Hash(),
+		Timestamp: uint64(time.Now().Unix()),
+	}}
+	signer := common.BigToAddress(big.NewInt(1))
+	weights := []uint16{50, 30, 20}
+
+	// 55 is neither floor nor ceil of half the total weight, so a recomputed
+	// threshold cannot be mistaken for the policy's own
+	t.Run("no override reads the policy threshold", func(t *testing.T) {
+		round := createRound(policyWithThreshold(t, weights, 55), 10, false)
+
+		box, err := buildVoteBox(data, signer, round, &bipsMeta{-1}, time.Minute)
+		require.NoError(t, err)
+		require.Equal(t, uint16(55), box.proposal.threshold)
+	})
+
+	t.Run("a bips override does not consult the policy", func(t *testing.T) {
+		round := createRound(policyWithThreshold(t, weights, 0), 10, false)
+
+		box, err := buildVoteBox(data, signer, round, &bipsMeta{6000}, time.Minute)
+		require.NoError(t, err)
+		require.Equal(t, uint16(60), box.proposal.threshold)
+	})
+
+	t.Run("a zero policy threshold is rejected", func(t *testing.T) {
+		round := createRound(policyWithThreshold(t, weights, 0), 10, false)
+
+		_, err := buildVoteBox(data, signer, round, &bipsMeta{-1}, time.Minute)
+		require.ErrorIs(t, err, errZeroPolicyThreshold)
+	})
 }
 
 func TestStorage(t *testing.T) {
@@ -470,69 +547,22 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 	}
 }
 
-func TestComputeThresholdSigningPolicy(t *testing.T) {
-	tests := []struct {
-		totalWeight uint16
-		threshold   uint16
-	}{
-		{
-			totalWeight: 0,
-			threshold:   0,
-		},
-		{
-			totalWeight: 65491,
-			threshold:   32746,
-		},
-		{
-			totalWeight: 65493,
-			threshold:   32747,
-		},
-		{
-			totalWeight: 65498,
-			threshold:   32749,
-		},
-		{
-			totalWeight: 65496,
-			threshold:   32748,
-		},
-	}
-
-	for j, test := range tests {
-		require.Equal(t, test.threshold, computeThreshold(test.totalWeight, 5000), j)
-	}
-}
-
-func TestComputeThresholdCustom(t *testing.T) {
+func TestComputeThreshold(t *testing.T) {
 	tests := []struct {
 		totalWeight uint16
 		bips        int
 		threshold   uint16
 	}{
-		{
-			totalWeight: 0,
-			bips:        0,
-			threshold:   0,
-		},
-		{
-			totalWeight: 100,
-			bips:        0,
-			threshold:   0,
-		},
-		{
-			totalWeight: 10000,
-			bips:        1,
-			threshold:   1,
-		},
-		{
-			totalWeight: 1,
-			bips:        1,
-			threshold:   1,
-		},
-		{
-			totalWeight: 123,
-			bips:        10000,
-			threshold:   123,
-		},
+		{totalWeight: 0, bips: 0, threshold: 0},
+		{totalWeight: 100, bips: 0, threshold: 0},
+		{totalWeight: 10000, bips: 1, threshold: 1},
+		// floors on remainder, matching Relay.sol's div(mul(total, bips), 10000)
+		{totalWeight: 1, bips: 1, threshold: 0},
+		{totalWeight: 123, bips: 10000, threshold: 123},
+		{totalWeight: 65491, bips: 5000, threshold: 32745},
+		{totalWeight: 65493, bips: 5000, threshold: 32746},
+		{totalWeight: 65498, bips: 5000, threshold: 32749},
+		{totalWeight: 65496, bips: 5000, threshold: 32748},
 	}
 
 	for j, test := range tests {

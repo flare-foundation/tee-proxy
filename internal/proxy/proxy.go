@@ -173,7 +173,8 @@ func Run(ctx context.Context, cfgPath string) {
 	go wallets.PeriodicWalletsSyncTrigger(ctx, walletsSyncTrigger, walletSyncPeriod)
 
 	policyService := policy.NewService(actionQueues, resultStorage, cfg.Addresses, cfg.ChainID, infoService, proxyMetrics)
-	err = policyService.Initialize(ctx, db, cfg.InitialSigningPolicyOffset, initialInfo)
+	// history_size bounds the cyclic round buffer, so it is also the boot backfill depth
+	err = policyService.Initialize(ctx, db, cfg.Voting.HistorySize-1, initialInfo)
 	if err != nil {
 		logger.Panicf("initializing signing policy: %v", err)
 	}

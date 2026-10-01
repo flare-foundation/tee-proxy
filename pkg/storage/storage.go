@@ -29,8 +29,8 @@ type Subscription interface {
 type Notifier interface {
 	// Publish sends a notification on the given channel.
 	Publish(ctx context.Context, channel string) error
-	// Subscribe returns a Subscription for the given channel.
-	Subscribe(ctx context.Context, channel string) Subscription
+	// Subscribe returns a Subscription for the given channel; it is active once Subscribe returns.
+	Subscribe(ctx context.Context, channel string) (Subscription, error)
 }
 
 // Queue is a generic FIFO queue backed by a persistent store.

@@ -72,11 +72,11 @@ func FDCProve(
 	require.NoError(t, err)
 
 	// Verify FDC response signatures. TEE signs the raw messageHash; cosigner
-	// signatures are over the Relay Mode-2 prefixed hash (matches
-	// Verification.toCosignersMessageHash on chain + Relay.relay()).
+	// signatures are over the chain-bound Relay Mode-2 prefixed hash (matches
+	// Fdc2ProofVerification.toCosignersMessageHash on chain + Relay.relay()).
 	msgHash, _, err := fdc.HashMessage(chainID, originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
-	cosignerSigningHash := fdc.RelayPrefixedHash(msgHash)
+	cosignerSigningHash := fdc.ChainBoundRelayPrefixedHash(chainID, msgHash)
 
 	err = teeUtils.VerifySignature(msgHash.Bytes(), fdcResponse.TEESignature, pc.TeeID)
 	require.NoError(t, err)
@@ -130,8 +130,8 @@ func GetAdditionalFixedMessage(t *testing.T, pc *utils.ProxyConfig, challenge [3
 
 	fdcMsgHash, _, err := fdc.HashMessage(chainID, originalMessage, additionalFixedMessageEncoded, cosignerAddresses, cosignersThreshold, timestamp)
 	require.NoError(t, err)
-	// Data providers + cosigners both sign the Relay Mode-2 prefixed hash.
-	dpSigningHash := fdc.RelayPrefixedHash(fdcMsgHash)
+	// Data providers + cosigners both sign the chain-bound Relay Mode-2 prefixed hash.
+	dpSigningHash := fdc.ChainBoundRelayPrefixedHash(chainID, fdcMsgHash)
 
 	variableMessages := make([]hexutil.Bytes, 0)
 	privKeys := make([]*ecdsa.PrivateKey, 0)
