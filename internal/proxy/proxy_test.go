@@ -28,14 +28,12 @@ func TestDirectConfigCopiesAllFields(t *testing.T) {
 	require.Equal(t, c.MaxBodySize, got.MaxBodySize)
 }
 
-func ptr(b bool) *bool { return &b }
-
 // TestMetricsConfig pins the opt-in/inherit semantics documented on config.Metrics:
 // a disabled master switch forces every group off; when enabled an unset group
 // inherits enable and an explicit value wins.
 func TestMetricsConfig(t *testing.T) {
 	t.Run("disabled forces every group off", func(t *testing.T) {
-		got := metricsConfig(config.Metrics{Enable: false, HTTP: ptr(true), Runtime: ptr(true)})
+		got := metricsConfig(config.Metrics{Enable: false, HTTP: new(true), Runtime: new(true)})
 		require.Equal(t, metrics.Config{}, got, "no group may be on when the master switch is off")
 	})
 
@@ -49,7 +47,7 @@ func TestMetricsConfig(t *testing.T) {
 	})
 
 	t.Run("explicit false omits just that group", func(t *testing.T) {
-		got := metricsConfig(config.Metrics{Enable: true, Storage: ptr(false), Policy: ptr(false)})
+		got := metricsConfig(config.Metrics{Enable: true, Storage: new(false), Policy: new(false)})
 		require.True(t, got.Enable)
 		require.False(t, got.Storage, "explicit false must omit the group")
 		require.False(t, got.Policy, "explicit false must omit the group")
@@ -58,7 +56,7 @@ func TestMetricsConfig(t *testing.T) {
 	})
 
 	t.Run("explicit true is on", func(t *testing.T) {
-		got := metricsConfig(config.Metrics{Enable: true, HTTP: ptr(true)})
+		got := metricsConfig(config.Metrics{Enable: true, HTTP: new(true)})
 		require.True(t, got.HTTP)
 	})
 }
@@ -72,16 +70,15 @@ func TestMetricsConfigGroupParity(t *testing.T) {
 
 	cfgGroups := map[string]struct{}{}
 	ct := reflect.TypeFor[config.Metrics]()
-	for i := 0; i < ct.NumField(); i++ {
-		if ct.Field(i).Type == boolPtr {
-			cfgGroups[ct.Field(i).Name] = struct{}{}
+	for f := range ct.Fields() {
+		if f.Type == boolPtr {
+			cfgGroups[f.Name] = struct{}{}
 		}
 	}
 
 	mcGroups := map[string]struct{}{}
 	mt := reflect.TypeFor[metrics.Config]()
-	for i := 0; i < mt.NumField(); i++ {
-		f := mt.Field(i)
+	for f := range mt.Fields() {
 		if f.Type.Kind() == reflect.Bool && f.Name != "Enable" {
 			mcGroups[f.Name] = struct{}{}
 		}

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -69,7 +70,7 @@ func TestPrivateKeyFromEnv(t *testing.T) {
 	key, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
-	keyS := key.D.Text(16)
+	keyS := hex.EncodeToString(crypto.FromECDSA(key))
 
 	t.Setenv("PRIVATE_KEY", keyS)
 
@@ -322,9 +323,9 @@ runtime = true
 		got  *bool
 		want *bool // nil means the key was absent
 	}{
-		{"http present true", m.HTTP, ptr(true)},
-		{"storage present false", m.Storage, ptr(false)},
-		{"runtime present true", m.Runtime, ptr(true)},
+		{"http present true", m.HTTP, new(true)},
+		{"storage present false", m.Storage, new(false)},
+		{"runtime present true", m.Runtime, new(true)},
 		{"queue absent", m.Queue, nil},
 		{"voting absent", m.Voting, nil},
 		{"active_voters absent", m.ActiveVoters, nil},
@@ -347,8 +348,6 @@ runtime = true
 	}
 }
 
-func ptr(b bool) *bool { return &b }
-
 // TestMetricsValidateCoversEveryGroup asserts validate() inspects every group field, so a
 // newly added group cannot silently escape the "enabled but all groups off" guard. A group
 // missing from validate()'s slice would let "only that group on, all others off" be wrongly
@@ -370,7 +369,7 @@ func TestMetricsValidateCoversEveryGroup(t *testing.T) {
 				if mt.Field(j).Type != boolPtr {
 					continue
 				}
-				v.Field(j).Set(reflect.ValueOf(ptr(j == i)))
+				v.Field(j).Set(reflect.ValueOf(new(j == i)))
 			}
 			require.NoError(t, m.validate(),
 				"group %s on with all others off must validate; is it missing from validate()'s slice?", name)

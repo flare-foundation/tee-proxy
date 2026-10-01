@@ -13,7 +13,7 @@ default:
     expire_in: 3 days
 
 variables:
-  GO_VERSION: "1.25.8"
+  GO_VERSION: "1.26.8"
 
 include:
   - component: gitlab.com/flarenetwork/ci-components-private/lgtm@2
@@ -29,6 +29,7 @@ include:
   - component: gitlab.com/flarenetwork/ci-components-private/test-go@2
     inputs:
       go_version: "${GO_VERSION}"
+      cobertura_go_version: "${GO_VERSION}"
       tags: ["flarenetwork-lg"]
   - component: gitlab.com/flarenetwork/ci-components-private/test-docker-build@2
     inputs:
