@@ -1,84 +1,45 @@
 stages:
-  - verify
-  - build
+  - test
+  - sbom
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "merge_request_event" || $CI_COMMIT_TAG
+
+default:
+  tags:
+    - flarenetwork
+  artifacts:
+    expire_in: 3 days
 
 variables:
-  GO_VERSION: "1.25"
-  GOLANGCI_LINT_VERSION: "v2.11"
+  GO_VERSION: "1.25.8"
 
-### VERIFY ####################################################################
-compile:
-  stage: verify
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-  image: golang:$GO_VERSION
-  cache:
-    key: go-mod-$CI_COMMIT_REF_SLUG
-    paths:
-      - .go-mod-cache/
-  variables:
-    GOMODCACHE: "$CI_PROJECT_DIR/.go-mod-cache"
-  script:
-    - go build ./...
-
-lint:
-  stage: verify
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-  image: golangci/golangci-lint:$GOLANGCI_LINT_VERSION-alpine
-  cache:
-    key: golangci-$CI_COMMIT_REF_SLUG
-    paths:
-      - .golangci-cache/
-  variables:
-    GOLANGCI_LINT_CACHE: "$CI_PROJECT_DIR/.golangci-cache"
-  script:
-    - go mod download
-    - golangci-lint run
-
-test:
-  stage: verify
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-  image: golang:$GO_VERSION
-  cache:
-    key: go-mod-$CI_COMMIT_REF_SLUG
-    paths:
-      - .go-mod-cache/
-  variables:
-    GOMODCACHE: "$CI_PROJECT_DIR/.go-mod-cache"
-  script:
-    - go test ./...
+include:
+  - component: gitlab.com/flarenetwork/ci-components-private/lgtm@2
+  - component: gitlab.com/flarenetwork/ci-components-private/dependency-track@2
+  - template: Jobs/Secret-Detection.latest.gitlab-ci.yml
+  - component: gitlab.com/flarenetwork/ci-components-private/lint-dockerfile@2
+  - component: gitlab.com/flarenetwork/ci-components-private/lint-go@2
+    inputs:
+      go_version: "${GO_VERSION}"
+      golangci_version: "v2.11.4"
+      golangci_config_file: ".golangci.yml"
+      tags: ["flarenetwork-md"]
+  - component: gitlab.com/flarenetwork/ci-components-private/test-go@2
+    inputs:
+      go_version: "${GO_VERSION}"
+      tags: ["flarenetwork-lg"]
+  - component: gitlab.com/flarenetwork/ci-components-private/test-docker-build@2
+    inputs:
+      build_args_enabled: true
+      build_args: "REVISION=${CI_COMMIT_SHA}"
+      build_tags: ["flarenetwork-md"]
 
 alerts:
-  stage: verify
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
+  stage: test
   image:
     name: prom/prometheus:v2.53.0
     entrypoint: [""]
   script:
     - promtool check rules examples/monitoring/alerts.yaml
-
-
-### BUILD IMAGE ###############################################################
-build-image:
-  stage: build
-  image:
-    name: registry.gitlab.com/flarenetwork/infra-public/pipeliner/kaniko-executor-stbl:v1.23.2-debug
-    entrypoint: [""]
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-  variables:
-    DOCKERFILE: "Dockerfile"
-    IMAGE: "tee-proxy"
-  script:
-    - >-
-      args="--context ${CI_PROJECT_DIR}
-        --dockerfile ${CI_PROJECT_DIR}/${DOCKERFILE}
-        --build-arg REVISION=${CI_COMMIT_SHA}
-        --registry-mirror mirror.gcr.io
-        --compressed-caching=false
-        --snapshot-mode=redo
-        --no-push"
-    - /kaniko/executor $args

@@ -1,3 +1,4 @@
+# checkov:skip=CKV_DOCKER_2: Healthcheck is handled by the container orchestrator
 # Build stage
 FROM golang:1.25.8-alpine AS builder
 
@@ -10,14 +11,13 @@ ARG REVISION=unknown
 ARG VERSION=dev
 
 COPY . .
-RUN go mod download
-
-RUN CGO_ENABLED=0 GOOS=linux go build \
+RUN go mod download && \
+    CGO_ENABLED=0 GOOS=linux go build \
     -ldflags "-X github.com/flare-foundation/tee-proxy/internal/version.Revision=${REVISION} -X github.com/flare-foundation/tee-proxy/internal/version.Version=${VERSION}" \
     -o main ./cmd/proxy
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
 
 WORKDIR /app
 
