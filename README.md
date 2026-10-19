@@ -21,6 +21,42 @@ Start the proxy
 go run ./...
 ```
 
+## Chain Source
+
+The proxy reads signing policies, voter registrations, policy signatures and machine path lists from the C-chain.
+`[chain] source` selects where:
+
+- `indexer` (default) reads the C-chain indexer database configured under `[db]`.
+- `rpc` reads a C-chain node's JSON-RPC endpoint; no indexer or database is needed.
+
+```toml
+[chain]
+source = "rpc"
+url = "https://coston2-api.flare.network/ext/C/rpc" # or set NODE_URL
+max_logs_range = 30 # blocks per eth_getLogs request; public Flare nodes cap it at 30
+```
+
+An endpoint that needs credentials can take them in `url` itself, as a key in the path or query or as `user:password@` for basic auth, or in `api_key` (or `NODE_API_KEY`), which is sent as the `x-apikey` query parameter, as the C-chain indexer does.
+The environment variables `NODE_URL` and `NODE_API_KEY` override `url` and `api_key` (`url_variable` and `api_key_variable` rename them); they are the C-chain indexer's, so both services can share them.
+Here "node" is the C-chain node serving JSON-RPC, not the TEE node.
+Keep the URL and key in the environment rather than the config file; the proxy keeps both out of its logs and errors.
+
+On a fresh start the proxy sends the TEE node its initial signing policy and the voters' public keys, which become the node's root of trust.
+The node cannot verify them, and the restart backfill feeds instruction voting the same way, so in `rpc` mode they are only as trustworthy as the endpoint.
+Use public endpoints for tests; in production use the indexer or a node you run.
+
+The modes differ in a few places:
+
+- Readiness and `teeproxy_cchain_indexer_delay_seconds` track the node's newest block instead of the last indexed one.
+- A machine path list carries every governance signature the contract stored, including ones added after activation.
+- A Safe approval comes from the contract's confirmed-approval record (`confirmMachinePathListSafeApproval`) instead of the Safe's own transaction.
+- How far back `voting.history_size` reaches, on a fresh start or a restart, depends on the node's log retention instead of the indexer's.
+
+At the 30-block cap a policy rollover takes about 115 calls on mainnet and 45 on Coston2: mostly the voter-registration scan, plus one batch of up to `max_batch_size` (50) transaction lookups.
+A fresh start takes about 290 calls on mainnet at the default `voting.history_size` of 3, and about 110 more per extra policy; a restart takes 3 per policy.
+Otherwise the proxy makes about 6 calls a minute, plus one per readiness probe and metrics scrape.
+Lower `max_batch_size` for an endpoint that limits batches or bursts below 50 calls.
+
 ## Ports
 
 The proxy listens on two TCP ports with different trust models:
@@ -116,6 +152,8 @@ docker run -p 6661:6661 -p 6662:6662 \
   -v {PATH_TO_CONFIG}:/app/config/config.toml \
   {IMAGE_TAG}
 ```
+
+With `[chain] source = "rpc"`, pass the C-chain endpoint (not the TEE node) as `-e NODE_URL=...`, and its key as `-e NODE_API_KEY=...` if it needs one.
 
 If you have `indexer-db` and `redis` running in docker-compose add the `--network` flag
 

@@ -37,8 +37,14 @@ func MachinePathListHash(t *testing.T, chainID uint64, extensionID common.Hash, 
 	return common.BytesToHash(hash[:])
 }
 
-// InsertPathsAdded stores a MachinePathsAdded log for (extensionID, nonce).
+// InsertPathsAdded stores PathsAddedLog in db.
 func InsertPathsAdded(t *testing.T, db *gorm.DB, manager common.Address, extensionID common.Hash, nonce uint64, paths []cmpaths.IMachinePathManagerMachinePath, block, index, timestamp uint64) {
+	t.Helper()
+	InsertLog(t, db, PathsAddedLog(t, manager, extensionID, nonce, paths, block, index, timestamp))
+}
+
+// PathsAddedLog is a MachinePathsAdded log for (extensionID, nonce).
+func PathsAddedLog(t *testing.T, manager common.Address, extensionID common.Hash, nonce uint64, paths []cmpaths.IMachinePathManagerMachinePath, block, index, timestamp uint64) LogRow {
 	t.Helper()
 
 	managerABI, err := machinepathmanager.MachinePathManagerMetaData.GetAbi()
@@ -49,7 +55,7 @@ func InsertPathsAdded(t *testing.T, db *gorm.DB, manager common.Address, extensi
 		out[i] = machinepathmanager.IMachinePathManagerMachinePath{SourceTeeIds: p.SourceTeeIds, DestinationTeeIds: p.DestinationTeeIds}
 	}
 
-	InsertLog(t, db, LogRow{
+	return LogRow{
 		Address:   manager,
 		Event:     managerABI.Events["MachinePathsAdded"],
 		Topics:    []common.Hash{extensionID, convert.Uint64ToHash(nonce)},
@@ -57,23 +63,29 @@ func InsertPathsAdded(t *testing.T, db *gorm.DB, manager common.Address, extensi
 		Block:     block,
 		Timestamp: timestamp,
 		Index:     index,
-	})
+	}
 }
 
-// InsertListSigned stores the MachinePathListSigned log activating (extensionID, nonce).
+// InsertListSigned stores ListSignedLog in db.
 func InsertListSigned(t *testing.T, db *gorm.DB, manager common.Address, extensionID common.Hash, nonce, block uint64) {
+	t.Helper()
+	InsertLog(t, db, ListSignedLog(t, manager, extensionID, nonce, block))
+}
+
+// ListSignedLog is the MachinePathListSigned log activating (extensionID, nonce).
+func ListSignedLog(t *testing.T, manager common.Address, extensionID common.Hash, nonce, block uint64) LogRow {
 	t.Helper()
 
 	managerABI, err := machinepathmanager.MachinePathManagerMetaData.GetAbi()
 	require.NoError(t, err)
 
-	InsertLog(t, db, LogRow{
+	return LogRow{
 		Address:   manager,
 		Event:     managerABI.Events["MachinePathListSigned"],
 		Topics:    []common.Hash{extensionID, convert.Uint64ToHash(nonce)},
 		Block:     block,
 		Timestamp: block,
-	})
+	}
 }
 
 // GovernanceSignature is key's EIP-191 signature over hash as signMachinePathList carries it.
