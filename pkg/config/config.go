@@ -282,12 +282,7 @@ func Read(path string) (Proxy, error) {
 			BackupTTL:       defaultBackupTTL,
 		},
 
-		Logging: logger.Config{
-			Level:       "DEBUG",
-			File:        "",
-			MaxFileSize: 0,
-			Console:     true,
-		},
+		Logging: logger.DefaultConfig(),
 
 		Direct: Direct{},
 	}

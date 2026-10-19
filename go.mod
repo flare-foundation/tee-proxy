@@ -1,13 +1,13 @@
 module github.com/flare-foundation/tee-proxy
 
-go 1.26.8
+go 1.26.9
 
 require (
 	cloud.google.com/go/storage v1.64.0
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/ethereum/go-ethereum v1.17.6
-	github.com/flare-foundation/go-flare-common v1.3.0
-	github.com/flare-foundation/tee-node v0.0.28
+	github.com/ethereum/go-ethereum v1.17.8
+	github.com/flare-foundation/go-flare-common v1.5.0
+	github.com/flare-foundation/tee-node v0.0.29
 	github.com/fsouza/fake-gcs-server v1.55.1
 	github.com/prometheus/client_golang v1.20.5
 	github.com/redis/go-redis/v9 v9.12.1
@@ -100,8 +100,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/trace v1.46.0 // indirect
-	go.uber.org/multierr v1.11.0 // indirect
-	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/net v0.58.0 // indirect
@@ -114,6 +112,5 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gorm.io/driver/mysql v1.6.0 // indirect
 )
