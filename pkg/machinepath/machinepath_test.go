@@ -78,15 +78,43 @@ func TestSerializeAndRecover(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
-// TestCollectSignaturesDeduplicatesSigners keeps the first signature per
-// recovered signer and drops signatures that do not recover.
-func TestCollectSignaturesDeduplicatesSigners(t *testing.T) {
+func TestCollectSignatures(t *testing.T) {
 	hash, _ := sampleHash(t)
 
-	first := signAsGovernance(t, hash, "b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-	second := signAsGovernance(t, hash, "1111111111111111111111111111111111111111111111111111111111111111")
+	const (
+		ownKey     = "b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291"
+		foreignKey = "1111111111111111111111111111111111111111111111111111111111111111"
+	)
+	own := signAsGovernance(t, hash, ownKey)
+	foreign := signAsGovernance(t, hash, foreignKey)
 	broken := machinepathmanager.Signature{V: 27}
 
-	got := collectSignatures([]machinepathmanager.Signature{first, broken, second, first}, hash)
-	require.Equal(t, [][]byte{serializeSig(first), serializeSig(second)}, got)
+	priv, err := crypto.HexToECDSA(ownKey)
+	require.NoError(t, err)
+	governance := []common.Address{crypto.PubkeyToAddress(priv.PublicKey)}
+
+	tests := []struct {
+		name    string
+		sigs    []machinepathmanager.Signature
+		signers []common.Address
+		want    [][]byte
+	}{
+		{
+			name: "duplicate and unrecoverable dropped",
+			sigs: []machinepathmanager.Signature{own, broken, foreign, own},
+			want: [][]byte{serializeSig(own), serializeSig(foreign)},
+		},
+		{
+			name:    "foreign signer dropped",
+			sigs:    []machinepathmanager.Signature{foreign, own},
+			signers: governance,
+			want:    [][]byte{serializeSig(own)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, collectSignatures(tc.sigs, hash, tc.signers))
+		})
+	}
 }
