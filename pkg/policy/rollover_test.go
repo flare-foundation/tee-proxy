@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/policy"
@@ -37,6 +38,10 @@ func newChainDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(&database.Log{}, &database.Transaction{}, &database.State{}))
 
 	return db
+}
+
+func source(db *gorm.DB) *indexer.Source {
+	return indexer.New(db, rolloverAddresses, database.SyncParams{})
 }
 
 func newKeys(t *testing.T, n int) []*ecdsa.PrivateKey {
@@ -109,7 +114,7 @@ func TestInitializePolicyActionPicksOldestOfN(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			action, p, offset, err := policy.InitializePolicyAction(context.Background(), db, rolloverAddresses, tc.offset, big.NewInt(rolloverChainID))
+			action, p, offset, err := policy.InitializePolicyAction(context.Background(), source(db), rolloverAddresses, tc.offset, big.NewInt(rolloverChainID))
 			require.NoError(t, err)
 			require.Equal(t, tc.wantEpoch, p.RewardEpochID)
 			require.Equal(t, tc.wantOffset, offset)
@@ -170,7 +175,7 @@ func TestInitializePolicyActionRegistrationRules(t *testing.T) {
 			testutil.InsertPolicyEvent(t, db, rolloverAddresses.Relay, testutil.PolicyEvent(epoch, keys, []uint16{1, 1, 1}, 1), 100)
 			tc.register(t, db, keys)
 
-			_, _, _, err := policy.InitializePolicyAction(context.Background(), db, rolloverAddresses, 0, big.NewInt(rolloverChainID))
+			_, _, _, err := policy.InitializePolicyAction(context.Background(), source(db), rolloverAddresses, 0, big.NewInt(rolloverChainID))
 			require.Error(t, err)
 			require.Equal(t, tc.wantReason, policy.UpdateFailureReason(err))
 		})
@@ -226,11 +231,11 @@ func (r rollover) sign(t *testing.T, key *ecdsa.PrivateKey, block, timestamp, st
 func (r rollover) update(t *testing.T) (*types.Action, *cpolicy.SigningPolicy, error) {
 	t.Helper()
 
-	log, found, err := policy.FetchSigningPolicyLog(context.Background(), r.db, rolloverAddresses.Relay, 7)
+	event, found, err := policy.FetchSigningPolicyEvent(context.Background(), source(r.db), 7)
 	require.NoError(t, err)
 	require.True(t, found)
 
-	return policy.UpdatePolicyAction(context.Background(), r.db, rolloverAddresses, log, r.active, big.NewInt(rolloverChainID))
+	return policy.UpdatePolicyAction(context.Background(), source(r.db), rolloverAddresses, event, r.active, big.NewInt(rolloverChainID))
 }
 
 func TestUpdatePolicyActionCollectsSignatures(t *testing.T) {

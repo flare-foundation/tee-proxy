@@ -7,20 +7,18 @@ import (
 	"sync"
 	"time"
 
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/redis/go-redis/v9"
-	"gorm.io/gorm"
 )
 
 const (
 	cChainDelayTolerance = 140 * time.Second
 	infoDelayTolerance   = 140 * time.Second
 
-	// cChainDelayReadTimeout bounds the scrape-time indexer-DB read for the delay gauge.
+	// cChainDelayReadTimeout bounds the scrape-time chain read for the delay gauge.
 	cChainDelayReadTimeout = 2 * time.Second
 )
 
@@ -30,10 +28,15 @@ var (
 	errInfoServiceUninitialized = errors.New("info service not initialized")
 )
 
+// headSource reports the newest block the chain source holds.
+type headSource interface {
+	Head(ctx context.Context) (number, timestamp uint64, err error)
+}
+
 type liveness struct {
 	startUpFinished bool
 
-	db      *gorm.DB
+	chain   headSource
 	client  *redis.Client
 	info    *info.Service
 	result  *result.Service
@@ -42,12 +45,12 @@ type liveness struct {
 	sync.RWMutex
 }
 
-// New creates a liveness checker over the indexer DB, Redis client, and info/result services.
+// New creates a liveness checker over the chain source, Redis client, and info/result services.
 // m may be nil or disabled.
-func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.Service, m *metrics.Metrics) *liveness {
+func New(chain headSource, client *redis.Client, info *info.Service, results *result.Service, m *metrics.Metrics) *liveness {
 	l := &liveness{
 		startUpFinished: false,
-		db:              db,
+		chain:           chain,
 		client:          client,
 		info:            info,
 		result:          results,
@@ -63,20 +66,20 @@ func New(db *gorm.DB, client *redis.Client, info *info.Service, results *result.
 		})
 	}
 
-	if db != nil {
-		// Scrape-time read of the indexer's last block timestamp. A read error reports 0
-		// and consumes the full cChainDelayReadTimeout (FetchState retries under the ctx);
-		// the DB-down case is caught by readiness (TeeProxyNotReady), so this gauge targets
-		// the stale-but-reachable indexer, which reads fine and returns a large delay.
+	if chain != nil {
+		// Scrape-time read of the source's last block timestamp. A read error reports 0
+		// and consumes the full cChainDelayReadTimeout (reads retry under the ctx);
+		// the source-down case is caught by readiness (TeeProxyNotReady), so this gauge targets
+		// the stale-but-reachable source, which reads fine and returns a large delay.
 		m.RegisterCChainDelay(func() float64 {
 			ctx, cancel := context.WithTimeout(context.Background(), cChainDelayReadTimeout)
 			defer cancel()
-			state, err := database.FetchState(ctx, db, nil)
+			_, timestamp, err := chain.Head(ctx)
 			if err != nil {
-				logger.Warnf("cchain delay gauge: reading indexer state: %v", err)
+				logger.Warnf("cchain delay gauge: reading chain head: %v", err)
 				return 0
 			}
-			return time.Since(time.Unix(int64(state.BlockTimestamp), 0)).Seconds()
+			return time.Since(time.Unix(int64(timestamp), 0)).Seconds()
 		})
 	}
 
@@ -121,7 +124,7 @@ func (l *liveness) Ready(ctx context.Context) (err error) {
 		return fmt.Errorf("redis did not PONG: %w", err)
 	}
 
-	err = database.CheckDelay(ctx, l.db, cChainDelayTolerance)
+	err = checkDelay(ctx, l.chain, cChainDelayTolerance)
 	if err != nil {
 		return fmt.Errorf("c-chain indexer delay: %w", err)
 	}
@@ -146,6 +149,21 @@ func (l *liveness) Ready(ctx context.Context) (err error) {
 		if sErr := l.result.LastStorageErr(); sErr != nil {
 			return fmt.Errorf("result storage failing: %w", sErr)
 		}
+	}
+
+	return nil
+}
+
+// checkDelay fails when the chain source's newest block is older than tolerance.
+func checkDelay(ctx context.Context, chain headSource, tolerance time.Duration) error {
+	_, timestamp, err := chain.Head(ctx)
+	if err != nil {
+		return fmt.Errorf("fetching state: %w", err)
+	}
+
+	outOfSync := time.Since(time.Unix(int64(timestamp), 0))
+	if outOfSync > tolerance {
+		return fmt.Errorf("database out of sync for %v", outOfSync)
 	}
 
 	return nil

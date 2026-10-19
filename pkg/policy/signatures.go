@@ -3,7 +3,6 @@ package policy
 import (
 	"context"
 	"crypto/ecdsa"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -15,9 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-	"gorm.io/gorm"
 )
 
 const (
@@ -101,12 +98,11 @@ func recoverSigner(hash common.Hash, signature *registry.Signature) (*ecdsa.Publ
 // collectSignatures collects providers' signatures for newPolicy according to the activePolicy.
 // Signatures are extracted from the transactions to FlareSystemsManager calling signNewSigningPolicy method.
 // The process ends when signatures of +50% weight are collected, in such case signatures are returned,
-// or when deadline is exceeded or too many consecutive errors while querying db occurred, in which case error is returned.
+// or when deadline is exceeded or too many consecutive errors while querying src occurred, in which case error is returned.
 func collectSignatures(
 	ctx context.Context,
-	db *gorm.DB,
-	flareSystemsManagerAddress common.Address,
-	startBlock int64,
+	src Source,
+	startBlock uint64,
 	deadline uint64,
 	newPolicy *policy.SigningPolicy,
 	activePolicy *policy.SigningPolicy,
@@ -136,7 +132,7 @@ mainLoop:
 			return nil, ctx.Err()
 		}
 
-		state, err := database.FetchState(ctx, db, nil)
+		to, timestamp, err := src.Head(ctx)
 		if err != nil {
 			errCount++
 
@@ -147,20 +143,11 @@ mainLoop:
 			return nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
 		}
 
-		if state.BlockTimestamp > deadline {
+		if timestamp > deadline {
 			return nil, ErrDeadlineExceeded
 		}
 
-		to := int64(state.Index)
-
-		params := database.TxParams{
-			ToAddress:   flareSystemsManagerAddress,
-			FunctionSel: signNewSigningPolicySel,
-			From:        from,
-			To:          to,
-		}
-
-		txs, err := database.FetchTransactionsByAddressAndSelectorBlockNumber(ctx, db, params)
+		inputs, err := src.PolicySignatures(ctx, newPolicy.RewardEpochID, from, to)
 		if err != nil {
 			errCount++
 
@@ -171,25 +158,23 @@ mainLoop:
 			return nil, fmt.Errorf("%w: last error: %w", ErrTooManyErrors, err)
 		}
 
-		if len(txs) > 0 {
-			for j := range txs {
-				signer, sig, err := checkAndExtract(txs[j].Input, expectedHash, newPolicy.RewardEpochID)
-				if err != nil {
-					continue
-				}
+		for _, input := range inputs {
+			signer, sig, err := checkAndExtract(input, expectedHash, newPolicy.RewardEpochID)
+			if err != nil {
+				continue
+			}
 
-				addr := crypto.PubkeyToAddress(*signer)
+			addr := crypto.PubkeyToAddress(*signer)
 
-				weight := activePolicy.Voters.VoterWeightForAddress(addr)
+			weight := activePolicy.Voters.VoterWeightForAddress(addr)
 
-				if weight > 0 && !voted[addr] {
-					sigs = append(sigs, sig)
-					voted[addr] = true
-					weightCollected += weight
+			if weight > 0 && !voted[addr] {
+				sigs = append(sigs, sig)
+				voted[addr] = true
+				weightCollected += weight
 
-					if weightCollected > activePolicy.Threshold {
-						break mainLoop
-					}
+				if weightCollected > activePolicy.Threshold {
+					break mainLoop
 				}
 			}
 		}
@@ -208,12 +193,8 @@ mainLoop:
 
 // checkAndExtract recovers data (signingPolicyID, signingPolicyHash and signature) from the input and checks that they match the expectations.
 // The function returns the address of the signer and the signature if the expectations are met.
-func checkAndExtract(input string, expectedHash common.Hash, expectedRewardEpochID uint32) (*ecdsa.PublicKey, *registry.Signature, error) {
-	inputB, err := hex.DecodeString(input)
-	if err != nil {
-		return nil, nil, fmt.Errorf("decoding transaction input: %w", err)
-	}
-	spID, hash, sig, err := recoverInputsSignNewSigningPolicy(inputB)
+func checkAndExtract(input []byte, expectedHash common.Hash, expectedRewardEpochID uint32) (*ecdsa.PublicKey, *registry.Signature, error) {
+	spID, hash, sig, err := recoverInputsSignNewSigningPolicy(input)
 	if err != nil {
 		return nil, nil, fmt.Errorf("recovering signing policy inputs: %w", err)
 	}

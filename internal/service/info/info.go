@@ -14,7 +14,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/signing"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
@@ -25,9 +24,12 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/utils"
-
-	"gorm.io/gorm"
 )
+
+// BlockHasher supplies the recent block hash used as the attestation challenge.
+type BlockHasher interface {
+	LatestBlockHash(ctx context.Context) (common.Hash, error)
+}
 
 // Service holds the latest TEE info and manages updating it.
 //
@@ -40,7 +42,7 @@ type Service struct {
 	// indicates possible compromise; the orchestrator should restart the pod.
 	lastAttestationErr error
 
-	db *gorm.DB
+	chain BlockHasher
 
 	actionQueues    *queue.ActionQueues
 	responseStorage *result.ResultStorage
@@ -58,14 +60,14 @@ type Service struct {
 // LastUpdated starts at construction time so info_service_delay_seconds reports real elapsed
 // time from boot instead of a multi-decade spike before the first refresh.
 // It also seeds the refresh-stage metric labels, which exist only once a Service is wired.
-func NewService(db *gorm.DB, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config, m *metrics.Metrics) *Service {
+func NewService(chain BlockHasher, aq *queue.ActionQueues, rs *result.ResultStorage, tc *config.InfoTiming, ac *attestation.Config, m *metrics.Metrics) *Service {
 	m.PreinitInfoStages(stageLabels())
 
 	return &Service{
 		Latest:      new(types.TeeInfoResponse),
 		LastUpdated: time.Now(),
 
-		db:              db,
+		chain:           chain,
 		actionQueues:    aq,
 		responseStorage: rs,
 		timingConfig:    tc,
@@ -295,12 +297,10 @@ func (s *Service) updateInfo(ctx context.Context, timeout time.Duration) (_ comm
 	refreshStart := time.Now()
 	defer func() { s.metrics.InfoRefreshObserved(time.Since(refreshStart), err) }()
 
-	block, err := database.FetchLatestBlock(ctx, s.db, nil)
+	challenge, err := s.chain.LatestBlockHash(ctx)
 	if err != nil {
 		return common.Hash{}, s.fail(fetchBlock, err)
 	}
-
-	challenge := common.HexToHash(block.Hash)
 
 	action, err := newInfoAction(challenge)
 	if err != nil {

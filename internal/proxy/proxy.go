@@ -15,6 +15,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
@@ -52,12 +53,13 @@ func Run(ctx context.Context, cfgPath string) {
 		logger.Panicf("connecting to database: %v", err)
 	}
 
-	err = database.WaitCIndexerToSync(ctx, db, database.SyncParams{
+	chain := indexer.New(db, cfg.Addresses, database.SyncParams{
 		Retries:            30,
 		MaxSleepTime:       cfg.DBSyncMaxSleepTime,
 		OutOfSyncTolerance: outOfSyncTolerance,
 		MinSleepTime:       1 * time.Second,
-	}, logger.Logger())
+	})
+	err = chain.WaitSynced(ctx)
 	if err != nil {
 		logger.Panicf("c-chain indexer: %v", err)
 	}
@@ -127,9 +129,9 @@ func Run(ctx context.Context, cfgPath string) {
 	logAttestationPosture(attestationCfg)
 	proxyMetrics.SetAttestationPosture(attestationPostureSettings(attestationCfg))
 
-	infoService := info.NewService(db, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg, proxyMetrics)
+	infoService := info.NewService(chain, actionQueues, resultStorage, &cfg.InfoTiming, attestationCfg, proxyMetrics)
 
-	livenessService := liveness.New(db, redisClient, infoService, resultService, proxyMetrics)
+	livenessService := liveness.New(chain, redisClient, infoService, resultService, proxyMetrics)
 
 	internalServer := server.NewInternal(cfg.Ports.Internal, actionQueues, resultService, walletService, livenessService, proxyMetrics)
 	go runServer("internal", internalServer.Serve)
@@ -174,12 +176,12 @@ func Run(ctx context.Context, cfgPath string) {
 
 	policyService := policy.NewService(actionQueues, resultStorage, cfg.Addresses, cfg.ChainID, infoService, proxyMetrics)
 	// history_size bounds the cyclic round buffer, so it is also the boot backfill depth
-	err = policyService.Initialize(ctx, db, cfg.Voting.HistorySize-1, initialInfo)
+	err = policyService.Initialize(ctx, chain, cfg.Voting.HistorySize-1, initialInfo)
 	if err != nil {
 		logger.Panicf("initializing signing policy: %v", err)
 	}
 
-	policyChan, err := policyService.Run(ctx, db, cfg.SigningPolicyFetchInterval)
+	policyChan, err := policyService.Run(ctx, chain, cfg.SigningPolicyFetchInterval)
 	if err != nil {
 		logger.Panicf("starting signing policy updater: %v", err)
 	}
@@ -207,7 +209,7 @@ func Run(ctx context.Context, cfgPath string) {
 			})
 		}
 		machinePathService := machinepath.NewService(actionQueues, resultStorage, cfg.Addresses.MachinePathManager, governance, initialInfo.MachineData.ExtensionID, cfg.ChainID, initialInfo.TeeInfo.MachinePathListNonce, proxyMetrics)
-		machinePathService.Run(ctx, db, cfg.MachinePathListFetchInterval)
+		machinePathService.Run(ctx, chain, cfg.MachinePathListFetchInterval)
 	} else {
 		logger.Info("machine_path_manager address not set; machine path list service disabled")
 	}

@@ -13,7 +13,9 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
+	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/machinepath"
 )
 
@@ -46,7 +48,8 @@ func TestSetMachinePathListActionPathOrderAndStatus(t *testing.T) {
 	testutil.InsertTx(t, db, testutil.TxRow{To: manager, Input: testutil.SignMachinePathListInput(t, extensionID, nonce, signerSig), Block: 99, Timestamp: 99, Status: 1})
 	testutil.InsertTx(t, db, testutil.TxRow{To: manager, Input: testutil.SignMachinePathListInput(t, extensionID, nonce, testutil.GovernanceSignature(t, hash, reverted)), Block: 101, Timestamp: 101, Status: 0})
 
-	action, err := machinepath.SetMachinePathListAction(context.Background(), db, manager, types.Governance{}, extensionID, chainID, nonce, signedBlock)
+	src := indexer.New(db, config.Addresses{MachinePathManager: manager}, database.SyncParams{})
+	action, err := machinepath.SetMachinePathListAction(context.Background(), src, manager, types.Governance{}, extensionID, chainID, nonce)
 	require.NoError(t, err)
 
 	var di types.DirectInstruction
