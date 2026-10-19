@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
@@ -34,7 +35,9 @@ var ErrNoAuthorization = errors.New("no governance signatures or safe approvals 
 // (gov.Safe nonzero) — one locally pre-verified Safe approval. At least one form
 // must be found; otherwise ErrNoAuthorization is returned. The TEE node
 // re-verifies either against its own governance set and threshold; gov is
-// that same snapshot, as reported by the node.
+// that same snapshot, as reported by the node. When gov.Signers is known, only
+// their signatures are forwarded: the node rejects the whole set on any other
+// signer, and a list may involve several governances.
 func SetMachinePathListAction(
 	ctx context.Context,
 	src Source,
@@ -61,7 +64,7 @@ func SetMachinePathListAction(
 		return nil, fmt.Errorf("computing machine path list message hash: %w", err)
 	}
 
-	sigs := collectSignatures(list.Signatures, hash)
+	sigs := collectSignatures(list.Signatures, hash, gov.Signers)
 
 	var approval *safe.Approval
 	if gov.Safe != (common.Address{}) {
@@ -91,10 +94,10 @@ func SetMachinePathListAction(
 }
 
 // collectSignatures serializes the list's governance signatures, keeping the
-// first per signer recovered against hash. An empty result is not an error —
-// the caller decides whether other authorization evidence (a Safe approval)
-// covers the list.
-func collectSignatures(signatures []machinepathmanager.Signature, hash common.Hash) [][]byte {
+// first per signer recovered against hash and, when signers is non-empty, only
+// those signers. An empty result is not an error — the caller decides whether
+// other authorization evidence (a Safe approval) covers the list.
+func collectSignatures(signatures []machinepathmanager.Signature, hash common.Hash, signers []common.Address) [][]byte {
 	sigs := make([][]byte, 0, len(signatures))
 	seen := make(map[common.Address]bool, len(signatures))
 
@@ -102,6 +105,9 @@ func collectSignatures(signatures []machinepathmanager.Signature, hash common.Ha
 		serialized := serializeSig(sig)
 		signer, err := teeutils.SignatureToSignersAddress(hash[:], serialized)
 		if err != nil || seen[signer] {
+			continue
+		}
+		if len(signers) > 0 && !slices.Contains(signers, signer) {
 			continue
 		}
 

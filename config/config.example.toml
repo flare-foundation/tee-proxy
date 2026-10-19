@@ -30,8 +30,7 @@ voter_registry = "0xB00cC45B4a7d3e1FEE684cFc4417998A1c183e6d"
 machine_path_manager = "0x0000000000000000000000000000000000000000"  # zero disables the machine-path-list service (lists never updated; [governance] must then be left unset)
 
 
-# TEE governance. Configure this ONLY when the extension's governance is a Safe;
-# for direct-signature governance leave the whole section out.
+# TEE governance, as attested by the node.
 # Requires a non-zero machine_path_manager — governance without it is rejected at config load.
 #
 # Safe-backed governance — required: set all four fields so the proxy can collect and
@@ -40,10 +39,13 @@ machine_path_manager = "0x0000000000000000000000000000000000000000"  # zero disa
 # every list update. signers/threshold are the Safe owners' snapshot and its threshold;
 # safe and tee_manager are the governing Safe and the TeeManager it controls.
 #
-# Direct-signature governance — not needed: the proxy recovers the on-chain governance
-# signatures itself and forwards them for the node to verify. You may optionally set
-# signers + threshold alone (no safe/tee_manager) to have the proxy cross-check its
-# configured governance hash against the node's attested hash at startup.
+# Direct-signature governance — recommended: set signers + threshold alone (no
+# safe/tee_manager). Only these signers' signatures are forwarded. Unset, every on-chain
+# signature is, and the node rejects lists that involve several governances.
+#
+# When set, the governance hash must match the node's attested hash: a mismatch at
+# startup is fatal, and after a governance rotation lists fail until this section is
+# updated and the proxy restarted.
 # [governance]
 # signers = ["0x1111111111111111111111111111111111111111", "0x2222222222222222222222222222222222222222"]
 # threshold = 2

@@ -102,7 +102,7 @@ type Proxy struct {
 	GCS                          GCS             `toml:"gcs"`                              // Google Cloud Storage connection configuration.
 	ChainID                      uint64          `toml:"chain_id"`                         // EVM chain ID bound into TEE/FDC2 signed payloads. Must be a positive integer.
 	Addresses                    Addresses       `toml:"addresses"`                        // Smart contract addresses.
-	Governance                   Governance      `toml:"governance"`                       // TEE governance; required for Safe-backed governance (enables Safe machine-path-list approval pre-verification), optional otherwise.
+	Governance                   Governance      `toml:"governance"`                       // TEE governance; required for Safe-backed governance (enables Safe machine-path-list approval pre-verification), recommended otherwise (filters forwarded signatures).
 	Ports                        Ports           `toml:"ports"`                            // Servers ports.
 	InfoTiming                   InfoTiming      `toml:"info_timing"`                      // Timing configuration for TEE info updates (duration between periodic checks and response timeout)
 	Voting                       Voting          `toml:"voting"`                           // Instruction voting configurations.
@@ -411,18 +411,19 @@ func (a Addresses) validate() error {
 }
 
 // Governance is the extension's TEE governance. It is required for Safe-backed
-// governance and optional otherwise:
+// governance and recommended otherwise:
 //
 //   - Safe-backed governance: set all fields so the proxy can collect and
 //     pre-verify the approveMachinePathList Safe transactions that authorize a
 //     machine-path list. Without them the proxy cannot assemble Safe
-//     authorization and the node rejects every list update. Configuring it also
-//     cross-checks the governance hash against the node's attested hash at
-//     startup, refusing to run on a mismatch.
-//   - direct-signature governance: leave it unset — the proxy recovers the
-//     on-chain governance signatures itself and forwards them for the node to
-//     verify. Setting Signers and Threshold alone (no Safe) is optional and only
-//     enables the startup governance-hash cross-check.
+//     authorization and the node rejects every list update.
+//   - direct-signature governance: set Signers and Threshold alone (no Safe).
+//     Unset, every on-chain signature is forwarded, and the node rejects lists
+//     that involve several governances.
+//
+// When set, only Signers' signatures are forwarded, and the governance hash is
+// cross-checked against the node's attested hash at startup, refusing to run
+// on a mismatch.
 //
 // Signers and Threshold are the plain governance signer set / threshold, or —
 // for Safe-backed governance — the Safe owners' snapshot and threshold. Safe
@@ -450,7 +451,7 @@ func (g Governance) SafeBacked() bool {
 }
 
 // validate checks the internal consistency of a configured governance. An
-// unset governance is valid (direct-signature governance needs no config).
+// unset governance is valid (direct-signature governance runs without it).
 func (g Governance) validate() error {
 	if !g.IsSet() {
 		return nil
