@@ -7,9 +7,11 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/service/info"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
+	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -34,7 +36,7 @@ func setup(t *testing.T, dbName string) (*gorm.DB, *miniredis.Miniredis, *redis.
 func TestNew(t *testing.T) {
 	db, _, redisClient, infoSvc := setup(t, "new")
 
-	l := New(db, redisClient, infoSvc, nil, nil)
+	l := New(chainSource(db), redisClient, infoSvc, nil, nil)
 	require.NotNil(t, l)
 	require.False(t, l.startUpFinished)
 }
@@ -63,7 +65,7 @@ func TestReady(t *testing.T) {
 
 	t.Run("redis ping fails", func(t *testing.T) {
 		db, mr, redisClient, infoSvc := setup(t, "ping")
-		l := New(db, redisClient, infoSvc, nil, nil)
+		l := New(chainSource(db), redisClient, infoSvc, nil, nil)
 		l.SignalStartupFinished()
 
 		mr.Close() // Close redis to make ping fail
@@ -74,7 +76,7 @@ func TestReady(t *testing.T) {
 
 	t.Run("c-chain indexer delay", func(t *testing.T) {
 		db, _, redisClient, infoSvc := setup(t, "delay")
-		l := New(db, redisClient, infoSvc, nil, nil)
+		l := New(chainSource(db), redisClient, infoSvc, nil, nil)
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Add(-15 * time.Minute).Unix())
@@ -90,7 +92,7 @@ func TestReady(t *testing.T) {
 	t.Run("info service not initialized", func(t *testing.T) {
 		db, _, redisClient, _ := setup(t, "ok")
 
-		l := New(db, redisClient, nil, nil, nil) // Pass nil for info service
+		l := New(chainSource(db), redisClient, nil, nil, nil) // Pass nil for info service
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Unix())
@@ -107,7 +109,7 @@ func TestReady(t *testing.T) {
 		block, _ := testutil.CreateBlock("0", 1)
 		require.NoError(t, db.Create(block).Error)
 
-		l := New(db, redisClient, infoSvc, nil, nil)
+		l := New(chainSource(db), redisClient, infoSvc, nil, nil)
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Unix())
@@ -124,7 +126,7 @@ func TestReady(t *testing.T) {
 	t.Run("all checks pass", func(t *testing.T) {
 		db, _, redisClient, infoSvc := setup(t, "totally ok")
 
-		l := New(db, redisClient, infoSvc, nil, nil)
+		l := New(chainSource(db), redisClient, infoSvc, nil, nil)
 		l.SignalStartupFinished()
 
 		bts := uint64(time.Now().Unix())
@@ -144,7 +146,7 @@ func TestCChainDelayGauge(t *testing.T) {
 
 	addState(t, db, uint64(time.Now().Add(-15*time.Minute).Unix()))
 
-	New(db, redisClient, infoSvc, nil, m)
+	New(chainSource(db), redisClient, infoSvc, nil, m)
 
 	require.InDelta(t, (15 * time.Minute).Seconds(), cchainGaugeValue(t, m), 60, "delay reflects the indexer block timestamp")
 }
@@ -157,7 +159,7 @@ func TestCChainDelayGaugeReadError(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&database.State{})) // table exists but is empty
 	m := metrics.New(metrics.Config{Enable: true, Liveness: true})
 
-	New(db, redisClient, infoSvc, nil, m)
+	New(chainSource(db), redisClient, infoSvc, nil, m)
 
 	require.Zero(t, cchainGaugeValue(t, m), "a read error must report 0, not time.Since(epoch)")
 }
@@ -205,4 +207,9 @@ func addState(t *testing.T, db *gorm.DB, blockTime uint64) {
 	require.NoError(t, err)
 
 	db.Create(&state)
+}
+
+// chainSource reads the test fixtures in db through the indexer backend.
+func chainSource(db *gorm.DB) *indexer.Source {
+	return indexer.New(db, config.Addresses{}, database.SyncParams{})
 }

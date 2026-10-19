@@ -18,7 +18,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/policy"
-	"gorm.io/gorm"
 )
 
 // nodePolicyState reports the reward epoch of the signing policy the tee-node has most
@@ -62,11 +61,11 @@ func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, address
 	}
 }
 
-// Initialize prepares the service for operation by loading the active signing policy from the database.
+// Initialize prepares the service for operation by loading the active signing policy from src.
 // On a fresh start it submits an INITIALIZE_POLICY action for the policy offset epochs back from the
-// latest; on restart it backfills up to offset+1 recent policies from the database without contacting
+// latest; on restart it backfills up to offset+1 recent policies from src without contacting
 // the node.
-func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeInitialInfo *types.TeeInfoResponse) error {
+func (s *Service) Initialize(ctx context.Context, src policy.Source, offset int, teeInitialInfo *types.TeeInfoResponse) error {
 	if teeInitialInfo.TeeInfo.InitialSigningPolicyHash.Cmp(common.Hash{}) != 0 {
 		lastID := teeInitialInfo.TeeInfo.LastSigningPolicyID
 
@@ -86,7 +85,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 		policies := make([]*cpolicy.SigningPolicy, 0, back+1)
 		skipped := 0
 		for id := startID; id <= lastID; id++ {
-			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, id)
+			p, found, err := policy.FetchSigningPolicy(ctx, src, id)
 			if err != nil {
 				return fmt.Errorf("loading policy %d: %w", id, err)
 			}
@@ -120,7 +119,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 
 	logger.Info("initializing signing policy")
 
-	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, db, s.scAddresses, offset, s.chainID)
+	action, p, actualOffset, err := policy.InitializePolicyAction(ctx, src, s.scAddresses, offset, s.chainID)
 	if err != nil {
 		return fmt.Errorf("creating initialize policy action for chainID %v: %w", s.chainID, err)
 	}
@@ -140,7 +139,7 @@ func (s *Service) Initialize(ctx context.Context, db *gorm.DB, offset int, teeIn
 }
 
 // Run starts the signing policy update loop and returns a channel that emits new signing policies.
-func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time.Duration) (<-chan cpolicy.SigningPolicy, error) {
+func (s *Service) Run(ctx context.Context, src policy.Source, policyFetchInterval time.Duration) (<-chan cpolicy.SigningPolicy, error) {
 	if s.activePolicy == nil {
 		return nil, errors.New("not initialized yet")
 	}
@@ -158,7 +157,7 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, policyFetchInterval time
 	} else {
 		pChan <- *s.activePolicy
 	}
-	go s.update(ctx, pChan, db, policyFetchInterval)
+	go s.update(ctx, pChan, src, policyFetchInterval)
 
 	return pChan, nil
 }
@@ -175,8 +174,8 @@ const (
 )
 
 // errPolicyEventMissing reports a policy the node holds whose SigningPolicyInitialized
-// event is absent from the relay's indexed history.
-var errPolicyEventMissing = errors.New("no SigningPolicyInitialized event in db")
+// event is absent from the relay's history held by the source.
+var errPolicyEventMissing = errors.New("no SigningPolicyInitialized event found")
 
 var (
 	// updateRetryDelay is the pause before re-attempting the same epoch after a failed
@@ -193,7 +192,7 @@ var (
 // built, enqueued, and confirmed applied by the node. A failed epoch is retried
 // indefinitely (never skipped): both the proxy's signature collection and the node
 // require strictly consecutive policies, so skipping any epoch would wedge the pipeline.
-func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db *gorm.DB, fetchInterval time.Duration) {
+func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, src policy.Source, fetchInterval time.Duration) {
 	attempts := 0
 	for {
 		if ctx.Err() != nil {
@@ -205,9 +204,9 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 		// confirmation we missed), adopt the node's state rather than re-submitting an
 		// epoch it already has.
 		if nodeID := s.nodeState.LastAppliedPolicyID(); nodeID > s.activePolicy.RewardEpochID {
-			p, found, err := policy.FetchSigningPolicy(ctx, db, s.scAddresses.Relay, nodeID)
+			p, found, err := policy.FetchSigningPolicy(ctx, src, nodeID)
 			if err == nil && !found {
-				// impossible in a consistent deployment: the node received nodeID from this db
+				// impossible in a consistent deployment: the node received nodeID from this source
 				err = errPolicyEventMissing
 			}
 			if err != nil {
@@ -232,9 +231,9 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 		target := s.activePolicy.RewardEpochID + 1
 
-		log, found, err := policy.FetchSigningPolicyLog(ctx, db, s.scAddresses.Relay, target)
+		event, found, err := policy.FetchSigningPolicyEvent(ctx, src, target)
 		if err != nil {
-			logger.Warnf("fetching signing policy %d log: %v", target, err)
+			logger.Warnf("fetching signing policy %d event: %v", target, err)
 			s.metrics.PolicyUpdate("fetch_error")
 			if !wait(ctx, fetchInterval) {
 				return
@@ -254,7 +253,7 @@ func (s *Service) update(ctx context.Context, out chan cpolicy.SigningPolicy, db
 
 		attempts++
 
-		action, newPolicy, err := policy.UpdatePolicyAction(ctx, db, s.scAddresses, log, s.activePolicy, s.chainID)
+		action, newPolicy, err := policy.UpdatePolicyAction(ctx, src, s.scAddresses, event, s.activePolicy, s.chainID)
 		if err != nil {
 			logUpdateFailure(target, attempts, "building UPDATE_POLICY action", err)
 			s.metrics.PolicyUpdate(policy.UpdateFailureReason(err))

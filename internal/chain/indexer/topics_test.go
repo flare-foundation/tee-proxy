@@ -1,4 +1,4 @@
-package policy
+package indexer
 
 import (
 	"testing"
@@ -18,7 +18,7 @@ func TestAddressToHash(t *testing.T) {
 
 		addr := crypto.PubkeyToAddress(x.PublicKey)
 
-		hash := AddressToHash(addr)
+		hash := addressToHash(addr)
 
 		require.Equal(t, zero12, hash[:12])
 		require.Equal(t, addr[:], hash[12:])

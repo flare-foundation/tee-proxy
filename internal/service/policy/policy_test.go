@@ -8,6 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/tee-node/pkg/types"
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/stretchr/testify/require"
@@ -101,7 +102,7 @@ func TestInitializeRestart(t *testing.T) {
 
 			s := NewService(nil, nil, config.Addresses{Relay: relayAddr}, 14, stubNodeState{}, nil)
 
-			err := s.Initialize(context.Background(), db, tc.offset, restartTeeInfo(tc.lastID))
+			err := s.Initialize(context.Background(), relaySource(db, relayAddr), tc.offset, restartTeeInfo(tc.lastID))
 			if tc.wantErr {
 				require.Error(t, err)
 				return
@@ -136,13 +137,18 @@ func TestRunEmitsRestartBackfill(t *testing.T) {
 	db := policyDB(t, relayAddr, epochs)
 
 	s := NewService(nil, nil, config.Addresses{Relay: relayAddr}, 14, stubNodeState{}, nil)
-	require.NoError(t, s.Initialize(context.Background(), db, offset, restartTeeInfo(lastID)))
+	require.NoError(t, s.Initialize(context.Background(), relaySource(db, relayAddr), offset, restartTeeInfo(lastID)))
 
-	ch, err := s.Run(t.Context(), db, time.Minute)
+	ch, err := s.Run(t.Context(), relaySource(db, relayAddr), time.Minute)
 	require.NoError(t, err)
 
 	for _, want := range epochs {
 		p := <-ch
 		require.Equal(t, want, p.RewardEpochID)
 	}
+}
+
+// relaySource reads the test fixtures in db through the indexer backend.
+func relaySource(db *gorm.DB, relayAddr common.Address) *indexer.Source {
+	return indexer.New(db, config.Addresses{Relay: relayAddr}, database.SyncParams{})
 }
