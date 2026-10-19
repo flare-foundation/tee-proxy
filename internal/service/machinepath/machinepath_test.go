@@ -3,6 +3,7 @@ package machinepath
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"testing"
 	"time"
@@ -350,4 +351,76 @@ func TestPollConfirmedAdvancesLastNonce(t *testing.T) {
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "confirmed"))
 	require.Equal(t, fx.nonce, s.lastNonce)
+}
+
+// TestPollPicksHighestSignedNonce pins the selection rule: among several lists signed
+// after lastNonce, poll submits the highest nonce, not the most recently signed one.
+func TestPollPicksHighestSignedNonce(t *testing.T) {
+	db, _ := testutil.InMemoryDB(t, t.Name())
+	require.NoError(t, db.AutoMigrate(&database.Log{}, &database.Transaction{}))
+
+	const (
+		chainID = uint64(14)
+		highest = uint64(9)
+	)
+	managerAddress := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	extensionID := common.HexToHash("0x2a")
+
+	paths := []cmpaths.IMachinePathManagerMachinePath{testutil.MachinePath(common.HexToAddress("0x33"), common.HexToAddress("0x44"))}
+	testutil.InsertPathsAdded(t, db, managerAddress, extensionID, highest, paths, 100, 0, 100)
+	governanceKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sig := testutil.GovernanceSignature(t, testutil.MachinePathListHash(t, chainID, extensionID, highest, paths), governanceKey)
+	testutil.InsertTx(t, db, testutil.TxRow{To: managerAddress, Input: testutil.SignMachinePathListInput(t, extensionID, highest, sig), Block: 101, Timestamp: 101, Status: 1})
+
+	// only the highest nonce has paths; picking any other fails the build
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, 3, 102)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, highest, 103)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, 5, 104)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, 1, 105) // not after lastNonce
+
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
+
+	m := metrics.New(metrics.Config{Enable: true, Node: true})
+	s := NewService(aq, rs, managerAddress, types.Governance{}, extensionID, chainID, 2, m)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.poll(ctx, db)
+	}()
+
+	var action *types.Action
+	require.Eventually(t, func() bool {
+		d, err := aq.Dequeue(ctx, processorutils.Direct)
+		if err != nil {
+			return false
+		}
+		action = d.Action
+		return true
+	}, 3*time.Second, 10*time.Millisecond, "poll did not enqueue the SET_MACHINE_PATH_LIST action")
+
+	var di types.DirectInstruction
+	require.NoError(t, json.Unmarshal(action.Data.Message, &di))
+	var req types.SetMachinePathListRequest
+	require.NoError(t, json.Unmarshal(di.Message, &req))
+	require.Equal(t, highest, req.Nonce)
+
+	require.NoError(t, rs.StoreResponse(ctx, &types.ActionResponse{
+		Result: types.ActionResult{ID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag, Status: 1},
+	}))
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("poll did not return after the node confirmed the action")
+	}
+
+	require.Equal(t, highest, s.lastNonce)
 }
