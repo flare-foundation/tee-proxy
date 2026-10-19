@@ -259,12 +259,12 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "c-chain indexer lagging"
+          summary: "chain source lagging"
           description: >-
-            The c-chain indexer's last block is over 70s old — half the 140s readiness tolerance
-            (liveness.go cChainDelayTolerance) — giving lead time before readiness flips. The gauge
-            is read from the indexer DB at scrape time and reads 0 if that read fails, so a DB
-            outage is caught by TeeProxyNotReady instead. Requires the `liveness` metric group.
+            The chain source's newest block (indexer DB or node, per [chain] source) is over 70s
+            old — half the 140s readiness tolerance (liveness.go cChainDelayTolerance) — giving lead
+            time before readiness flips. The gauge is read at scrape time and reads 0 if that read
+            fails, so a source outage is caught by TeeProxyNotReady instead. Requires the `liveness` metric group.
 
       - alert: TeeProxyCChainStale
         expr: teeproxy_cchain_indexer_delay_seconds > 140
@@ -272,9 +272,9 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "c-chain indexer stale past readiness tolerance"
+          summary: "chain source stale past readiness tolerance"
           description: >-
-            The c-chain indexer is delayed beyond the 140s tolerance (liveness.go
+            The chain source is delayed beyond the 140s tolerance (liveness.go
             cChainDelayTolerance), so readiness is failing. This attributes the readiness failure to
             the c-chain leg specifically, which the composite TeeProxyNotReady cannot. Requires the
             `liveness` metric group.
@@ -528,8 +528,9 @@ groups:
         annotations:
           summary: "Signing-policy rollover repeatedly failing"
           description: >-
-            A rollover keeps failing on a fast-retry reason — build_failed, indexer (DB/indexer lag),
-            enqueue_failed, await_failed, or rejected (a status!=1 node rejection, invisible to the
+            A rollover keeps failing on a fast-retry reason — build_failed, indexer (chain-source
+            read errors or lag, in either [chain] source mode), enqueue_failed, await_failed, or
+            rejected (a status!=1 node rejection, invisible to the
             node-wait metric). sum() so failures across reasons add up. Diagnostic; a genuine wedge
             pages via TeeProxyPolicyFetchStalled. The slow reasons (sig_deadline, reconcile_error)
             and the should-never-happen not_consecutive are too infrequent/rare to reach >3 here and

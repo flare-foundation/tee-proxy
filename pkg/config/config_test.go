@@ -376,3 +376,138 @@ func TestMetricsValidateCoversEveryGroup(t *testing.T) {
 		})
 	}
 }
+
+func TestReadDefaultsToIndexer(t *testing.T) {
+	cfg, err := Read("./test_configs/config.toml")
+	require.NoError(t, err)
+	require.Equal(t, ChainSourceIndexer, cfg.Chain.Source)
+	require.False(t, cfg.Chain.RPC())
+}
+
+func TestReadExample(t *testing.T) {
+	_, err := Read("../../config/config.example.toml")
+	require.NoError(t, err)
+}
+
+func TestReadChain(t *testing.T) {
+	base, err := os.ReadFile("./test_configs/config.toml")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		chain   string
+		env     map[string]string
+		want    Chain
+		wantErr error
+	}{
+		{
+			name:  "readme example keeps the default timeout",
+			chain: "source = \"rpc\"\nurl = \"https://node.example/ext/C/rpc\"\nmax_logs_range = 30\n",
+			want:  Chain{Source: ChainSourceRPC, URL: "https://node.example/ext/C/rpc", MaxLogsRange: 30, MaxBatchSize: defaultMaxBatchSize, Timeout: defaultChainTimeout},
+		},
+		{
+			name:  "every key",
+			chain: "source = \"rpc\"\nurl = \"https://node.example\"\nurl_variable = \"MY_NODE\"\napi_key = \"k1\"\napi_key_variable = \"MY_KEY\"\nmax_logs_range = 100\nmax_batch_size = 10\ntimeout = \"3s\"\n",
+			want:  Chain{Source: ChainSourceRPC, URL: "https://node.example", URLVariable: "MY_NODE", APIKey: "k1", APIKeyVariable: "MY_KEY", MaxLogsRange: 100, MaxBatchSize: 10, Timeout: 3 * time.Second},
+		},
+		{
+			name:  "api key from the env",
+			chain: "source = \"rpc\"\nurl = \"https://node.example\"\napi_key = \"from-file\"\n",
+			env:   map[string]string{DefaultChainAPIKeyVariable: "from-env"},
+			want:  Chain{Source: ChainSourceRPC, URL: "https://node.example", APIKey: "from-env", MaxLogsRange: defaultMaxLogsRange, MaxBatchSize: defaultMaxBatchSize, Timeout: defaultChainTimeout},
+		},
+		{
+			name:  "url from the env",
+			chain: "source = \"rpc\"\n",
+			env:   map[string]string{DefaultChainURLVariable: "https://env.example"},
+			want:  Chain{Source: ChainSourceRPC, URL: "https://env.example", MaxLogsRange: defaultMaxLogsRange, MaxBatchSize: defaultMaxBatchSize, Timeout: defaultChainTimeout},
+		},
+		{name: "unknown source", chain: "source = \"node\"\n", wantErr: errChainSourceUnknown},
+		{name: "rpc without url", chain: "source = \"rpc\"\n", wantErr: errChainURLNotSet},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(DefaultChainURLVariable, "")
+			t.Setenv(DefaultChainAPIKeyVariable, "")
+			t.Setenv("MY_NODE", "")
+			t.Setenv("MY_KEY", "")
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+
+			path := filepath.Join(t.TempDir(), "config.toml")
+			require.NoError(t, os.WriteFile(path, []byte(string(base)+"\n[chain]\n"+tc.chain), 0o600))
+
+			cfg, err := Read(path)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.Chain)
+		})
+	}
+}
+
+func TestChainValidate(t *testing.T) {
+	valid := func() Chain {
+		return Chain{Source: ChainSourceRPC, URL: "https://node.example/ext/C/rpc", MaxLogsRange: defaultMaxLogsRange, MaxBatchSize: defaultMaxBatchSize, Timeout: defaultChainTimeout}
+	}
+
+	tests := []struct {
+		name    string
+		chain   func() Chain
+		env     map[string]string
+		wantErr error
+		wantMsg string
+		wantURL string
+	}{
+		{name: "empty source is the indexer", chain: func() Chain { return Chain{} }},
+		{name: "rpc", chain: valid, wantURL: "https://node.example/ext/C/rpc"},
+		{name: "unknown source", chain: func() Chain { c := valid(); c.Source = "node"; return c }, wantErr: errChainSourceUnknown},
+		{name: "rpc without url", chain: func() Chain { c := valid(); c.URL = ""; return c }, wantErr: errChainURLNotSet},
+		{
+			name:    "rpc without url names the variable",
+			chain:   func() Chain { c := valid(); c.URL = ""; c.URLVariable = "MY_NODE"; return c },
+			env:     map[string]string{"MY_NODE": ""},
+			wantErr: errChainURLNotSet,
+			wantMsg: "MY_NODE",
+		},
+		{
+			name:    "url from the default env variable",
+			chain:   func() Chain { c := valid(); c.URL = ""; return c },
+			env:     map[string]string{DefaultChainURLVariable: "https://env.example"},
+			wantURL: "https://env.example",
+		},
+		{
+			name:    "url from a named env variable wins over the file",
+			chain:   func() Chain { c := valid(); c.URLVariable = "MY_NODE"; return c },
+			env:     map[string]string{"MY_NODE": "https://named.example"},
+			wantURL: "https://named.example",
+		},
+		{name: "zero logs range", chain: func() Chain { c := valid(); c.MaxLogsRange = 0; return c }, wantErr: errChainMaxLogsRangePositive},
+		{name: "zero batch size", chain: func() Chain { c := valid(); c.MaxBatchSize = 0; return c }, wantErr: errChainMaxBatchSizePositive},
+		{name: "zero timeout", chain: func() Chain { c := valid(); c.Timeout = 0; return c }, wantErr: errChainTimeoutPositive},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(DefaultChainURLVariable, "")
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+
+			c := tc.chain()
+			err := c.validate()
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.ErrorContains(t, err, tc.wantMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantURL, c.URL)
+			if c.Source == "" {
+				t.Fatal("source not normalized")
+			}
+		})
+	}
+}

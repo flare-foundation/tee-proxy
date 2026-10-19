@@ -9,6 +9,17 @@ machine_path_list_fetch_interval = "10m"
 db_sync_max_sleep_time = "10m"
 
 
+# Where on-chain data is read from: "indexer" (default) reads [db]; "rpc" reads a
+# node's JSON-RPC endpoint and ignores [db]. See README "Chain Source".
+[chain]
+source = "indexer"
+# url = "https://coston2-api.flare.network/ext/C/rpc"  # rpc only; C-chain node, not the TEE node; env NODE_URL (name set by url_variable) wins
+# api_key = ""                                         # rpc only, optional; sent as ?x-apikey= like the C-chain indexer; env NODE_API_KEY (name set by api_key_variable) wins
+# max_logs_range = 30                                  # blocks per eth_getLogs request; public Flare nodes cap it at 30
+# max_batch_size = 50                                  # calls per JSON-RPC batch; lower it for endpoints that limit batches or bursts
+# timeout = "10s"                                      # per request
+
+
 [db]
 host = "localhost"
 port = 3306

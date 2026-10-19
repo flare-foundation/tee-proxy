@@ -55,3 +55,15 @@ func (s *Source) Head(ctx context.Context) (uint64, uint64, error) {
 func (s *Source) WaitSynced(ctx context.Context) error {
 	return database.WaitCIndexerToSync(ctx, s.db, s.sync, logger.Logger())
 }
+
+// Close releases the database connections.
+func (s *Source) Close() {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		logger.Warnf("closing indexer database: %v", err)
+		return
+	}
+	if err := sqlDB.Close(); err != nil {
+		logger.Warnf("closing indexer database: %v", err)
+	}
+}

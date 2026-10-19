@@ -11,11 +11,9 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	teewallets "github.com/flare-foundation/tee-node/pkg/wallets"
-	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
@@ -46,22 +44,16 @@ func Run(ctx context.Context, cfgPath string) {
 	}
 
 	logger.Set(cfg.Logging)
-	database.SetErrorLogger(logger.Logger())
 
-	db, err := database.Connect(&cfg.DB)
+	chain, err := openChain(ctx, cfg)
 	if err != nil {
-		logger.Panicf("connecting to database: %v", err)
+		logger.Panicf("opening chain source: %v", err)
 	}
+	defer chain.Close()
 
-	chain := indexer.New(db, cfg.Addresses, database.SyncParams{
-		Retries:            30,
-		MaxSleepTime:       cfg.DBSyncMaxSleepTime,
-		OutOfSyncTolerance: outOfSyncTolerance,
-		MinSleepTime:       1 * time.Second,
-	})
 	err = chain.WaitSynced(ctx)
 	if err != nil {
-		logger.Panicf("c-chain indexer: %v", err)
+		logger.Panicf("c-chain source: %v", err)
 	}
 
 	privKey, err := config.PrivateKeyFromEnv(cfg.PrivateKeyVariable)

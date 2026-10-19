@@ -1,6 +1,7 @@
 package liveness
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -86,7 +87,22 @@ func TestReady(t *testing.T) {
 		// No blocks in DB will cause a delay check failure
 		err := l.Ready(t.Context())
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "c-chain indexer delay")
+		require.Contains(t, err.Error(), "c-chain delay")
+	})
+
+	t.Run("c-chain read bounded", func(t *testing.T) {
+		_, _, redisClient, infoSvc := setup(t, "bounded")
+		var deadline time.Time
+		var bounded bool
+		l := New(headFunc(func(ctx context.Context) (uint64, uint64, error) {
+			deadline, bounded = ctx.Deadline()
+			return 0, uint64(time.Now().Unix()), nil
+		}), redisClient, infoSvc, nil, nil)
+		l.SignalStartupFinished()
+
+		_ = l.Ready(t.Context())
+		require.True(t, bounded)
+		require.LessOrEqual(t, time.Until(deadline), cChainDelayReadTimeout)
 	})
 
 	t.Run("info service not initialized", func(t *testing.T) {
@@ -212,4 +228,10 @@ func addState(t *testing.T, db *gorm.DB, blockTime uint64) {
 // chainSource reads the test fixtures in db through the indexer backend.
 func chainSource(db *gorm.DB) *indexer.Source {
 	return indexer.New(db, config.Addresses{}, database.SyncParams{})
+}
+
+type headFunc func(ctx context.Context) (uint64, uint64, error)
+
+func (f headFunc) Head(ctx context.Context) (uint64, uint64, error) {
+	return f(ctx)
 }

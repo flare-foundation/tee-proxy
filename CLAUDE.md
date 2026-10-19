@@ -17,7 +17,7 @@ cp config/config.example.toml config/config.toml
 export PRIVATE_KEY=0x...
 ```
 
-Requires: Redis server, MySQL/SQLite database with C-chain indexer data.
+Requires: Redis server and a chain source — a MySQL database with C-chain indexer data (default) or a C-chain node's JSON-RPC endpoint (`[chain] source = "rpc"`).
 
 ## Architecture
 
@@ -51,7 +51,8 @@ Requires: Redis server, MySQL/SQLite database with C-chain indexer data.
   A dequeue hands out a `Delivery` the caller must `Commit` (node has it) or `Restore` (requeue for the next poll, up to `MaxDeliveryAttempts`).
 - **Generic storage** (`pkg/storage/`): Redis-backed `Storage[T]` with get/set/queue/pub-sub operations, namespaced keys.
 - **Status mapping** (`pkg/status/`): Maps domain errors to HTTP status codes.
-- **Liveness** (`internal/liveness/`): Health checks monitoring C-chain indexer and info service delays.
+- **Chain sources** (`internal/chain/`): `indexer` and `jsonrpc` backends behind the `policy.Source` and `machinepath.Source` interfaces; they only fetch, all verification is shared.
+- **Liveness** (`internal/liveness/`): Health checks monitoring chain source and info service delays.
 
 ### Data Flow
 
