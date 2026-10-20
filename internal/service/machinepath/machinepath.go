@@ -1,4 +1,4 @@
-// Package machinepath provides the service that watches the C-chain indexer for
+// Package machinepath provides the service that watches the chain for
 // governance-signed machine path lists and forwards them to the TEE node as
 // SET_MACHINE_PATH_LIST direct actions.
 package machinepath
@@ -16,7 +16,6 @@ import (
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/pkg/machinepath"
-	"gorm.io/gorm"
 )
 
 // responseWaitTimeout bounds how long a poll waits for the TEE node to confirm a
@@ -24,7 +23,7 @@ import (
 // next tick.
 const responseWaitTimeout = 2 * time.Minute
 
-// Service polls the indexer for newly signed machine path lists and enqueues a
+// Service polls the chain for newly signed machine path lists and enqueues a
 // SET_MACHINE_PATH_LIST direct action for each list whose nonce advances past
 // the last one submitted.
 type Service struct {
@@ -62,13 +61,13 @@ func NewService(aq *queue.ActionQueues, responses *result.ResultStorage, manager
 
 // Run starts the polling loop. It returns immediately; the loop exits when ctx
 // is cancelled.
-func (s *Service) Run(ctx context.Context, db *gorm.DB, fetchInterval time.Duration) {
+func (s *Service) Run(ctx context.Context, src machinepath.Source, fetchInterval time.Duration) {
 	go func() {
 		ticker := time.NewTicker(fetchInterval)
 		defer ticker.Stop()
 
 		for {
-			s.poll(ctx, db)
+			s.poll(ctx, src)
 
 			select {
 			case <-ctx.Done():
@@ -81,8 +80,8 @@ func (s *Service) Run(ctx context.Context, db *gorm.DB, fetchInterval time.Durat
 
 // poll submits an action for the latest signed machine path list newer than the
 // one last submitted, if any.
-func (s *Service) poll(ctx context.Context, db *gorm.DB) {
-	nonce, toBlock, found, err := machinepath.LatestSignedList(ctx, db, s.managerAddress, s.extensionID, s.lastNonce)
+func (s *Service) poll(ctx context.Context, src machinepath.Source) {
+	nonce, found, err := src.LatestSignedNonce(ctx, s.extensionID, s.lastNonce)
 	if err != nil {
 		logger.Warnf("fetching latest signed machine path list for extension %s: %v", s.extensionID, err)
 		s.metrics.MachinepathPollObserved("fetch_error")
@@ -94,7 +93,7 @@ func (s *Service) poll(ctx context.Context, db *gorm.DB) {
 		return
 	}
 
-	action, err := machinepath.SetMachinePathListAction(ctx, db, s.managerAddress, s.governance, s.extensionID, s.chainID, nonce, toBlock)
+	action, err := machinepath.SetMachinePathListAction(ctx, src, s.managerAddress, s.governance, s.extensionID, s.chainID, nonce)
 	if err != nil {
 		logger.Warnf("creating SET_MACHINE_PATH_LIST action for nonce %d: %v", nonce, err)
 		// missing authorization evidence is a governance-config condition, not an infra fault

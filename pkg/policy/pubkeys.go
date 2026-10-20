@@ -12,10 +12,8 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
-	"github.com/flare-foundation/go-flare-common/pkg/convert"
-	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
-	"gorm.io/gorm"
+	"github.com/flare-foundation/tee-node/pkg/types"
 )
 
 const costonRegistryMessageBreakingEpoch = 5451
@@ -23,61 +21,55 @@ const costonRegistryMessageBreakingEpoch = 5451
 var costonOldVoterRegistryAddress = common.HexToAddress("0xB4B93a3A3ADa93a574E6efeb5f295bf882934cB6")
 
 var (
-	errInvalidLogCountPubKeys = errors.New("invalid number of logs")
-	errWrongAddressRecovered  = errors.New("wrong address recovered")
+	errNoRegistration        = errors.New("no voter registration")
+	errWrongAddressRecovered = errors.New("wrong address recovered")
 
 	costonChainID = big.NewInt(16)
 )
 
-// recoverPubKey recovers public key for signingPolicyAddress in signingPolicyID.
-func recoverPubKey(
-	ctx context.Context,
-	db *gorm.DB,
-	signingPolicyAddress common.Address,
-	signingPolicyID uint32,
-	voterRegistryAddress common.Address,
-	chainID *big.Int,
-) (*ecdsa.PublicKey, error) {
-	vrLogs, err := fetchVoterRegistered(ctx, db, voterRegistryAddress, signingPolicyID, signingPolicyAddress)
-	if err != nil {
-		return nil, fmt.Errorf("fetching voter registered event: %w", err)
-	}
-	if len(vrLogs) != 1 {
-		return nil, errInvalidLogCountPubKeys
+// fetchPubKeys returns the public keys of signingPolicy's voters in voter order,
+// recovered from their VoterRegistered events.
+func fetchPubKeys(ctx context.Context, src Source, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]types.PublicKey, error) {
+	if chainID.Cmp(costonChainID) == 0 && signingPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
+		voterRegistryAddress = costonOldVoterRegistryAddress
 	}
 
-	pub, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, vrLogs[0], chainID)
+	voters := signingPolicy.Voters.Voters()
+	registrations, err := src.VoterRegistrations(ctx, voterRegistryAddress, signingPolicy.RewardEpochID, voters)
 	if err != nil {
-		return nil, fmt.Errorf("recovering public key from event for %v: %w", signingPolicyAddress, err)
+		return nil, fmt.Errorf("fetching voter registrations for epoch %d: %w", signingPolicy.RewardEpochID, err)
 	}
 
-	return pub, nil
+	pubKeys := make([]types.PublicKey, len(voters))
+	for j, address := range voters {
+		pk, err := voterPubKey(address, signingPolicy.RewardEpochID, registrations[address], chainID)
+		if err != nil {
+			return nil, fmt.Errorf("recovering pub key for %v: %w", address, err)
+		}
+
+		pubKeys[j] = types.PubKeyToStruct(pk)
+	}
+
+	return pubKeys, nil
 }
 
-// fetchVoterRegistered fetches all voterRegistered event logs emitted by voterRegistry
-// with signingPolicyID and signingPolicyAddress as third and fourth topic respectively.
-//
-// There should always be at most one such event.
-func fetchVoterRegistered(
-	ctx context.Context,
-	db *gorm.DB,
-	voterRegistryAddress common.Address,
-	signingPolicyID uint32,
-	signingPolicyAddress common.Address,
-) ([]database.Log, error) {
-	topics := [4]common.Hash{}
-
-	topics[0] = voterRegisteredEventSel
-	topics[2] = convert.Uint32ToHash(signingPolicyID)
-	topics[3] = AddressToHash(signingPolicyAddress)
-
-	params := database.LogsFullParams{
-		Address: voterRegistryAddress,
-		Topics:  topics,
-		Number:  -1,
+// voterPubKey returns the key recovered from the first event matching signingPolicyAddress.
+// Only one key matches an address, so extra registrations can't change it.
+func voterPubKey(signingPolicyAddress common.Address, signingPolicyID uint32, events []*registry.RegistryVoterRegistered, chainID *big.Int) (*ecdsa.PublicKey, error) {
+	if len(events) == 0 {
+		return nil, errNoRegistration
 	}
 
-	return database.FetchLogsFull(ctx, db, params)
+	errs := make([]error, 0, len(events))
+	for _, event := range events {
+		pk, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, event, chainID)
+		if err == nil {
+			return pk, nil
+		}
+		errs = append(errs, err)
+	}
+
+	return nil, errors.Join(errs...)
 }
 
 // serializeSig serializes signature to [R||S||V-27].
@@ -120,12 +112,7 @@ func recoverPubKeyFromRegistration(identityAddress common.Address, rewardEpochID
 }
 
 // recoverPubKeyFromEvent recovers public key from VoterRegistered event.
-func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, log database.Log, chainID *big.Int) (*ecdsa.PublicKey, error) {
-	event, err := policy.ParseVoterRegisteredEvent(log)
-	if err != nil {
-		return nil, fmt.Errorf("parsing voter registered event: %w", err)
-	}
-
+func recoverPubKeyFromEvent(signingPolicyAddress common.Address, signingPolicyID uint32, event *registry.RegistryVoterRegistered, chainID *big.Int) (*ecdsa.PublicKey, error) {
 	pub, err := recoverPubKeyFromRegistration(event.Voter, signingPolicyID, &event.Signature, chainID)
 	if err != nil {
 		return nil, fmt.Errorf("recovering public key from registration: %w", err)

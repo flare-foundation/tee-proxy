@@ -3,6 +3,7 @@ package machinepath
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"math/big"
 	"testing"
 	"time"
@@ -22,11 +23,12 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/processorutils"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
-	pkgmachinepath "github.com/flare-foundation/tee-proxy/pkg/machinepath"
+	"github.com/flare-foundation/tee-proxy/pkg/config"
 	"github.com/flare-foundation/tee-proxy/pkg/storage"
 )
 
@@ -74,7 +76,7 @@ func TestPollFetchErrorIncrementsMachinepathPoll(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	s.poll(ctx, db)
+	s.poll(ctx, managerSource(db, managerAddress))
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "fetch_error"))
 	require.Zero(t, s.lastNonce)
@@ -93,7 +95,7 @@ func TestPollNoChangeIncrementsMachinepathPoll(t *testing.T) {
 
 	s := NewService(nil, nil, managerAddress, types.Governance{}, extensionID, 14, 0, m)
 
-	s.poll(context.Background(), db)
+	s.poll(context.Background(), managerSource(db, managerAddress))
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "no_change"))
 	require.Zero(t, s.lastNonce)
@@ -195,17 +197,7 @@ func newListFixture(t *testing.T, dbName string, signed bool) signedListFixture 
 		BlockNumber:     addedBlock,
 	}).Error)
 
-	require.NoError(t, db.Create(&database.Log{
-		Address:         hex.EncodeToString(managerAddress[:]),
-		Data:            "",
-		Topic0:          hex.EncodeToString(pkgmachinepath.MachinePathListSignedEventSel[:]),
-		Topic1:          hex.EncodeToString(extensionID[:]),
-		Topic2:          hex.EncodeToString(nonceTopic[:]),
-		TransactionHash: "aaaa000000000000000000000000000000000000000000000000000000000002",
-		LogIndex:        0,
-		Timestamp:       2_000,
-		BlockNumber:     signedBlock,
-	}).Error)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, nonce, signedBlock)
 
 	if signed {
 		require.NoError(t, db.Create(&database.Transaction{
@@ -232,7 +224,7 @@ func TestPollNoAuthorizationIncrementsMachinepathPoll(t *testing.T) {
 	m := metrics.New(metrics.Config{Enable: true, Node: true})
 	s := NewService(nil, nil, fx.managerAddress, types.Governance{}, fx.extensionID, fx.chainID, 0, m)
 
-	s.poll(context.Background(), fx.db)
+	s.poll(context.Background(), managerSource(fx.db, fx.managerAddress))
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "no_authorization"))
 	require.Equal(t, float64(0), machinepathPollCount(t, m, "build_error"))
@@ -262,7 +254,7 @@ func TestPollEnqueueErrorIncrementsMachinepathPoll(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	s.poll(ctx, fx.db)
+	s.poll(ctx, managerSource(fx.db, fx.managerAddress))
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "enqueue_error"))
 	require.Equal(t, float64(0), machinepathPollCount(t, m, "fetch_error"))
@@ -291,7 +283,7 @@ func TestPollWaitErrorIncrementsMachinepathPoll(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	s.poll(ctx, fx.db)
+	s.poll(ctx, managerSource(fx.db, fx.managerAddress))
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "wait_error"))
 	require.Equal(t, float64(0), machinepathPollCount(t, m, "enqueue_error"))
@@ -321,7 +313,7 @@ func TestPollConfirmedAdvancesLastNonce(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		s.poll(ctx, fx.db)
+		s.poll(ctx, managerSource(fx.db, fx.managerAddress))
 	}()
 
 	var action *types.Action
@@ -350,4 +342,81 @@ func TestPollConfirmedAdvancesLastNonce(t *testing.T) {
 
 	require.Equal(t, float64(1), machinepathPollCount(t, m, "confirmed"))
 	require.Equal(t, fx.nonce, s.lastNonce)
+}
+
+// TestPollPicksHighestSignedNonce pins the selection rule: among several lists signed
+// after lastNonce, poll submits the highest nonce, not the most recently signed one.
+func TestPollPicksHighestSignedNonce(t *testing.T) {
+	db, _ := testutil.InMemoryDB(t, t.Name())
+	require.NoError(t, db.AutoMigrate(&database.Log{}, &database.Transaction{}))
+
+	const (
+		chainID = uint64(14)
+		highest = uint64(9)
+	)
+	managerAddress := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	extensionID := common.HexToHash("0x2a")
+
+	paths := []cmpaths.IMachinePathManagerMachinePath{testutil.MachinePath(common.HexToAddress("0x33"), common.HexToAddress("0x44"))}
+	testutil.InsertPathsAdded(t, db, managerAddress, extensionID, highest, paths, 100, 0, 100)
+	governanceKey, err := crypto.GenerateKey()
+	require.NoError(t, err)
+	sig := testutil.GovernanceSignature(t, testutil.MachinePathListHash(t, chainID, extensionID, highest, paths), governanceKey)
+	testutil.InsertTx(t, db, testutil.TxRow{To: managerAddress, Input: testutil.SignMachinePathListInput(t, extensionID, highest, sig), Block: 101, Timestamp: 101, Status: 1})
+
+	// only the highest nonce has paths; picking any other fails the build
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, 3, 102)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, highest, 103)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, 5, 104)
+	testutil.InsertListSigned(t, db, managerAddress, extensionID, 1, 105) // not after lastNonce
+
+	mr := miniredis.RunT(t)
+	c := storage.NewClient(mr.Addr())
+	aq := queue.NewActionQueues(c, time.Hour, nil)
+	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
+
+	m := metrics.New(metrics.Config{Enable: true, Node: true})
+	s := NewService(aq, rs, managerAddress, types.Governance{}, extensionID, chainID, 2, m)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.poll(ctx, managerSource(db, managerAddress))
+	}()
+
+	var action *types.Action
+	require.Eventually(t, func() bool {
+		d, err := aq.Dequeue(ctx, processorutils.Direct)
+		if err != nil {
+			return false
+		}
+		action = d.Action
+		return true
+	}, 3*time.Second, 10*time.Millisecond, "poll did not enqueue the SET_MACHINE_PATH_LIST action")
+
+	var di types.DirectInstruction
+	require.NoError(t, json.Unmarshal(action.Data.Message, &di))
+	var req types.SetMachinePathListRequest
+	require.NoError(t, json.Unmarshal(di.Message, &req))
+	require.Equal(t, highest, req.Nonce)
+
+	require.NoError(t, rs.StoreResponse(ctx, &types.ActionResponse{
+		Result: types.ActionResult{ID: action.Data.ID, SubmissionTag: action.Data.SubmissionTag, Status: 1},
+	}))
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatal("poll did not return after the node confirmed the action")
+	}
+
+	require.Equal(t, highest, s.lastNonce)
+}
+
+// managerSource reads the test fixtures in db through the indexer backend.
+func managerSource(db *gorm.DB, manager common.Address) *indexer.Source {
+	return indexer.New(db, config.Addresses{MachinePathManager: manager}, database.SyncParams{})
 }

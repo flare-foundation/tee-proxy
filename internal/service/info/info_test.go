@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/metrics"
 	"github.com/flare-foundation/tee-proxy/internal/service/result"
 	"github.com/flare-foundation/tee-proxy/internal/testutil"
@@ -32,6 +33,7 @@ import (
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // signedTeeInfoResponse builds an ActionResponse carrying resp, signed by key over the
@@ -88,7 +90,7 @@ func TestInsertBlock(t *testing.T) {
 	aq := queue.NewActionQueues(c, time.Hour, nil)
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
-	s := NewService(db, aq, rs, &config.InfoTiming{
+	s := NewService(chainSource(db), aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,
 		CycleQueueResponseWait: 1 * time.Second,
 	}, &attestation.Config{Enabled: false}, nil)
@@ -165,7 +167,7 @@ func TestAttestationStickyError(t *testing.T) {
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
 	// Enabled=true with AllowMagicPass=false rejects the magic_pass response below.
-	s := NewService(db, aq, rs, &config.InfoTiming{
+	s := NewService(chainSource(db), aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,
 		CycleQueueResponseWait: 1 * time.Second,
 	}, &attestation.Config{Enabled: true, AllowMagicPass: false}, nil)
@@ -246,7 +248,7 @@ func TestNewServiceLastUpdatedStartsNow(t *testing.T) {
 	aq := queue.NewActionQueues(c, time.Hour, nil)
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
-	s := NewService(db, aq, rs, &config.InfoTiming{
+	s := NewService(chainSource(db), aq, rs, &config.InfoTiming{
 		CycleInternal:          10 * time.Millisecond,
 		CycleQueueResponseWait: 1 * time.Second,
 	}, &attestation.Config{Enabled: false}, nil)
@@ -311,7 +313,7 @@ func TestNewServicePreinitsStageLabels(t *testing.T) {
 	rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 
 	m := metrics.New(metrics.Config{Enable: true, Info: true})
-	NewService(db, aq, rs, &config.InfoTiming{
+	NewService(chainSource(db), aq, rs, &config.InfoTiming{
 		CycleInternal:          time.Hour,
 		CycleQueueResponseWait: time.Second,
 	}, &attestation.Config{Enabled: false}, m)
@@ -461,7 +463,7 @@ func newInfoServiceWithBlock(t *testing.T, m *metrics.Metrics, ac *attestation.C
 		RetryDelay:             10 * time.Millisecond,
 	}
 
-	return NewService(db, aq, rs, tc, ac, m), aq, rs
+	return NewService(chainSource(db), aq, rs, tc, ac, m), aq, rs
 }
 
 // nextInfoAction waits for the next TEE_INFO action on the direct queue and returns it
@@ -643,7 +645,7 @@ func TestUpdateInfoStageLabels(t *testing.T) {
 				aq := queue.NewActionQueues(c, time.Hour, nil)
 				rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 				tc := &config.InfoTiming{CycleInternal: time.Hour, CycleQueueResponseWait: time.Second}
-				svc := NewService(db, aq, rs, tc, &attestation.Config{Enabled: false}, m)
+				svc := NewService(chainSource(db), aq, rs, tc, &attestation.Config{Enabled: false}, m)
 
 				// FetchLatestBlock retries a genuine "no blocks" error under an exponential
 				// backoff (up to go-flare-common's 15s maxQueryDuration); bound the context so
@@ -672,7 +674,7 @@ func TestUpdateInfoStageLabels(t *testing.T) {
 				aq := queue.NewActionQueues(c, time.Hour, nil)
 				rs := result.NewStorage(testutil.NewMemStorage[*types.ActionResponse](), storage.NewNotifier(c), time.Hour, time.Hour)
 				tc := &config.InfoTiming{CycleInternal: time.Hour, CycleQueueResponseWait: time.Second}
-				svc := NewService(db, aq, rs, tc, &attestation.Config{Enabled: false}, m)
+				svc := NewService(chainSource(db), aq, rs, tc, &attestation.Config{Enabled: false}, m)
 
 				mr.Close()
 
@@ -838,4 +840,9 @@ func TestUpdateInfoStageLabels(t *testing.T) {
 				"stage %q must not be incremented", tc.otherStage)
 		})
 	}
+}
+
+// chainSource reads the test fixtures in db through the indexer backend.
+func chainSource(db *gorm.DB) *indexer.Source {
+	return indexer.New(db, config.Addresses{}, database.SyncParams{})
 }
