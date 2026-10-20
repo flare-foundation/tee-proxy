@@ -52,29 +52,29 @@ func init() {
 	if err != nil {
 		panic(fmt.Errorf("loading relay ABI: %w", err))
 	}
-	signingPolicyInitializedEventSel = event(relayABI, "SigningPolicyInitialized").ID
+	signingPolicyInitializedEventSel = mustEvent(relayABI, "SigningPolicyInitialized").ID
 
 	registryABI, err := registry.RegistryMetaData.GetAbi()
 	if err != nil {
 		panic(fmt.Errorf("loading voterRegistry ABI: %w", err))
 	}
-	voterRegisteredEventSel = event(registryABI, "VoterRegistered").ID
+	voterRegisteredEventSel = mustEvent(registryABI, "VoterRegistered").ID
 
 	fsmABI, err := system.FlareSystemsManagerMetaData.GetAbi()
 	if err != nil {
 		panic(fmt.Errorf("loading flareSystemsManager ABI: %w", err))
 	}
-	copy(signNewSigningPolicySel[:], method(fsmABI, "signNewSigningPolicy").ID)
+	copy(signNewSigningPolicySel[:], mustMethod(fsmABI, "signNewSigningPolicy").ID)
 
 	managerABI, err := machinepathmanager.MachinePathManagerMetaData.GetAbi()
 	if err != nil {
 		panic(fmt.Errorf("loading machinePathManager ABI: %w", err))
 	}
-	machinePathListSignedEventSel = event(managerABI, "MachinePathListSigned").ID
-	machinePathsAddedEventSel = event(managerABI, "MachinePathsAdded").ID
-	machinePathListApprovedEventSel = event(managerABI, "MachinePathListApproved").ID
+	machinePathListSignedEventSel = mustEvent(managerABI, "MachinePathListSigned").ID
+	machinePathsAddedEventSel = mustEvent(managerABI, "MachinePathsAdded").ID
+	machinePathListApprovedEventSel = mustEvent(managerABI, "MachinePathListApproved").ID
 
-	signMethod := method(managerABI, "signMachinePathList")
+	signMethod := mustMethod(managerABI, "signMachinePathList")
 	copy(signMachinePathListSel[:], signMethod.ID)
 	signMachinePathListArgs = signMethod.Inputs
 
@@ -84,7 +84,7 @@ func init() {
 	}
 }
 
-func event(a *abi.ABI, name string) abi.Event {
+func mustEvent(a *abi.ABI, name string) abi.Event {
 	e, ok := a.Events[name]
 	if !ok {
 		panic(errors.New(name + " event not found in ABI"))
@@ -92,7 +92,7 @@ func event(a *abi.ABI, name string) abi.Event {
 	return e
 }
 
-func method(a *abi.ABI, name string) abi.Method {
+func mustMethod(a *abi.ABI, name string) abi.Method {
 	m, ok := a.Methods[name]
 	if !ok {
 		panic(errors.New(name + " method not found in ABI"))
