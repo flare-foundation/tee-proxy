@@ -30,7 +30,7 @@ func UpdateFailureReason(err error) string {
 		return "pubkey_mismatch"
 	case errors.Is(err, ErrDeadlineExceeded):
 		return "sig_deadline"
-	case errors.Is(err, ErrTooManyErrors), errors.Is(err, errInvalidLogCountPubKeys):
+	case errors.Is(err, ErrTooManyErrors), errors.Is(err, errNoRegistration):
 		return "indexer"
 	case errors.Is(err, errNotConsecutivePolicy):
 		return "not_consecutive"

@@ -130,6 +130,7 @@ func TestInitializePolicyActionPicksOldestOfN(t *testing.T) {
 func TestInitializePolicyActionRegistrationRules(t *testing.T) {
 	const epoch = 5
 
+	// wantReason "" expects success
 	tests := []struct {
 		name       string
 		register   func(t *testing.T, db *gorm.DB, keys []*ecdsa.PrivateKey)
@@ -154,7 +155,17 @@ func TestInitializePolicyActionRegistrationRules(t *testing.T) {
 				}
 				testutil.InsertRegistration(t, db, rolloverAddresses.VoterRegistry, rolloverChainID, epoch, identity(keys[0]), keys[0], keys[0], 91)
 			},
-			wantReason: "indexer",
+		},
+		{
+			// the invalid event is the newest, so it is tried first
+			name: "invalid and valid registration",
+			register: func(t *testing.T, db *gorm.DB, keys []*ecdsa.PrivateKey) {
+				t.Helper()
+				for _, k := range keys {
+					testutil.InsertRegistration(t, db, rolloverAddresses.VoterRegistry, rolloverChainID, epoch, identity(k), k, k, 90)
+				}
+				testutil.InsertRegistration(t, db, rolloverAddresses.VoterRegistry, rolloverChainID, epoch, identity(keys[0]), keys[0], keys[1], 91)
+			},
 		},
 		{
 			name: "signed by another key",
@@ -175,9 +186,15 @@ func TestInitializePolicyActionRegistrationRules(t *testing.T) {
 			testutil.InsertPolicyEvent(t, db, rolloverAddresses.Relay, testutil.PolicyEvent(epoch, keys, []uint16{1, 1, 1}, 1), 100)
 			tc.register(t, db, keys)
 
-			_, _, _, err := policy.InitializePolicyAction(context.Background(), source(db), rolloverAddresses, 0, big.NewInt(rolloverChainID))
-			require.Error(t, err)
+			action, _, _, err := policy.InitializePolicyAction(context.Background(), source(db), rolloverAddresses, 0, big.NewInt(rolloverChainID))
 			require.Equal(t, tc.wantReason, policy.UpdateFailureReason(err))
+			if tc.wantReason != "" {
+				return
+			}
+
+			var req types.InitializePolicyRequest
+			decodeDirect(t, action, &req)
+			require.Equal(t, pubKeys(keys), req.PublicKeys)
 		})
 	}
 }
