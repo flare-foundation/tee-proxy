@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
@@ -140,7 +141,7 @@ type Chain struct {
 	Source         string        `toml:"source"`           // "indexer" (default) or "rpc".
 	URL            string        `toml:"url"`              // JSON-RPC endpoint for source "rpc". Can also be set via env variable (see URLVariable).
 	URLVariable    string        `toml:"url_variable"`     // Name of the environment variable that stores the endpoint. Defaults to NODE_URL.
-	APIKey         string        `toml:"api_key"`          // Optional endpoint API key, sent as the x-apikey query parameter like the C-chain indexer does. Can also be set via env variable (see APIKeyVariable).
+	APIKey         string        `toml:"api_key"`          // Optional endpoint API key, sent as the x-apikey query parameter. Can also be set via env variable (see APIKeyVariable).
 	APIKeyVariable string        `toml:"api_key_variable"` // Name of the environment variable that stores the API key. Defaults to NODE_API_KEY.
 	MaxLogsRange   uint64        `toml:"max_logs_range"`   // Blocks per eth_getLogs request. Defaults to 30.
 	MaxBatchSize   int           `toml:"max_batch_size"`   // Calls per JSON-RPC batch request. Defaults to 50.
@@ -164,10 +165,7 @@ func (c *Chain) validate() error {
 		return errChainSourceUnknown
 	}
 
-	variable := c.URLVariable
-	if variable == "" {
-		variable = DefaultChainURLVariable
-	}
+	variable := cmp.Or(c.URLVariable, DefaultChainURLVariable)
 	c.URL = resolveFromEnv(variable, DefaultChainURLVariable, c.URL)
 	if c.URL == "" {
 		return fmt.Errorf("%w (set chain.url or the %s env variable)", errChainURLNotSet, variable)

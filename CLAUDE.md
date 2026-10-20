@@ -52,6 +52,7 @@ Requires: Redis server and a chain source — a MySQL database with C-chain inde
 - **Generic storage** (`pkg/storage/`): Redis-backed `Storage[T]` with get/set/queue/pub-sub operations, namespaced keys.
 - **Status mapping** (`pkg/status/`): Maps domain errors to HTTP status codes.
 - **Chain sources** (`internal/chain/`): `indexer` and `jsonrpc` backends behind the `policy.Source` and `machinepath.Source` interfaces; they only fetch, all verification is shared.
+  The parent package `chain` holds the contract ABI items both read.
 - **Liveness** (`internal/liveness/`): Health checks monitoring chain source and info service delays.
 
 ### Data Flow

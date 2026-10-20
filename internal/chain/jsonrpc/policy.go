@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,10 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
+	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
+
+	"github.com/flare-foundation/tee-proxy/internal/chain"
 )
 
 var (
@@ -118,7 +123,7 @@ func (s *Source) signingPolicy(ctx context.Context, epoch, last uint32) (*relay.
 		FromBlock: block,
 		ToBlock:   block,
 		Addresses: []common.Address{s.addresses.Relay},
-		Topics:    [][]common.Hash{{signingPolicyInitializedEventSel}, {epochTopic(epoch)}},
+		Topics:    [][]common.Hash{{chain.SigningPolicyInitialized.ID}, {convert.Uint32ToHash(epoch)}},
 	}
 
 	var logs []types.Log
@@ -140,7 +145,7 @@ func (s *Source) signingPolicy(ctx context.Context, epoch, last uint32) (*relay.
 		return nil, false, fmt.Errorf("epoch %d: %w", epoch, errPolicyEventAmbiguous)
 	}
 
-	event, err := relayFilterer.ParseSigningPolicyInitialized(logs[0])
+	event, err := cpolicy.RelayFilterer.ParseSigningPolicyInitialized(logs[0])
 	if err != nil {
 		return nil, false, fmt.Errorf("parsing signing policy %d event: %w", epoch, err)
 	}
@@ -172,7 +177,7 @@ func (s *Source) VoterRegistrations(ctx context.Context, registryAddress common.
 
 	logs, err := s.filterLogs(ctx, ethereum.FilterQuery{
 		Addresses: []common.Address{registryAddress},
-		Topics:    [][]common.Hash{{voterRegisteredEventSel}, nil, {epochTopic(epoch)}},
+		Topics:    [][]common.Hash{{chain.VoterRegistered.ID}, nil, {convert.Uint32ToHash(epoch)}},
 	}, opened, info.startBlock)
 	if err != nil {
 		return nil, fmt.Errorf("fetching voter registered events: %w", err)
@@ -185,7 +190,7 @@ func (s *Source) VoterRegistrations(ctx context.Context, registryAddress common.
 
 	out := make(map[common.Address][]*registry.RegistryVoterRegistered, len(signers))
 	for i := range logs {
-		event, err := registryFilterer.ParseVoterRegistered(logs[i])
+		event, err := cpolicy.RegistryFilterer.ParseVoterRegistered(logs[i])
 		if err != nil {
 			return nil, fmt.Errorf("parsing voter registered event: %w", err)
 		}
@@ -198,9 +203,8 @@ func (s *Source) VoterRegistrations(ctx context.Context, registryAddress common.
 }
 
 // PolicySignatures returns the calldata of the signNewSigningPolicy transactions sent
-// to the FlareSystemsManager for epoch, once the FSM has recorded the end of signing;
-// nothing before. The FSM accepts no signature after the threshold, so the set is final,
-// and its threshold rule is the one the caller applies. from and to are not used.
+// to the FlareSystemsManager for epoch once the FSM records the end of signing, when
+// the set is final; nothing before. from and to are not used.
 func (s *Source) PolicySignatures(ctx context.Context, epoch uint32, _, _ uint64) ([][]byte, error) {
 	info, err := s.signInfo(ctx, epoch)
 	if err != nil {
@@ -212,7 +216,7 @@ func (s *Source) PolicySignatures(ctx context.Context, epoch uint32, _, _ uint64
 
 	logs, err := s.filterLogs(ctx, ethereum.FilterQuery{
 		Addresses: []common.Address{s.addresses.FlareSystemsManager},
-		Topics:    [][]common.Hash{{signingPolicySignedEventSel}, {epochTopic(epoch)}},
+		Topics:    [][]common.Hash{{signingPolicySignedEventSel}, {convert.Uint32ToHash(epoch)}},
 	}, info.startBlock, info.endBlock)
 	if err != nil {
 		return nil, fmt.Errorf("fetching signing policy signed events: %w", err)
@@ -225,8 +229,8 @@ func (s *Source) PolicySignatures(ctx context.Context, epoch uint32, _, _ uint64
 
 	inputs := make([][]byte, 0, len(txs))
 	for _, tx := range txs {
-		// calls through another contract carry no decodable signature, as with the indexer
-		if tx.To == nil || *tx.To != s.addresses.FlareSystemsManager || len(tx.Input) < 4 || string(tx.Input[:4]) != string(signNewSigningPolicySel) {
+		// calls through another contract carry no decodable signature
+		if tx.To == nil || *tx.To != s.addresses.FlareSystemsManager || !bytes.HasPrefix(tx.Input, chain.SignNewSigningPolicy.ID) {
 			continue
 		}
 		inputs = append(inputs, tx.Input)
@@ -281,8 +285,4 @@ func (s *Source) transactions(ctx context.Context, logs []types.Log) ([]*transac
 
 func epochBig(epoch uint32) *big.Int {
 	return new(big.Int).SetUint64(uint64(epoch))
-}
-
-func epochTopic(epoch uint32) common.Hash {
-	return common.BigToHash(epochBig(epoch))
 }

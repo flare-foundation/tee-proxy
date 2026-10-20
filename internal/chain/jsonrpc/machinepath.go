@@ -91,10 +91,8 @@ func (s *Source) SignedList(ctx context.Context, extensionID common.Hash, nonce 
 	return out, nil
 }
 
-// safeApproval rebuilds the Safe approval confirmed on chain for governanceHash.
-// confirmMachinePathListSafeApproval verifies the owners' signatures against a fixed
-// transaction — a plain CALL of approveMachinePathList on the manager with zero value
-// and gas fields — so that transaction is the one the signatures cover.
+// safeApproval rebuilds the Safe approval confirmed on chain for governanceHash: the
+// fixed transaction confirmMachinePathListSafeApproval checks the owners' signatures against.
 func (s *Source) safeApproval(ctx context.Context, ext, nonce *big.Int, governanceHash common.Hash) (safe.Approval, bool, error) {
 	var artifact machinepathmanager.IMachinePathManagerSafeApprovalArtifact
 	err := s.retry(ctx, func(ctx context.Context) (err error) {

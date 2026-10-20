@@ -190,3 +190,17 @@ func GeneratePolicy(n int, randomWeights bool) (*policy.SigningPolicy, []*ecdsa.
 
 	return sp, privKeys
 }
+
+// Keys returns n fresh private keys.
+func Keys(t *testing.T, n int) []*ecdsa.PrivateKey {
+	t.Helper()
+
+	keys := make([]*ecdsa.PrivateKey, n)
+	for i := range keys {
+		k, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		keys[i] = k
+	}
+
+	return keys
+}

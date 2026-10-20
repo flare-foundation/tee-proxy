@@ -2,7 +2,6 @@ package jsonrpc
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	cmpaths "github.com/flare-foundation/go-flare-common/pkg/tee/structs/machinepath"
 	ttypes "github.com/flare-foundation/tee-node/pkg/types"
@@ -50,19 +50,6 @@ func dial(t *testing.T, c *chaintest.Chain) *Source {
 	t.Cleanup(src.Close)
 
 	return src
-}
-
-func newKeys(t *testing.T, n int) []*ecdsa.PrivateKey {
-	t.Helper()
-
-	keys := make([]*ecdsa.PrivateKey, n)
-	for i := range keys {
-		k, err := crypto.GenerateKey()
-		require.NoError(t, err)
-		keys[i] = k
-	}
-
-	return keys
 }
 
 func TestDialChecks(t *testing.T) {
@@ -104,6 +91,8 @@ func TestDialChecks(t *testing.T) {
 			"http://127.0.0.1:1/secret-path",
 			"http://127.0.0.1:bad/secret-path",
 			"http://user:secret-pass@127.0.0.1:1/secret-path",
+			"http://127.0.0.1:1/secret path",
+			"http://127.0.0.1:1/secret-path\n",
 		} {
 			for _, key := range []string{"", "secret-key", "secret+key/="} {
 				cfg := chainConfig(endpoint)
@@ -195,7 +184,7 @@ func TestSigningPolicy(t *testing.T) {
 	shortRetries(t)
 
 	c := chaintest.New(t, chainID, 5)
-	keys := newKeys(t, 2)
+	keys := testutil.Keys(t, 2)
 	c.AddPolicy(t, testutil.PolicyEvent(6, keys, []uint16{1, 1}, 1), 100)
 	c.AddPolicy(t, testutil.PolicyEvent(7, keys, []uint16{1, 1}, 1), 200)
 	src := dial(t, c)
@@ -249,7 +238,7 @@ func TestSigningPolicy(t *testing.T) {
 func TestVoterRegistrationsScansWindow(t *testing.T) {
 	c := chaintest.New(t, chainID, 0)
 	c.Node.MaxLogsRange = 30
-	keys := newKeys(t, 3)
+	keys := testutil.Keys(t, 3)
 	signers := []common.Address{crypto.PubkeyToAddress(keys[0].PublicKey), crypto.PubkeyToAddress(keys[1].PublicKey)}
 
 	c.AddRegistration(t, 7, common.HexToAddress("0xa"), keys[0], keys[0], 150)
@@ -273,7 +262,7 @@ func TestVoterRegistrationsScansWindow(t *testing.T) {
 
 func TestPolicySignaturesWaitForSigningEnd(t *testing.T) {
 	c := chaintest.New(t, chainID, 0)
-	keys := newKeys(t, 3)
+	keys := testutil.Keys(t, 3)
 	c.AddPolicy(t, testutil.PolicyEvent(7, keys, []uint16{1, 1, 1}, 1), 100)
 	hash := common.HexToHash("0x77")
 	c.SignPolicy(t, 7, hash, keys[0], 101, 1)
@@ -281,7 +270,7 @@ func TestPolicySignaturesWaitForSigningEnd(t *testing.T) {
 	c.SignPolicy(t, 7, hash, keys[2], 103, 1)
 	// a SigningPolicySigned emitted by a call through another contract
 	via := c.Node.AddTx(103, common.HexToAddress("0x5afe"), testutil.SignNewSigningPolicyInput(t, 7, hash, keys[1]))
-	c.Node.AddLog(types.Log{Address: chaintest.Addresses.FlareSystemsManager, Topics: []common.Hash{signingPolicySignedEventSel, epochTopic(7)}, BlockNumber: 103, TxIndex: via, TxHash: common.Hash{9}})
+	c.Node.AddLog(types.Log{Address: chaintest.Addresses.FlareSystemsManager, Topics: []common.Hash{signingPolicySignedEventSel, convert.Uint32ToHash(7)}, BlockNumber: 103, TxIndex: via, TxHash: common.Hash{9}})
 	src := dial(t, c)
 
 	inputs, err := src.PolicySignatures(context.Background(), 7, 0, 0)
@@ -303,12 +292,12 @@ func TestPolicySignaturesRetriesMissingTransaction(t *testing.T) {
 	shortRetries(t)
 
 	c := chaintest.New(t, chainID, 0)
-	keys := newKeys(t, 2)
+	keys := testutil.Keys(t, 2)
 	c.AddPolicy(t, testutil.PolicyEvent(7, keys, []uint16{1, 1}, 1), 100)
 	hash := common.HexToHash("0x77")
 	c.SignPolicy(t, 7, hash, keys[0], 101, 1)
 	late := testutil.SignNewSigningPolicyInput(t, 7, hash, keys[1])
-	c.Node.AddLog(types.Log{Address: chaintest.Addresses.FlareSystemsManager, Topics: []common.Hash{signingPolicySignedEventSel, epochTopic(7)}, BlockNumber: 102, TxIndex: 0, TxHash: common.Hash{2}})
+	c.Node.AddLog(types.Log{Address: chaintest.Addresses.FlareSystemsManager, Topics: []common.Hash{signingPolicySignedEventSel, convert.Uint32ToHash(7)}, BlockNumber: 102, TxIndex: 0, TxHash: common.Hash{2}})
 	c.EndSigning(7, 102)
 	src := dial(t, c)
 
@@ -326,7 +315,7 @@ func TestPolicySignaturesBatchSize(t *testing.T) {
 
 	c := chaintest.New(t, chainID, 0)
 	c.Node.SetBatchLimit(2)
-	keys := newKeys(t, 3)
+	keys := testutil.Keys(t, 3)
 	c.AddPolicy(t, testutil.PolicyEvent(7, keys, []uint16{1, 1, 1}, 1), 100)
 	hash := common.HexToHash("0x77")
 	for i, k := range keys {

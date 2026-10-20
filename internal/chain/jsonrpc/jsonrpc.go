@@ -2,6 +2,7 @@
 package jsonrpc
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/system"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
+	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 
@@ -29,8 +31,7 @@ import (
 	"github.com/flare-foundation/tee-proxy/pkg/policy"
 )
 
-// retryBudget bounds the retries of one read, as the indexer bounds its queries;
-// a longer per-request timeout extends it to one full attempt.
+// retryBudget bounds the retries of one read, or one attempt when the timeout is longer.
 // It is a var so tests can shrink it.
 var retryBudget = 15 * time.Second
 
@@ -77,7 +78,7 @@ var (
 func Dial(ctx context.Context, cfg config.Chain, addresses config.Addresses, chainID uint64, sync database.SyncParams) (*Source, error) {
 	endpoint, opts, err := endpointURL(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("parsing chain url: %w", redact(err, cfg.URL, cfg.APIKey))
+		return nil, fmt.Errorf("parsing chain url: %w", err)
 	}
 	secrets := []string{endpoint, cfg.URL, url.QueryEscape(cfg.APIKey), cfg.APIKey}
 
@@ -109,16 +110,13 @@ func Dial(ctx context.Context, cfg config.Chain, addresses config.Addresses, cha
 	return s, nil
 }
 
-// endpointURL is cfg.URL carrying cfg.APIKey as the x-apikey query parameter, as the
-// C-chain indexer sends it. Its user info is moved to a basic auth header: transport
-// errors would print the URL with the password masked, which redaction can't match.
+// endpointURL is cfg.URL with cfg.APIKey as the x-apikey query parameter and its user
+// info as a basic auth header, in the form transport errors print so redaction matches.
 func endpointURL(cfg config.Chain) (string, []rpc.ClientOption, error) {
 	u, err := url.Parse(cfg.URL)
 	if err != nil {
-		return "", nil, err
-	}
-	if u.User == nil && cfg.APIKey == "" {
-		return cfg.URL, nil, nil
+		// the url.Error quotes the URL, escaping what redaction would match
+		return "", nil, errors.Unwrap(err)
 	}
 
 	var opts []rpc.ClientOption
@@ -189,11 +187,9 @@ func (s *Source) check(ctx context.Context, chainID uint64) error {
 	case err != nil:
 		return fmt.Errorf("fetching relay's initial reward epoch: %w", err)
 	default:
-		initial := new(big.Int).SetBytes(out)
-		if !initial.IsUint64() || initial.Uint64() > uint64(^uint32(0)) {
-			return fmt.Errorf("relay's initial reward epoch %v out of range", initial)
+		if s.initialEpoch, err = convert.BigToUint32Safe(new(big.Int).SetBytes(out)); err != nil {
+			return fmt.Errorf("relay's initial reward epoch: %w", err)
 		}
-		s.initialEpoch = uint32(initial.Uint64())
 	}
 
 	return nil
@@ -240,8 +236,7 @@ func (s *Source) Head(ctx context.Context) (uint64, uint64, error) {
 	return uint64(b.Number), uint64(b.Timestamp), err
 }
 
-// WaitSynced blocks until the node's newest block is recent, as the indexer
-// backend waits for the indexer.
+// WaitSynced blocks until the node's newest block is recent.
 func (s *Source) WaitSynced(ctx context.Context) error {
 	for k := 0; ; k++ {
 		_, timestamp, err := s.Head(ctx)
@@ -272,7 +267,7 @@ func (s *Source) opts(ctx context.Context) *bind.CallOpts {
 }
 
 // retry runs f with a per-request timeout, retrying failures with backoff for up to
-// retryBudget. Contract reverts are answers, not failures, and return at once.
+// retryBudget. Contract reverts return at once.
 func (s *Source) retry(ctx context.Context, f func(ctx context.Context) error) error {
 	ctx, cancel := context.WithTimeout(ctx, max(retryBudget, s.timeout))
 	defer cancel()
@@ -320,7 +315,7 @@ func revertedWith(err error, selector []byte) bool {
 		return false
 	}
 	raw, decodeErr := hexutil.Decode(data)
-	return decodeErr == nil && len(raw) >= 4 && string(raw[:4]) == string(selector)
+	return decodeErr == nil && bytes.HasPrefix(raw, selector)
 }
 
 // redactedError hides the endpoint and API key from error text.

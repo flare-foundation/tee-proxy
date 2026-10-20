@@ -1,16 +1,12 @@
 package policy
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
-	"github.com/flare-foundation/go-flare-common/pkg/contracts/system"
 )
 
 var (
-	signNewSigningPolicyArgs abi.Arguments // FlareSystemsManager signNewSigningPolicy.
-
 	// msgArgs is for the new VoterRegistry format: messageHash = keccak256(abi.encode(block.chainid, rewardEpochId, _voter))
 	msgArgs abi.Arguments
 	// msgArgsLegacy is for the old VoterRegistry format (without chainId): messageHash = keccak256(abi.encode(rewardEpochId, _voter))
@@ -19,18 +15,6 @@ var (
 )
 
 func init() {
-	// flare systems manager
-	flareSystemsManagerABI, err := system.FlareSystemsManagerMetaData.GetAbi()
-	if err != nil {
-		panic(fmt.Errorf("loading flareSystemsManager ABI: %w", err))
-	}
-
-	signNewSigningPolicyMethod, ok := flareSystemsManagerABI.Methods["signNewSigningPolicy"]
-	if !ok {
-		panic(errors.New("signNewSigningPolicy method not found in flareSystemsManager ABI"))
-	}
-	signNewSigningPolicyArgs = signNewSigningPolicyMethod.Inputs
-
 	// registration message to sign abi
 	// See registerVoter method from VoterRegistry smart contract:
 	// messageHash = keccak256(abi.encode(block.chainid, rewardEpochId, _voter))
