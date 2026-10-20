@@ -21,14 +21,14 @@ const costonRegistryMessageBreakingEpoch = 5451
 var costonOldVoterRegistryAddress = common.HexToAddress("0xB4B93a3A3ADa93a574E6efeb5f295bf882934cB6")
 
 var (
-	errInvalidLogCountPubKeys = errors.New("invalid number of logs")
-	errWrongAddressRecovered  = errors.New("wrong address recovered")
+	errNoRegistration        = errors.New("no voter registration")
+	errWrongAddressRecovered = errors.New("wrong address recovered")
 
 	costonChainID = big.NewInt(16)
 )
 
 // fetchPubKeys returns the public keys of signingPolicy's voters in voter order,
-// recovered from their VoterRegistered events. Each voter must have exactly one.
+// recovered from their VoterRegistered events.
 func fetchPubKeys(ctx context.Context, src Source, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]types.PublicKey, error) {
 	if chainID.Cmp(costonChainID) == 0 && signingPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
 		voterRegistryAddress = costonOldVoterRegistryAddress
@@ -42,12 +42,7 @@ func fetchPubKeys(ctx context.Context, src Source, voterRegistryAddress common.A
 
 	pubKeys := make([]types.PublicKey, len(voters))
 	for j, address := range voters {
-		events := registrations[address]
-		if len(events) != 1 {
-			return nil, fmt.Errorf("recovering pub key for %v: %w", address, errInvalidLogCountPubKeys)
-		}
-
-		pk, err := recoverPubKeyFromEvent(address, signingPolicy.RewardEpochID, events[0], chainID)
+		pk, err := voterPubKey(address, signingPolicy.RewardEpochID, registrations[address], chainID)
 		if err != nil {
 			return nil, fmt.Errorf("recovering pub key for %v: %w", address, err)
 		}
@@ -56,6 +51,25 @@ func fetchPubKeys(ctx context.Context, src Source, voterRegistryAddress common.A
 	}
 
 	return pubKeys, nil
+}
+
+// voterPubKey returns the key recovered from the first event matching signingPolicyAddress.
+// Only one key matches an address, so extra registrations can't change it.
+func voterPubKey(signingPolicyAddress common.Address, signingPolicyID uint32, events []*registry.RegistryVoterRegistered, chainID *big.Int) (*ecdsa.PublicKey, error) {
+	if len(events) == 0 {
+		return nil, errNoRegistration
+	}
+
+	errs := make([]error, 0, len(events))
+	for _, event := range events {
+		pk, err := recoverPubKeyFromEvent(signingPolicyAddress, signingPolicyID, event, chainID)
+		if err == nil {
+			return pk, nil
+		}
+		errs = append(errs, err)
+	}
+
+	return nil, errors.Join(errs...)
 }
 
 // serializeSig serializes signature to [R||S||V-27].
