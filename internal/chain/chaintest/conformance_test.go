@@ -48,19 +48,6 @@ func backends(t *testing.T, c *chaintest.Chain) map[string]backend {
 	}
 }
 
-func newKeys(t *testing.T, n int) []*ecdsa.PrivateKey {
-	t.Helper()
-
-	keys := make([]*ecdsa.PrivateKey, n)
-	for i := range keys {
-		k, err := crypto.GenerateKey()
-		require.NoError(t, err)
-		keys[i] = k
-	}
-
-	return keys
-}
-
 func identity(k *ecdsa.PrivateKey) common.Address {
 	a := crypto.PubkeyToAddress(k.PublicKey)
 	return common.BytesToAddress(crypto.Keccak256(a[:]))
@@ -80,7 +67,7 @@ func directRequest(t *testing.T, action *types.Action) json.RawMessage {
 // one history; both sources must give the TEE node identical requests.
 func TestPolicyConformance(t *testing.T) {
 	c := chaintest.New(t, chainID, 4)
-	keys := newKeys(t, 3)
+	keys := testutil.Keys(t, 3)
 	weights := []uint16{300, 300, 600}
 
 	events := map[uint32]*cpolicy.SigningPolicy{}
@@ -149,7 +136,7 @@ func TestPolicyConformance(t *testing.T) {
 // longer served; both sources must skip it alike.
 func TestPolicyConformanceShallowHistory(t *testing.T) {
 	c := chaintest.New(t, chainID, 0)
-	keys := newKeys(t, 2)
+	keys := testutil.Keys(t, 2)
 	c.SetSignInfo(5, 500, 0) // recorded by the FSM, event gone from both stores
 	for i, epoch := range []uint32{6, 7} {
 		start := uint64(1000 * (i + 1))
@@ -199,7 +186,7 @@ func TestMachinePathConformance(t *testing.T) {
 	c := chaintest.New(t, chainID, 0)
 	ext := common.HexToHash("0x2a")
 
-	signerKeys := newKeys(t, 2)
+	signerKeys := testutil.Keys(t, 2)
 	signers := []common.Address{crypto.PubkeyToAddress(signerKeys[0].PublicKey), crypto.PubkeyToAddress(signerKeys[1].PublicKey)}
 	signedPaths := []cmpaths.IMachinePathManagerMachinePath{
 		testutil.MachinePath(common.HexToAddress("0xa0"), common.HexToAddress("0xb0")),

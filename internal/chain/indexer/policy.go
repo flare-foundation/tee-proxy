@@ -11,13 +11,15 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/database"
 	cpolicy "github.com/flare-foundation/go-flare-common/pkg/policy"
+
+	"github.com/flare-foundation/tee-proxy/internal/chain"
 )
 
 // LatestSigningPolicies returns up to n most recent SigningPolicyInitialized events, newest first.
 func (s *Source) LatestSigningPolicies(ctx context.Context, n int) ([]*relay.RelaySigningPolicyInitialized, error) {
 	logs, err := database.FetchLatestLogsByAddressAndTopic0(ctx, s.db, database.LatestLogsParams{
 		Address: s.addresses.Relay,
-		Topic0:  signingPolicyInitializedEventSel,
+		Topic0:  chain.SigningPolicyInitialized.ID,
 		Number:  n,
 	})
 	if err != nil {
@@ -39,7 +41,7 @@ func (s *Source) LatestSigningPolicies(ctx context.Context, n int) ([]*relay.Rel
 // the zero topic cannot be filtered on and the newest event is returned instead.
 func (s *Source) SigningPolicy(ctx context.Context, epoch uint32) (*relay.RelaySigningPolicyInitialized, bool, error) {
 	topics := [4]common.Hash{}
-	topics[0] = signingPolicyInitializedEventSel
+	topics[0] = chain.SigningPolicyInitialized.ID
 	topics[1] = convert.Uint32ToHash(epoch)
 
 	logs, err := database.FetchLogsFull(ctx, s.db, database.LogsFullParams{
@@ -69,7 +71,7 @@ func (s *Source) VoterRegistrations(ctx context.Context, registryAddress common.
 
 	for _, signer := range signers {
 		topics := [4]common.Hash{}
-		topics[0] = voterRegisteredEventSel
+		topics[0] = chain.VoterRegistered.ID
 		topics[2] = convert.Uint32ToHash(epoch)
 		topics[3] = addressToHash(signer)
 
@@ -101,7 +103,7 @@ func (s *Source) VoterRegistrations(ctx context.Context, registryAddress common.
 func (s *Source) PolicySignatures(ctx context.Context, _ uint32, from, to uint64) ([][]byte, error) {
 	txs, err := database.FetchTransactionsByAddressAndSelectorBlockNumber(ctx, s.db, database.TxParams{
 		ToAddress:   s.addresses.FlareSystemsManager,
-		FunctionSel: signNewSigningPolicySel,
+		FunctionSel: [4]byte(chain.SignNewSigningPolicy.ID),
 		From:        int64(from),
 		To:          int64(to),
 	})

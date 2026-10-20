@@ -15,6 +15,8 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
 	"github.com/flare-foundation/go-flare-common/pkg/convert"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
+
+	"github.com/flare-foundation/tee-proxy/internal/chain"
 )
 
 const (
@@ -52,7 +54,7 @@ func recoverInputsSignNewSigningPolicy(input []byte) (signingPolicyID uint32, ne
 
 	input = input[4:] // strip function selector
 
-	inputs, err := signNewSigningPolicyArgs.Unpack(input)
+	inputs, err := chain.SignNewSigningPolicy.Inputs.Unpack(input)
 	if err != nil {
 		return 0, common.Hash{}, nil, err
 	}

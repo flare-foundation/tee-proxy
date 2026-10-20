@@ -320,13 +320,13 @@ func (c *Chain) serveViews(t *testing.T) {
 	n.HandleRaw(Addresses.Relay, crypto.Keccak256([]byte("initialRewardEpochId()"))[:4], common.BigToHash(big.NewInt(int64(c.initialEpoch))).Bytes(), nil)
 
 	n.Handle(Addresses.FlareSystemsManager, fsmABI, "getSigningPolicySignInfo", func(args []any) ([]any, error) {
-		epoch := uint32(uintArg(args, 0))
+		epoch := uint32(bigArg(args, 0).Uint64())
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		return []any{uint64(0), c.signStart[epoch], uint64(0), c.signEnd[epoch]}, nil
 	})
 	n.Handle(Addresses.FlareSystemsManager, fsmABI, "getRandomAcquisitionInfo", func(args []any) ([]any, error) {
-		epoch := uint32(uintArg(args, 0))
+		epoch := uint32(bigArg(args, 0).Uint64())
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		return []any{uint64(0), uint64(0), uint64(0), c.opened[epoch]}, nil
@@ -336,7 +336,7 @@ func (c *Chain) serveViews(t *testing.T) {
 	n.Handle(Addresses.MachinePathManager, managerABI, "getActiveMachinePathListNonce", func(args []any) ([]any, error) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		nonce, ok := c.active[common.BigToHash(new(big.Int).SetBytes(bytesArg(args, 0)))]
+		nonce, ok := c.active[common.BigToHash(bigArg(args, 0))]
 		if !ok {
 			return nil, RevertError(noActive[:4])
 		}
@@ -345,7 +345,7 @@ func (c *Chain) serveViews(t *testing.T) {
 	n.Handle(Addresses.MachinePathManager, managerABI, "getMachinePathList", func(args []any) ([]any, error) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		l := c.list(common.BigToHash(new(big.Int).SetBytes(bytesArg(args, 0))), uintArg(args, 1))
+		l := c.list(common.BigToHash(bigArg(args, 0)), bigArg(args, 1).Uint64())
 		paths := make([]machinepathmanager.IMachinePathManagerMachinePath, len(l.paths))
 		for i, p := range l.paths {
 			paths[i] = machinepathmanager.IMachinePathManagerMachinePath{SourceTeeIds: p.SourceTeeIds, DestinationTeeIds: p.DestinationTeeIds}
@@ -353,7 +353,7 @@ func (c *Chain) serveViews(t *testing.T) {
 		return []any{paths, append([][32]byte{}, l.involved...), append([]machinepathmanager.Signature{}, l.signatures...), l.signed}, nil
 	})
 	n.Handle(Addresses.MachinePathManager, managerABI, "getMachinePathListMessageHash", func(args []any) ([]any, error) {
-		extensionID, nonce := common.BigToHash(new(big.Int).SetBytes(bytesArg(args, 0))), uintArg(args, 1)
+		extensionID, nonce := common.BigToHash(bigArg(args, 0)), bigArg(args, 1).Uint64()
 		c.mu.Lock()
 		paths := append([]cmpaths.IMachinePathManagerMachinePath{}, c.list(extensionID, nonce).paths...)
 		c.mu.Unlock()
@@ -362,7 +362,7 @@ func (c *Chain) serveViews(t *testing.T) {
 	n.Handle(Addresses.MachinePathManager, managerABI, "getMachinePathListSafeApprovalArtifact", func(args []any) ([]any, error) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		artifact, ok := c.list(common.BigToHash(new(big.Int).SetBytes(bytesArg(args, 0))), uintArg(args, 1)).artifacts[hashArg(args, 2)]
+		artifact, ok := c.list(common.BigToHash(bigArg(args, 0)), bigArg(args, 1).Uint64()).artifacts[hashArg(args, 2)]
 		if !ok {
 			artifact = machinepathmanager.IMachinePathManagerSafeApprovalArtifact{SafeNonce: new(big.Int), Signatures: []byte{}}
 		}
@@ -370,16 +370,12 @@ func (c *Chain) serveViews(t *testing.T) {
 	})
 }
 
-// uintArg is the unsigned integer call argument i; the ABI decodes uint24 and uint256 as *big.Int.
-func uintArg(args []any, i int) uint64 {
-	return new(big.Int).SetBytes(bytesArg(args, i)).Uint64()
-}
-
-func bytesArg(args []any, i int) []byte {
+// bigArg is the unsigned integer call argument i; the ABI decodes uint24 and uint256 as *big.Int.
+func bigArg(args []any, i int) *big.Int {
 	if b, ok := args[i].(*big.Int); ok {
-		return b.Bytes()
+		return b
 	}
-	return nil
+	return new(big.Int)
 }
 
 func hashArg(args []any, i int) [32]byte {
