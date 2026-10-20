@@ -320,8 +320,9 @@ groups:
           summary: "Machine-path list has no authorization evidence"
           description: >-
             An activated machine-path list carries no forwardable authorization evidence — no
-            direct governance signatures and no verifiable Safe approval (Safe candidates that
-            fail pre-verification are skipped and logged at debug). A governance-configuration
+            direct governance signatures (from the [governance] signers, when configured) and
+            no verifiable Safe approval (Safe candidates that fail pre-verification are skipped
+            and logged at debug). A governance-configuration
             condition, not an infra fault: audit the proxy's [governance] block against the
             node's governance and the on-chain evidence. The poller never advances its nonce,
             so the same list is retried every poll (~10m) until authorization appears. Requires
@@ -336,7 +337,9 @@ groups:
           description: >-
             The node returned a non-success status for a SET_MACHINE_PATH_LIST action — for
             direct signatures, most plausibly a governance/threshold mismatch between the node
-            and the chain. Safe approvals are pre-verified with the node's own check against its
+            and the chain, or, without [governance], a list involving several governances (the
+            node rejects the whole set on any signer outside its own governance). Safe
+            approvals are pre-verified with the node's own check against its
             attested governance snapshot, so under a configured [governance] a rejection implies
             the direct-signature leg (or a post-startup governance rotation — see
             TeeProxyGovernanceHashDrift). The poller never advances its nonce, so the same
@@ -355,10 +358,11 @@ groups:
         annotations:
           summary: "Machine-path governance not configured"
           description: >-
-            The proxy runs without a [governance] block: direct governance signatures are
-            forwarded without local pre-verification (the legacy path), nothing is cross-checked
-            against the node's attested governance hash, and no Safe approvals are collected —
-            on a Safe-backed node, pure-Safe lists fail every poll as result="no_authorization".
+            The proxy runs without a [governance] block: every direct governance signature is
+            forwarded unfiltered (the legacy path), so the node rejects lists that involve
+            several governances; nothing is cross-checked against the node's attested
+            governance hash, and no Safe approvals are collected — on a Safe-backed node,
+            pure-Safe lists fail every poll as result="no_authorization".
             A state gauge, so it is sustained by nature. DEPLOYMENT-PINNED rule; a Safe-backed
             deployment may pin setting="safe_backed" instead. Requires the `node` metric group.
 
@@ -373,8 +377,9 @@ groups:
             The governance hash the node reports no longer matches the proxy's startup-resolved
             snapshot — the node was redeployed or re-attested with rotated governance while the
             proxy kept running. The identical condition at startup is a fatal refusal; arising
-            later it silently stales Safe pre-verification (new valid approvals are skipped,
-            surfacing only as no_authorization at the next list activation). Update [governance]
+            later it silently stales signature filtering and Safe pre-verification (the new
+            governance's signatures and approvals are skipped, surfacing only as
+            no_authorization or rejected at the next list activation). Update [governance]
             and restart the proxy. The series exists only when [governance] is set and the
             machine-path service is enabled. Requires the `node` metric group.
 
