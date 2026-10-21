@@ -19,6 +19,9 @@ RUN go mod download && \
 # Final stage
 FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
 
+# drop once the pinned alpine ships ca-certificates-bundle >= 20261020-r0
+RUN apk add --no-cache 'ca-certificates-bundle>=20261020-r0'
+
 WORKDIR /app
 
 COPY --from=builder /app/tee-proxy/main .
