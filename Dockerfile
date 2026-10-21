@@ -1,6 +1,6 @@
 # checkov:skip=CKV_DOCKER_2: Healthcheck is handled by the container orchestrator
 # Build stage
-FROM golang:1.26.9-alpine AS builder
+FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
 
 WORKDIR /app/tee-proxy
 
@@ -18,6 +18,9 @@ RUN go mod download && \
 
 # Final stage
 FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+
+# drop once the pinned alpine ships ca-certificates-bundle >= 20261020-r0
+RUN apk add --no-cache 'ca-certificates-bundle>=20261020-r0'
 
 WORKDIR /app
 
