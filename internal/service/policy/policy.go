@@ -74,7 +74,7 @@ func (s *Service) Initialize(ctx context.Context, src policy.Source, offset int,
 		// cyclic buffer has rounds for recent epochs; at minimum the previous
 		// epoch matters during the ~2h window when a new policy is initialized
 		// but the old epoch is still active. Epochs before the relay's history
-		// (source-bound relay) or outside indexer retention are skipped.
+		// (source-bound relay) or outside the chain source's retention are skipped.
 		//
 		// None of these policies are sent to the node — it already has them.
 		// activePolicy is set to lastID so that UpdatePolicyAction
@@ -91,7 +91,7 @@ func (s *Service) Initialize(ctx context.Context, src policy.Source, offset int,
 			}
 			if !found {
 				if id == lastID {
-					// indexer retention too short, or the relay address is wrong
+					// chain source retention too short, or the relay address is wrong
 					return fmt.Errorf("loading last policy %d: %w", lastID, errPolicyEventMissing)
 				}
 				skipped++
@@ -102,7 +102,7 @@ func (s *Service) Initialize(ctx context.Context, src policy.Source, offset int,
 		}
 
 		if skipped > 0 {
-			logger.Warnf("restart: %d of %d policies missing — relay history or indexer retention is shallower than voting.history_size", skipped, back+1)
+			logger.Warnf("restart: %d of %d policies missing — relay history or chain source retention is shallower than voting.history_size", skipped, back+1)
 		}
 		warnIfSinglePolicy(len(policies), lastID)
 
@@ -125,7 +125,7 @@ func (s *Service) Initialize(ctx context.Context, src policy.Source, offset int,
 	}
 
 	if actualOffset != offset {
-		logger.Warnf("policy history: requested %d policies, indexer holds only %d — relay history or indexer retention is shallower than voting.history_size", offset+1, actualOffset+1)
+		logger.Warnf("policy history: requested %d policies, chain source holds only %d — relay history or its retention is shallower than voting.history_size", offset+1, actualOffset+1)
 	}
 	warnIfSinglePolicy(actualOffset+1, p.RewardEpochID)
 

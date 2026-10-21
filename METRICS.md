@@ -33,7 +33,7 @@ For the histograms, use `histogram_quantile(0.95, rate(<name>_bucket[5m]))` for 
 | `info`          | TEE info refresh duration and per-stage failures                                                                       |
 | `attestation`   | attestation verify outcomes                                                                                            |
 | `policy`        | active/node-applied/consensus/resident reward-epoch gauges, fetch-loop staleness timestamp, and update-outcome counter |
-| `liveness`      | readiness gauge, info-staleness gauge, and c-chain indexer-delay gauge                                                 |
+| `liveness`      | readiness gauge, info-staleness gauge, and chain-source delay gauge                                                    |
 | `node`          | TEE-node response-wait latency and outcomes; machine-path poll-cycle outcomes                                          |
 | `runtime`       | Go runtime/process collectors and build info                                                                           |
 
@@ -73,7 +73,7 @@ Availability — probe/heartbeat-driven, so traffic-independent:
 | --------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TeeProxyNotReady`    | `teeproxy_ready == 0` for 2m                         | Readiness failing; the traffic-independent backstop for the request-path warnings.                                                          |
 | `TeeProxyInfoStale`   | `teeproxy_info_service_delay_seconds > 140` for 2m   | Info past the 140s readiness tolerance (`liveness.go` `infoDelayTolerance`).                                                                |
-| `TeeProxyCChainStale` | `teeproxy_cchain_indexer_delay_seconds > 140` for 2m | c-chain indexer past 140s (`cChainDelayTolerance`); attributes the failure to the c-chain leg, which `TeeProxyNotReady` cannot.             |
+| `TeeProxyCChainStale` | `teeproxy_cchain_indexer_delay_seconds > 140` for 2m | chain source past 140s (`cChainDelayTolerance`); attributes the failure to the c-chain leg, which `TeeProxyNotReady` cannot.             |
 | `TeeProxyDown`        | `up{job="tee-proxy"} == 0` for 2m                    | Prometheus cannot scrape the proxy. **Example only** — keys on the synthetic `up` metric; the `job` selector must match your scrape config. |
 | `TeeProxyPolicyFetchStalled` | `time() - teeproxy_policy_last_fetch_timestamp_seconds > 7200 and teeproxy_policy_last_fetch_timestamp_seconds > 0` for 5m | Signing-policy rollover stuck >2h (overdue gate); the heartbeat freezes once a rollover cannot complete, so it catches any stuck stage. |
 
@@ -304,6 +304,7 @@ The full error-reason set is enumerated in `pkg/attestation` `ErrorReasons`, whi
 | `teeproxy_policy_update_total`                 | counter             | `result` | Signing-policy update-loop iterations by outcome.                                        |
 
 Label values: `result` is `empty`/`fetch_error`/`reconciled`/`reconcile_error`/`enqueue_failed`/`await_failed`/`rejected`/`applied`, plus the build-failure reasons `pubkey_mismatch`/`sig_deadline`/`indexer`/`not_consecutive`/`build_failed` (from `policy.UpdateFailureReason`).
+`indexer` means the chain source failed, by repeated read errors while collecting signatures or a voter with no registration, in either `[chain] source` mode; the name is kept for dashboard compatibility.
 In steady state only `empty` increments, once per `signing_policy_fetch_interval` — the next epoch is not yet on chain, which is the healthy heartbeat.
 A wedged or persistently-failing loop is detected as staleness of `policy_last_fetch_timestamp_seconds`, via `time() - teeproxy_policy_last_fetch_timestamp_seconds`, since no error-free iteration refreshes it.
 The overdue alert guards on `teeproxy_policy_last_fetch_timestamp_seconds > 0`: the /metrics server comes up before `Initialize` seeds the gauge, so the guard skips that bootstrap window and the alert reflects a genuine wedge, not a cold start.
@@ -324,15 +325,15 @@ It lives in the `policy` group so the reward-epoch gauges enable together.
 | --------------------------------------- | ------------------- | ------ | -------------------------------------------------------------------------------------- |
 | `teeproxy_ready`                        | gauge               | —      | 1 if the last readiness check passed, else 0.                                          |
 | `teeproxy_info_service_delay_seconds`   | gauge (scrape-time) | —      | Seconds since the last successful TEE info refresh.                                    |
-| `teeproxy_cchain_indexer_delay_seconds` | gauge (scrape-time) | —      | Seconds since the last c-chain indexer block, read from the indexer DB at scrape time. |
+| `teeproxy_cchain_indexer_delay_seconds` | gauge (scrape-time) | —      | Seconds since the chain source's newest block (indexer DB or node), read at scrape time. |
 
 `info_service_delay_seconds` starts at zero at process start: `info.NewService` sets `LastUpdated` to the construction time, so the gauge only rises if refreshes genuinely stop, not as an artifact of not having refreshed yet.
 `teeproxy_ready` reflects only the outcome of the last evaluation triggered by a `GET /ready` call — it is not recomputed on a `/metrics` scrape.
 It requires a periodic external readiness probe (a Kubernetes-style `readinessProbe` hitting `/ready` every 10-30s is the intended deployment) to stay fresh well inside the 2m window `TeeProxyNotReady` uses.
 If nothing ever calls `/ready`, the gauge stays at its zero-value default and `TeeProxyNotReady` pages permanently starting 2 minutes after boot; that is a deployment misconfiguration (no readiness probe wired), not a proxy bug.
 
-`cchain_indexer_delay_seconds` is a direct scrape-time read of the indexer DB (`FetchState`, the same query `Ready` runs against the 140s `cChainDelayTolerance`), so unlike `teeproxy_ready` it is fresh on every scrape without a `/ready` probe, and unlike `info_service_delay_seconds` it reflects an external dependency rather than an in-memory timestamp.
-The read is bounded by a 2s timeout and reports 0 if it fails; a DB outage is caught by `TeeProxyNotReady` (readiness fails on the same check), so this gauge targets the stale-but-reachable indexer, which reads fine and returns a large delay.
+`cchain_indexer_delay_seconds` is a direct scrape-time read of the chain source's newest block (the indexer's `FetchState` or the node's latest block, the same read `Ready` checks against the 140s `cChainDelayTolerance`; the name is kept for dashboard compatibility), so unlike `teeproxy_ready` it is fresh on every scrape without a `/ready` probe, and unlike `info_service_delay_seconds` it reflects an external dependency rather than an in-memory timestamp.
+The read is bounded by a 2s timeout and reports 0 if it fails; a source outage is caught by `TeeProxyNotReady` (readiness fails on the same check), so this gauge targets the stale-but-reachable source, which reads fine and returns a large delay.
 It gives lead time before the 140s readiness cutoff and attributes a readiness failure to the c-chain leg, which the composite `teeproxy_ready` cannot.
 
 ## `node`
@@ -351,7 +352,7 @@ The `timeout` and `error` node-wait series are pre-initialized to 0 for every pa
 This is the proxy's synchronous round-trip to the TEE node (the wait inside `WaitOnResponse`).
 A rising `timeout` share, or a p99 approaching the per-path response timeout (2–3 minutes), is the leading signal that the node is slow or unreachable — and the `path` label localizes partial degradation (e.g. `wallet_key_proof` slow while `info` is fine).
 `machinepath_poll_total` covers the poll loop's pre-delivery legs (`fetch_error`/`build_error`/`no_authorization`/`enqueue_error`/`no_change`), its wait leg (`wait_error`, a failed or timed-out confirmation wait; shutdown cancellations are not counted), and its post-wait outcomes (`rejected`/`confirmed`); wait latency is in `teeproxy_node_response_wait_total{path="machinepath"}`.
-`build_error` covers every action-build failure — indexer reads, hash/marshal errors, and, under Safe-backed governance, errors while locating the `MachinePathListApproved` log or its `execTransaction` — except the authorization-absence case, which is split out as `no_authorization`: an activated list with no forwardable direct signatures (only the `[governance]` signers' when it is set) and no Safe approval that passes local pre-verification (failing candidates are skipped and logged at debug).
+`build_error` covers every action-build failure — chain-source reads, hash/marshal errors, and, under Safe-backed governance, errors while reading the Safe approval (the `MachinePathListApproved` log and its `execTransaction` from the indexer, the confirmed approval artifact over `rpc`) — except the authorization-absence case, which is split out as `no_authorization`: an activated list with no forwardable direct signatures (only the `[governance]` signers' when it is set) and no Safe approval that passes local pre-verification (failing candidates are skipped and logged at debug).
 `no_authorization` is a governance-configuration condition (e.g. a Safe-backed node paired with a proxy whose `[governance]` block is unset), not an infra fault, and repeats every poll until authorization evidence appears on chain or the config is fixed.
 `rejected` is a node `status != 1` rejection — `WaitOnResponse` returns `err == nil` for it, so the node-wait metric records it as `result="ok"`, and only this counter (and `teeproxy_results_processed_total{op_command="SET_MACHINE_PATH_LIST"}`) distinguishes it.
 `governance_posture` (settings `configured`/`safe_backed`) is a config-derived gauge in the mold of `attestation_posture`, set once at startup regardless of whether the machine-path service runs: a deploy that drops the `[governance]` block silently regresses to the legacy direct-signature path (signatures forwarded unfiltered), and this gauge is the only immediate signal — the functional symptoms appear only at the next Safe-only list activation (`no_authorization`) or the next list involving several governances (`rejected`).

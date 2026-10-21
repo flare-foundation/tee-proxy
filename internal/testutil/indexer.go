@@ -33,12 +33,21 @@ type LogRow struct {
 	Index     uint64
 }
 
-// InsertLog stores r in db, which must have database.Log migrated.
-func InsertLog(t *testing.T, db *gorm.DB, r LogRow) {
+// Data is r's ABI-encoded non-indexed values.
+func (r LogRow) Data(t *testing.T) []byte {
 	t.Helper()
 
 	data, err := r.Event.Inputs.NonIndexed().Pack(r.Args...)
 	require.NoError(t, err)
+
+	return data
+}
+
+// InsertLog stores r in db, which must have database.Log migrated.
+func InsertLog(t *testing.T, db *gorm.DB, r LogRow) {
+	t.Helper()
+
+	data := r.Data(t)
 
 	topics := [3]string{}
 	for i, h := range r.Topics {
@@ -128,24 +137,36 @@ func PolicyEvent(epoch uint32, keys []*ecdsa.PrivateKey, weights []uint16, thres
 // InsertPolicyEvent stores ev as a SigningPolicyInitialized log emitted by relayAddress.
 func InsertPolicyEvent(t *testing.T, db *gorm.DB, relayAddress common.Address, ev *relay.RelaySigningPolicyInitialized, block uint64) {
 	t.Helper()
+	InsertLog(t, db, PolicyEventLog(t, relayAddress, ev, block))
+}
+
+// PolicyEventLog is ev as a SigningPolicyInitialized log emitted by relayAddress.
+func PolicyEventLog(t *testing.T, relayAddress common.Address, ev *relay.RelaySigningPolicyInitialized, block uint64) LogRow {
+	t.Helper()
 
 	relayABI, err := relay.RelayMetaData.GetAbi()
 	require.NoError(t, err)
 
-	InsertLog(t, db, LogRow{
+	return LogRow{
 		Address:   relayAddress,
 		Event:     relayABI.Events["SigningPolicyInitialized"],
 		Topics:    []common.Hash{common.BigToHash(ev.RewardEpochId)},
 		Args:      []any{ev.StartVotingRoundId, ev.Threshold, ev.Seed, ev.Voters, ev.Weights, ev.SigningPolicyBytes, ev.Timestamp},
 		Block:     block,
 		Timestamp: block,
-	})
+	}
 }
 
-// InsertRegistration stores a VoterRegistered log for the signing-policy key in epoch,
+// InsertRegistration stores RegistrationLog in db.
+func InsertRegistration(t *testing.T, db *gorm.DB, registryAddress common.Address, chainID uint64, epoch uint32, voter common.Address, key, signer *ecdsa.PrivateKey, block uint64) {
+	t.Helper()
+	InsertLog(t, db, RegistrationLog(t, registryAddress, chainID, epoch, voter, key, signer, block))
+}
+
+// RegistrationLog is a VoterRegistered log for the signing-policy key in epoch,
 // signed with signer as the VoterRegistry expects:
 // keccak256(abi.encode(chainID, epoch, voter)), EIP-191 prefixed.
-func InsertRegistration(t *testing.T, db *gorm.DB, registryAddress common.Address, chainID uint64, epoch uint32, voter common.Address, key, signer *ecdsa.PrivateKey, block uint64) {
+func RegistrationLog(t *testing.T, registryAddress common.Address, chainID uint64, epoch uint32, voter common.Address, key, signer *ecdsa.PrivateKey, block uint64) LogRow {
 	t.Helper()
 
 	registryABI, err := registry.RegistryMetaData.GetAbi()
@@ -163,7 +184,7 @@ func InsertRegistration(t *testing.T, db *gorm.DB, registryAddress common.Addres
 	sig := sign(t, accounts.TextHash(crypto.Keccak256(msg)), signer)
 	spAddress := crypto.PubkeyToAddress(key.PublicKey)
 
-	InsertLog(t, db, LogRow{
+	return LogRow{
 		Address: registryAddress,
 		Event:   registryABI.Events["VoterRegistered"],
 		Topics:  []common.Hash{common.BytesToHash(voter[:]), common.BigToHash(big.NewInt(int64(epoch))), common.BytesToHash(spAddress[:])},
@@ -175,7 +196,7 @@ func InsertRegistration(t *testing.T, db *gorm.DB, registryAddress common.Addres
 		},
 		Block:     block,
 		Timestamp: block,
-	})
+	}
 }
 
 // SignNewSigningPolicyInput returns signNewSigningPolicy calldata for epoch carrying

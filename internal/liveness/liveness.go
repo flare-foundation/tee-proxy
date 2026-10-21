@@ -18,7 +18,7 @@ const (
 	cChainDelayTolerance = 140 * time.Second
 	infoDelayTolerance   = 140 * time.Second
 
-	// cChainDelayReadTimeout bounds the scrape-time chain read for the delay gauge.
+	// cChainDelayReadTimeout bounds the chain head read of readiness and the delay gauge.
 	cChainDelayReadTimeout = 2 * time.Second
 )
 
@@ -72,14 +72,12 @@ func New(chain headSource, client *redis.Client, info *info.Service, results *re
 		// the source-down case is caught by readiness (TeeProxyNotReady), so this gauge targets
 		// the stale-but-reachable source, which reads fine and returns a large delay.
 		m.RegisterCChainDelay(func() float64 {
-			ctx, cancel := context.WithTimeout(context.Background(), cChainDelayReadTimeout)
-			defer cancel()
-			_, timestamp, err := chain.Head(ctx)
+			delay, err := chainDelay(context.Background(), chain)
 			if err != nil {
-				logger.Warnf("cchain delay gauge: reading chain head: %v", err)
+				logger.Warnf("cchain delay gauge: %v", err)
 				return 0
 			}
-			return time.Since(time.Unix(int64(timestamp), 0)).Seconds()
+			return delay.Seconds()
 		})
 	}
 
@@ -107,7 +105,7 @@ func (l *liveness) Startup(_ context.Context) error {
 }
 
 // Ready signals that the proxy is fit to serve traffic: startup is done, Redis answers,
-// the c-chain indexer is current, info updates are fresh, and attestation and result
+// the chain source is current, info updates are fresh, and attestation and result
 // storage are not in a known-failed state.
 func (l *liveness) Ready(ctx context.Context) (err error) {
 	defer func() { l.metrics.SetReady(err == nil) }()
@@ -124,9 +122,12 @@ func (l *liveness) Ready(ctx context.Context) (err error) {
 		return fmt.Errorf("redis did not PONG: %w", err)
 	}
 
-	err = checkDelay(ctx, l.chain, cChainDelayTolerance)
+	outOfSync, err := chainDelay(ctx, l.chain)
 	if err != nil {
-		return fmt.Errorf("c-chain indexer delay: %w", err)
+		return fmt.Errorf("c-chain delay: %w", err)
+	}
+	if outOfSync > cChainDelayTolerance {
+		return fmt.Errorf("c-chain delay: chain source out of sync for %v", outOfSync)
 	}
 
 	if l.info == nil {
@@ -154,17 +155,16 @@ func (l *liveness) Ready(ctx context.Context) (err error) {
 	return nil
 }
 
-// checkDelay fails when the chain source's newest block is older than tolerance.
-func checkDelay(ctx context.Context, chain headSource, tolerance time.Duration) error {
+// chainDelay is the age of the chain source's newest block.
+func chainDelay(ctx context.Context, chain headSource) (time.Duration, error) {
+	// reads retry under ctx, and Ready holds the read lock meanwhile
+	ctx, cancel := context.WithTimeout(ctx, cChainDelayReadTimeout)
+	defer cancel()
+
 	_, timestamp, err := chain.Head(ctx)
 	if err != nil {
-		return fmt.Errorf("fetching state: %w", err)
+		return 0, fmt.Errorf("fetching chain head: %w", err)
 	}
 
-	outOfSync := time.Since(time.Unix(int64(timestamp), 0))
-	if outOfSync > tolerance {
-		return fmt.Errorf("database out of sync for %v", outOfSync)
-	}
-
-	return nil
+	return time.Since(time.Unix(int64(timestamp), 0)), nil
 }

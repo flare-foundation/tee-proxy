@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
@@ -20,6 +21,13 @@ import (
 const (
 	DefaultPrivateKeyVariable   = "PRIVATE_KEY"
 	DefaultDirectAPIKeyVariable = "DIRECT_API_KEY"
+	DefaultChainURLVariable     = "NODE_URL"
+	DefaultChainAPIKeyVariable  = "NODE_API_KEY"
+
+	// ChainSourceIndexer reads on-chain data from the C-chain indexer database.
+	ChainSourceIndexer = "indexer"
+	// ChainSourceRPC reads on-chain data from a node's JSON-RPC endpoint.
+	ChainSourceRPC = "rpc"
 
 	defaultInitialInfoTimeout     = 5 * time.Minute
 	defaultCycleInternal          = 10 * time.Second
@@ -38,6 +46,11 @@ const (
 	defaultFinalizedBufferSize = 10
 
 	defaultDBSyncMaxSleepTime = 10 * time.Minute
+
+	// public Flare nodes cap eth_getLogs at 30 blocks
+	defaultMaxLogsRange = 30
+	defaultMaxBatchSize = 50
+	defaultChainTimeout = 10 * time.Second
 
 	defaultActionTTL       = 14 * 24 * time.Hour
 	defaultResultTTL       = 14 * 24 * time.Hour
@@ -72,6 +85,11 @@ var (
 	errGovernanceSafePairing                = errors.New("governance: safe and tee_manager must be set together")
 	errGovernanceWithoutManager             = errors.New("governance: set but addresses.machine_path_manager is unset")
 	errMetricsNoGroups                      = errors.New("metrics enabled but all groups are disabled; enable at least one group or set enable = false")
+	errChainSourceUnknown                   = errors.New(`chain source must be "indexer" or "rpc"`)
+	errChainURLNotSet                       = errors.New("chain source is rpc but no URL is configured")
+	errChainMaxLogsRangePositive            = errors.New("chain max_logs_range has to be positive")
+	errChainMaxBatchSizePositive            = errors.New("chain max_batch_size has to be positive")
+	errChainTimeoutPositive                 = errors.New("chain timeout has to be positive")
 )
 
 // GCS holds Google Cloud Storage connection configuration.
@@ -97,7 +115,8 @@ func (g GCS) validate() error {
 
 // Proxy holds the full configuration for the TEE proxy service.
 type Proxy struct {
-	DB                           database.Config `toml:"db"`                               // C-chain indexer database config.
+	Chain                        Chain           `toml:"chain"`                            // Where on-chain data is read from. Defaults to the C-chain indexer.
+	DB                           database.Config `toml:"db"`                               // C-chain indexer database config; used by chain source "indexer".
 	RedisPort                    string          `toml:"redis_port"`                       // Redis database port.
 	GCS                          GCS             `toml:"gcs"`                              // Google Cloud Storage connection configuration.
 	ChainID                      uint64          `toml:"chain_id"`                         // EVM chain ID bound into TEE/FDC2 signed payloads. Must be a positive integer.
@@ -109,12 +128,60 @@ type Proxy struct {
 	PrivateKeyVariable           string          `toml:"private_key_variable"`             // Name of environment variable that stores proxy's private key. Defaults to PRIVATE_KEY.
 	SigningPolicyFetchInterval   time.Duration   `toml:"signing_policy_fetch_interval"`    // Duration between periodic checks for a new signing policy.
 	MachinePathListFetchInterval time.Duration   `toml:"machine_path_list_fetch_interval"` // Duration between periodic checks for a newly signed machine path list. Defaults to 10m.
-	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between DB sync retries on startup. Defaults to 10m.
+	DBSyncMaxSleepTime           time.Duration   `toml:"db_sync_max_sleep_time"`           // Max sleep between chain-source sync retries on startup. Defaults to 10m.
 	Logging                      logger.Config   `toml:"logging"`                          // Logging configurations. Default is "DEBUG" level in consol.
 	Direct                       Direct          `toml:"direct"`                           // Direct endpoint configuration.
 	Storage                      Storage         `toml:"storage"`                          // TTLs applied to Redis/GCS-backed persistent storage.
 	Attestation                  Attestation     `toml:"attestation"`                      // Bootstrap attestation verification configuration.
 	Metrics                      Metrics         `toml:"metrics"`                          // Prometheus metrics. Off by default; opt-in via [metrics] enable.
+}
+
+// Chain selects where the proxy reads on-chain data from.
+type Chain struct {
+	Source         string        `toml:"source"`           // "indexer" (default) or "rpc".
+	URL            string        `toml:"url"`              // JSON-RPC endpoint for source "rpc". Can also be set via env variable (see URLVariable).
+	URLVariable    string        `toml:"url_variable"`     // Name of the environment variable that stores the endpoint. Defaults to NODE_URL.
+	APIKey         string        `toml:"api_key"`          // Optional endpoint API key, sent as the x-apikey query parameter. Can also be set via env variable (see APIKeyVariable).
+	APIKeyVariable string        `toml:"api_key_variable"` // Name of the environment variable that stores the API key. Defaults to NODE_API_KEY.
+	MaxLogsRange   uint64        `toml:"max_logs_range"`   // Blocks per eth_getLogs request. Defaults to 30.
+	MaxBatchSize   int           `toml:"max_batch_size"`   // Calls per JSON-RPC batch request. Defaults to 50.
+	Timeout        time.Duration `toml:"timeout"`          // Per-request timeout. Defaults to 10s.
+}
+
+// RPC reports whether on-chain data is read from a JSON-RPC endpoint.
+func (c Chain) RPC() bool {
+	return c.Source == ChainSourceRPC
+}
+
+// validate normalizes an empty source to the indexer and checks the rpc settings,
+// resolving the endpoint and API key from the environment.
+func (c *Chain) validate() error {
+	switch c.Source {
+	case "", ChainSourceIndexer:
+		c.Source = ChainSourceIndexer
+		return nil
+	case ChainSourceRPC:
+	default:
+		return errChainSourceUnknown
+	}
+
+	variable := cmp.Or(c.URLVariable, DefaultChainURLVariable)
+	c.URL = resolveFromEnv(variable, DefaultChainURLVariable, c.URL)
+	if c.URL == "" {
+		return fmt.Errorf("%w (set chain.url or the %s env variable)", errChainURLNotSet, variable)
+	}
+	c.APIKey = resolveFromEnv(c.APIKeyVariable, DefaultChainAPIKeyVariable, c.APIKey)
+	if c.MaxLogsRange == 0 {
+		return errChainMaxLogsRangePositive
+	}
+	if c.MaxBatchSize <= 0 {
+		return errChainMaxBatchSizePositive
+	}
+	if c.Timeout <= 0 {
+		return errChainTimeoutPositive
+	}
+
+	return nil
 }
 
 // Attestation controls bootstrap attestation verification.
@@ -285,6 +352,12 @@ func Read(path string) (Proxy, error) {
 		Logging: logger.DefaultConfig(),
 
 		Direct: Direct{},
+
+		Chain: Chain{
+			MaxLogsRange: defaultMaxLogsRange,
+			MaxBatchSize: defaultMaxBatchSize,
+			Timeout:      defaultChainTimeout,
+		},
 	}
 
 	err := toml.ReadTo(path, &c, false)
@@ -294,6 +367,11 @@ func Read(path string) (Proxy, error) {
 
 	if c.ChainID == 0 {
 		return c, errors.New("chain ID must be a positive integer")
+	}
+
+	err = c.Chain.validate()
+	if err != nil {
+		return c, err
 	}
 
 	err = c.Voting.validate()
@@ -350,7 +428,7 @@ func Read(path string) (Proxy, error) {
 	}
 
 	if c.Direct.Enable && !c.Direct.APIKeyOptional {
-		c.Direct.APIKey = resolveDirectAPIKey(c.Direct.APIKeyVariable, c.Direct.APIKey)
+		c.Direct.APIKey = resolveFromEnv(c.Direct.APIKeyVariable, DefaultDirectAPIKeyVariable, c.Direct.APIKey)
 		if c.Direct.APIKey == "" {
 			return c, errDirectAPIKeyNotSet
 		}
@@ -369,11 +447,11 @@ func Read(path string) (Proxy, error) {
 	return c, nil
 }
 
-// resolveDirectAPIKey returns the API key from the environment variable if set,
-// otherwise falls back to the TOML config value.
-func resolveDirectAPIKey(variableName, fallback string) string {
+// resolveFromEnv returns the value of the environment variable variableName
+// (defaultVariable when empty) if set, otherwise the TOML config value fallback.
+func resolveFromEnv(variableName, defaultVariable, fallback string) string {
 	if variableName == "" {
-		variableName = DefaultDirectAPIKeyVariable
+		variableName = defaultVariable
 	}
 
 	if v, ok := os.LookupEnv(variableName); ok && v != "" {
