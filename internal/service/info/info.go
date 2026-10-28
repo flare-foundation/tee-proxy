@@ -263,8 +263,7 @@ func (s *Service) fail(st stage, err error) error {
 
 // refreshStage returns the pipeline stage err comes from; "unknown" for anything not raised by an attempt.
 func refreshStage(err error) stage {
-	var se *stageError
-	if errors.As(err, &se) {
+	if se, ok := errors.AsType[*stageError](err); ok {
 		return se.stage
 	}
 

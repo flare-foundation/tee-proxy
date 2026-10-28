@@ -103,8 +103,7 @@ func handleError(w http.ResponseWriter, err error, logAsInternal bool) {
 
 	// Body-size violations from http.MaxBytesReader surface as *http.MaxBytesError.
 	// Map directly to 413 — ErrInvalidBody would otherwise drop that signal.
-	var maxBytesErr *http.MaxBytesError
-	if errors.As(err, &maxBytesErr) {
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 		return
 	}
