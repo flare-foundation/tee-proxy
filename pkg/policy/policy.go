@@ -10,17 +10,15 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/registry"
-	"github.com/flare-foundation/go-flare-common/pkg/convert"
-	"github.com/flare-foundation/go-flare-common/pkg/database"
+	"github.com/flare-foundation/go-flare-common/pkg/contracts/relay"
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/pkg/config"
-	"gorm.io/gorm"
 )
 
-var errNoSigningPolicyLogs = errors.New("no signing policy logs found in db")
+var errNoSigningPolicyEvents = errors.New("no signing policy events found")
 
 // UpdateFailureReason maps an UpdatePolicyAction error to a bounded metric reason
 // (pubkey_mismatch/sig_deadline/indexer/not_consecutive/build_failed); "" for nil.
@@ -32,7 +30,7 @@ func UpdateFailureReason(err error) string {
 		return "pubkey_mismatch"
 	case errors.Is(err, ErrDeadlineExceeded):
 		return "sig_deadline"
-	case errors.Is(err, ErrTooManyErrors), errors.Is(err, errInvalidLogCountPubKeys):
+	case errors.Is(err, ErrTooManyErrors), errors.Is(err, errNoRegistration):
 		return "indexer"
 	case errors.Is(err, errNotConsecutivePolicy):
 		return "not_consecutive"
@@ -48,36 +46,26 @@ func UpdateFailureReason(err error) string {
 // The action, signing policy, and used offset are returned.
 func InitializePolicyAction(
 	ctx context.Context,
-	db *gorm.DB,
+	src Source,
 	addresses config.Addresses,
 	offset int,
 	chainID *big.Int,
 ) (*types.Action, *policy.SigningPolicy, int, error) {
-	params := database.LatestLogsParams{
-		Address: addresses.Relay,
-		Topic0:  SigningPolicyInitializedEventSel,
-		Number:  offset + 1,
-	}
-
-	logs, err := database.FetchLatestLogsByAddressAndTopic0(ctx, db, params)
+	events, err := src.LatestSigningPolicies(ctx, offset+1)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("fetching signing policy logs: %w", err)
+		return nil, nil, 0, fmt.Errorf("fetching signing policy events: %w", err)
 	}
 
-	if len(logs) == 0 {
-		return nil, nil, 0, errNoSigningPolicyLogs
-	}
-	event, err := policy.ParseSigningPolicyInitializedEvent(logs[len(logs)-1])
-	if err != nil {
-		return nil, nil, 0, fmt.Errorf("parsing signing policy event: %w", err)
+	if len(events) == 0 {
+		return nil, nil, 0, errNoSigningPolicyEvents
 	}
 
-	p, err := policy.NewSigningPolicy(event, nil)
+	p, err := policy.NewSigningPolicy(events[len(events)-1], nil)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("creating signing policy instance: %w", err)
 	}
 
-	msg, err := prepareInitializePolicyActionMessage(ctx, db, addresses.VoterRegistry, p, chainID)
+	msg, err := prepareInitializePolicyActionMessage(ctx, src, addresses.VoterRegistry, p, chainID)
 	if err != nil {
 		return nil, nil, 0, fmt.Errorf("preparing initialize policy message for reward epoch %d: %w", p.RewardEpochID, err)
 	}
@@ -87,26 +75,17 @@ func InitializePolicyAction(
 		return nil, nil, 0, fmt.Errorf("preparing initialize policy action: %w", err)
 	}
 
-	return action, p, len(logs) - 1, nil
+	return action, p, len(events) - 1, nil
 }
 
 func prepareInitializePolicyAction(msg []byte) (*types.Action, error) {
 	return queue.PrepareDirectAction(op.Policy, op.InitializePolicy, msg)
 }
 
-func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]byte, error) {
-	pubKeys := make([]types.PublicKey, len(signingPolicy.Voters.Voters()))
-	for j, address := range signingPolicy.Voters.Voters() {
-		if chainID.Cmp(costonChainID) == 0 && signingPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
-			voterRegistryAddress = costonOldVoterRegistryAddress
-		}
-
-		pk, err := recoverPubKey(ctx, db, address, signingPolicy.RewardEpochID, voterRegistryAddress, chainID)
-		if err != nil {
-			return nil, fmt.Errorf("recovering pub key for %v, on chain ID %v for epoch %v: %w", address, chainID, signingPolicy.RewardEpochID, err)
-		}
-
-		pubKeys[j] = types.PubKeyToStruct(pk)
+func prepareInitializePolicyActionMessage(ctx context.Context, src Source, voterRegistryAddress common.Address, signingPolicy *policy.SigningPolicy, chainID *big.Int) ([]byte, error) {
+	pubKeys, err := fetchPubKeys(ctx, src, voterRegistryAddress, signingPolicy, chainID)
+	if err != nil {
+		return nil, err
 	}
 
 	req := &types.InitializePolicyRequest{
@@ -123,20 +102,12 @@ func prepareInitializePolicyActionMessage(ctx context.Context, db *gorm.DB, vote
 }
 
 // FetchSigningPolicy fetches and parses the SigningPolicyInitialized event for the given
-// policy ID from the database. found is false (with a nil error) when no such event
-// exists — i.e. the reward epoch is not in the relay's indexed history.
-func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (*policy.SigningPolicy, bool, error) {
-	log, found, err := FetchSigningPolicyLog(ctx, db, relayAddress, signingPolicyID)
-	if err != nil {
+// policy ID. found is false (with a nil error) when no such event exists — i.e. the
+// reward epoch is not in the relay's history held by src.
+func FetchSigningPolicy(ctx context.Context, src Source, signingPolicyID uint32) (*policy.SigningPolicy, bool, error) {
+	event, found, err := FetchSigningPolicyEvent(ctx, src, signingPolicyID)
+	if err != nil || !found {
 		return nil, false, err
-	}
-	if !found {
-		return nil, false, nil
-	}
-
-	event, err := policy.ParseSigningPolicyInitializedEvent(log)
-	if err != nil {
-		return nil, false, fmt.Errorf("parsing signing policy %d event: %w", signingPolicyID, err)
 	}
 
 	p, err := policy.NewSigningPolicy(event, nil)
@@ -144,39 +115,25 @@ func FetchSigningPolicy(ctx context.Context, db *gorm.DB, relayAddress common.Ad
 		return nil, false, fmt.Errorf("creating signing policy %d instance: %w", signingPolicyID, err)
 	}
 
-	// epoch 0's topic1 is the zero hash, which the log query cannot filter on and
-	// then matches the newest event instead — reject a row for a different epoch
-	if p.RewardEpochID != signingPolicyID {
-		return nil, false, nil
-	}
-
 	return p, true, nil
 }
 
-// FetchSigningPolicyLog fetches the SigningPolicyInitialized event log for the given
-// policy ID from the database. found is false (with a nil error) when no such event
-// exists yet — i.e. the reward epoch has not been initialized on chain.
-func FetchSigningPolicyLog(ctx context.Context, db *gorm.DB, relayAddress common.Address, signingPolicyID uint32) (database.Log, bool, error) {
-	topics := [4]common.Hash{}
-	topics[0] = SigningPolicyInitializedEventSel
-	topics[1] = convert.Uint32ToHash(signingPolicyID)
-
-	params := database.LogsFullParams{
-		Address: relayAddress,
-		Topics:  topics,
-		Number:  1,
-	}
-
-	logs, err := database.FetchLogsFull(ctx, db, params)
+// FetchSigningPolicyEvent fetches the SigningPolicyInitialized event for the given
+// policy ID. found is false (with a nil error) when no such event exists yet — i.e.
+// the reward epoch has not been initialized on chain.
+func FetchSigningPolicyEvent(ctx context.Context, src Source, signingPolicyID uint32) (*relay.RelaySigningPolicyInitialized, bool, error) {
+	event, found, err := src.SigningPolicy(ctx, signingPolicyID)
 	if err != nil {
-		return database.Log{}, false, fmt.Errorf("fetching signing policy %d log: %w", signingPolicyID, err)
+		return nil, false, fmt.Errorf("fetching signing policy %d event: %w", signingPolicyID, err)
 	}
 
-	if len(logs) == 0 {
-		return database.Log{}, false, nil
+	// the indexer cannot filter on epoch 0's zero-hash topic and answers with the
+	// newest event instead — reject an event for a different epoch
+	if !found || event.RewardEpochId == nil || !event.RewardEpochId.IsUint64() || event.RewardEpochId.Uint64() != uint64(signingPolicyID) {
+		return nil, false, nil
 	}
 
-	return logs[0], true, nil
+	return event, true, nil
 }
 
 // prepareSignatures transforms a slice of Signatures to a slice SignatureMessage.
@@ -190,21 +147,20 @@ func prepareSignatures(sigs []*registry.Signature) [][]byte {
 	return msgs
 }
 
-// UpdatePolicyAction prepares an UPDATE_POLICY action from a SigningPolicyInitialized log event.
-func UpdatePolicyAction(ctx context.Context, db *gorm.DB, addresses config.Addresses, log database.Log, activePolicy *policy.SigningPolicy, chainID *big.Int) (*types.Action, *policy.SigningPolicy, error) {
-	event, err := policy.ParseSigningPolicyInitializedEvent(log)
-	if err != nil {
-		return nil, nil, fmt.Errorf("parsing signing policy event: %w", err)
-	}
-
+// UpdatePolicyAction prepares an UPDATE_POLICY action from a SigningPolicyInitialized event.
+func UpdatePolicyAction(ctx context.Context, src Source, addresses config.Addresses, event *relay.RelaySigningPolicyInitialized, activePolicy *policy.SigningPolicy, chainID *big.Int) (*types.Action, *policy.SigningPolicy, error) {
 	p, err := policy.NewSigningPolicy(event, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating signing policy instance: %w", err)
 	}
 
-	// The transaction scan range is (start, to], so start one block below the
-	// SigningPolicyInitialized event
-	msg, err := prepareUpdatePolicyMessage(ctx, db, addresses.FlareSystemsManager, addresses.VoterRegistry, p, activePolicy, int64(log.BlockNumber)-1, chainID)
+	// the signature scan range is (start, to], so start one block below the event
+	start := event.Raw.BlockNumber
+	if start > 0 {
+		start--
+	}
+
+	msg, err := prepareUpdatePolicyMessage(ctx, src, addresses.VoterRegistry, p, activePolicy, start, chainID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("preparing update policy message: %w", err)
 	}
@@ -229,28 +185,17 @@ func prepareUpdatePolicyAction(msg []byte) (*types.Action, error) {
 // shrink it.
 var policyRolloverSignatureDeadline = 30 * time.Minute
 
-func prepareUpdatePolicyMessage(ctx context.Context, db *gorm.DB, flaresSystemManagerAddress, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start int64, chainID *big.Int) ([]byte, error) {
+func prepareUpdatePolicyMessage(ctx context.Context, src Source, voterRegistryAddress common.Address, nextPolicy *policy.SigningPolicy, activePolicy *policy.SigningPolicy, start uint64, chainID *big.Int) ([]byte, error) {
 	deadline := time.Now().Add(policyRolloverSignatureDeadline)
 
-	sigs, err := collectSignatures(ctx, db, flaresSystemManagerAddress, start, uint64(deadline.Unix()), nextPolicy, activePolicy, chainID.Uint64())
+	sigs, err := collectSignatures(ctx, src, start, uint64(deadline.Unix()), nextPolicy, activePolicy, chainID.Uint64())
 	if err != nil {
 		return nil, fmt.Errorf("collecting signatures: %w", err)
 	}
 
-	pubKeys := make([]types.PublicKey, len(nextPolicy.Voters.Voters()))
-
-	for j, address := range nextPolicy.Voters.Voters() {
-		vrAdd := voterRegistryAddress
-		if chainID.Cmp(costonChainID) == 0 && nextPolicy.RewardEpochID < costonRegistryMessageBreakingEpoch {
-			vrAdd = costonOldVoterRegistryAddress
-		}
-
-		pk, err := recoverPubKey(ctx, db, address, nextPolicy.RewardEpochID, vrAdd, chainID)
-		if err != nil {
-			return nil, fmt.Errorf("recovering pub key for %v: %w", address, err)
-		}
-
-		pubKeys[j] = types.PubKeyToStruct(pk)
+	pubKeys, err := fetchPubKeys(ctx, src, voterRegistryAddress, nextPolicy, chainID)
+	if err != nil {
+		return nil, err
 	}
 
 	req := types.UpdatePolicyRequest{

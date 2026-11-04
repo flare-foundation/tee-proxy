@@ -14,7 +14,7 @@ import (
 func logGovernancePosture(cfg config.Governance) {
 	switch {
 	case !cfg.IsSet():
-		logger.Info("governance: not configured; forwarding direct signatures only, nothing cross-checked")
+		logger.Info("governance: not configured; forwarding all direct signatures unfiltered, nothing cross-checked")
 	case cfg.SafeBacked():
 		logger.Infof("governance: Safe-backed (safe %s, %d signers, threshold %d); Safe approvals pre-verified", cfg.Safe, len(cfg.Signers), cfg.Threshold)
 	default:
@@ -23,16 +23,17 @@ func logGovernancePosture(cfg config.Governance) {
 }
 
 // resolveGovernance converts the optional governance config into the
-// types.Governance the machine-path service uses to pre-verify Safe approvals,
-// after cross-checking it against the node's attested governance hash.
+// types.Governance the machine-path service uses to filter direct signatures
+// and pre-verify Safe approvals, after cross-checking it against the node's
+// attested governance hash.
 //
 // When no governance is configured it returns the zero value, which disables
-// Safe-approval pre-verification — the proxy then forwards direct governance
-// signatures only (the legacy path) and nothing is cross-checked. When
-// configured, it recomputes the governance hash from the configured signer set
-// (plain or Safe flavor) and requires it to equal nodeGovernanceHash, so the
-// proxy pre-verifies against exactly the governance the node enforces; a
-// mismatch is a hard error.
+// both — the proxy then forwards every direct governance signature (the
+// legacy path) and nothing is cross-checked. When configured, it recomputes
+// the governance hash from the configured signer set (plain or Safe flavor)
+// and requires it to equal nodeGovernanceHash, so the proxy filters and
+// pre-verifies against exactly the governance the node enforces; a mismatch
+// is a hard error.
 func resolveGovernance(cfg config.Governance, nodeGovernanceHash common.Hash) (types.Governance, error) {
 	if !cfg.IsSet() {
 		return types.Governance{}, nil

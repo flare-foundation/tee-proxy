@@ -24,6 +24,7 @@ import (
 	"github.com/flare-foundation/go-flare-common/pkg/policy"
 	"github.com/flare-foundation/tee-node/pkg/types"
 
+	"github.com/flare-foundation/tee-proxy/internal/chain/indexer"
 	"github.com/flare-foundation/tee-proxy/internal/liveness"
 	"github.com/flare-foundation/tee-proxy/internal/queue"
 	"github.com/flare-foundation/tee-proxy/internal/server"
@@ -126,14 +127,14 @@ func RunProxy(t *testing.T, internalPort, externalPort uint, proxyPk *ecdsa.Priv
 	resultService := result.NewService(rs, TestChainID, nil)
 	walletStorage := wallets.NewService(aq, rs, backupIndex, backupStore, storageCfg.BackupTTL, nil)
 
-	infoService := info.NewService(db, aq, rs, &config.InfoTiming{
+	infoService := info.NewService(chainSource(db), aq, rs, &config.InfoTiming{
 		CycleInternal:          StorageTimeConfig.CycleInternal,
 		CycleQueueResponseWait: StorageTimeConfig.CycleQueueResponseWait,
 		MaxAttempts:            StorageTimeConfig.MaxAttempts,
 		RetryDelay:             StorageTimeConfig.RetryDelay,
 	}, &attestation.Config{Enabled: false}, nil)
 
-	livenessService := liveness.New(db, c, infoService, resultService, nil)
+	livenessService := liveness.New(chainSource(db), c, infoService, resultService, nil)
 
 	internal := server.NewInternal(fmt.Sprintf("%d", internalPort), aq, resultService, walletStorage, livenessService, nil)
 
@@ -254,4 +255,9 @@ func GetWalletInfo(t *testing.T, pc *ProxyConfig, walletID [32]byte, keyID uint6
 	var res pkgwallets.KeyData
 	makeRequests(t, url, &res)
 	return &res
+}
+
+// chainSource reads the test fixtures in db through the indexer backend.
+func chainSource(db *gorm.DB) *indexer.Source {
+	return indexer.New(db, config.Addresses{}, database.SyncParams{})
 }

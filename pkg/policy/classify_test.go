@@ -18,7 +18,7 @@ func TestUpdateFailureReason(t *testing.T) {
 		{"pubkey_mismatch wrapped", fmt.Errorf("preparing update policy message: %w", fmt.Errorf("recovering pub key: %w", errWrongAddressRecovered)), "pubkey_mismatch"},
 		{"sig_deadline wrapped", fmt.Errorf("collecting signatures: %w", ErrDeadlineExceeded), "sig_deadline"},
 		{"indexer too many errors", fmt.Errorf("collecting signatures: %w", ErrTooManyErrors), "indexer"},
-		{"indexer pubkey not indexed", fmt.Errorf("recovering pub key: %w", errInvalidLogCountPubKeys), "indexer"},
+		{"indexer pubkey not indexed", fmt.Errorf("recovering pub key: %w", errNoRegistration), "indexer"},
 		{"not_consecutive", fmt.Errorf("collecting signatures: %w", errNotConsecutivePolicy), "not_consecutive"},
 		{"residual build_failed", errors.New("marshaling request failed"), "build_failed"},
 	}

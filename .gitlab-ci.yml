@@ -13,7 +13,7 @@ default:
     expire_in: 3 days
 
 variables:
-  GO_VERSION: "1.26.9"
+  GO_VERSION: "1.26.10"
 
 include:
   - component: gitlab.com/flarenetwork/ci-components-private/lgtm@2
@@ -24,7 +24,7 @@ include:
   - component: gitlab.com/flarenetwork/ci-components-private/lint-go@2
     inputs:
       go_version: "${GO_VERSION}"
-      golangci_version: "v2.11.4"
+      golangci_version: "v2.15.0"
       golangci_config_file: ".golangci.yml"
       tags: ["flarenetwork-md"]
   - component: gitlab.com/flarenetwork/ci-components-private/test-go@2

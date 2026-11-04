@@ -1,19 +1,20 @@
-package machinepath
+package indexer
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
+
+	"github.com/flare-foundation/tee-proxy/internal/chain"
 )
 
 var (
-	// MachinePathListSignedEventSel is the topic0 of the MachinePathManager
+	// machinePathListSignedEventSel is the topic0 of the MachinePathManager
 	// MachinePathListSigned event, emitted once a list reaches the on-chain
 	// governance threshold.
-	MachinePathListSignedEventSel common.Hash
+	machinePathListSignedEventSel common.Hash
 	// machinePathsAddedEventSel is the topic0 of the MachinePathsAdded event,
 	// which carries the paths appended to a list.
 	machinePathsAddedEventSel common.Hash
@@ -38,36 +39,16 @@ var (
 )
 
 func init() {
-	managerABI, err := machinepathmanager.MachinePathManagerMetaData.GetAbi()
-	if err != nil {
-		panic(fmt.Errorf("loading machinePathManager ABI: %w", err))
-	}
+	managerABI := chain.MustABI(machinepathmanager.MachinePathManagerMetaData)
+	machinePathListSignedEventSel = chain.MustEvent(managerABI, "MachinePathListSigned").ID
+	machinePathsAddedEventSel = chain.MustEvent(managerABI, "MachinePathsAdded").ID
+	machinePathListApprovedEventSel = chain.MustEvent(managerABI, "MachinePathListApproved").ID
 
-	signedEvent, ok := managerABI.Events["MachinePathListSigned"]
-	if !ok {
-		panic(errors.New("MachinePathListSigned event not found in machinePathManager ABI"))
-	}
-	MachinePathListSignedEventSel = signedEvent.ID
-
-	addedEvent, ok := managerABI.Events["MachinePathsAdded"]
-	if !ok {
-		panic(errors.New("MachinePathsAdded event not found in machinePathManager ABI"))
-	}
-	machinePathsAddedEventSel = addedEvent.ID
-
-	approvedEvent, ok := managerABI.Events["MachinePathListApproved"]
-	if !ok {
-		panic(errors.New("MachinePathListApproved event not found in machinePathManager ABI"))
-	}
-	machinePathListApprovedEventSel = approvedEvent.ID
-
-	signMethod, ok := managerABI.Methods["signMachinePathList"]
-	if !ok {
-		panic(errors.New("signMachinePathList method not found in machinePathManager ABI"))
-	}
+	signMethod := chain.MustMethod(managerABI, "signMachinePathList")
 	copy(signMachinePathListSel[:], signMethod.ID)
 	signMachinePathListArgs = signMethod.Inputs
 
+	var err error
 	filterer, err = machinepathmanager.NewMachinePathManagerFilterer(common.Address{}, nil)
 	if err != nil {
 		panic(fmt.Errorf("creating machinePathManager filterer: %w", err))
