@@ -8,10 +8,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/abicoder"
 	csigning "github.com/flare-foundation/go-flare-common/pkg/signing"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/tee"
 )
+
+var receiptCoder = abicoder.MustNew[tee.TeeStructsVoteReceipt](tee.StructArg[tee.VoteReceipt])
 
 // Status holds the voting state for a single instruction hash within a round.
 type Status struct {
@@ -54,7 +56,7 @@ func (r *Receipt) Hash() (common.Hash, error) {
 		Timestamp:                     r.Timestamp,
 		VoteHash:                      r.VoteHash,
 	}
-	e, err := structs.Encode(tee.StructArg[tee.VoteReceipt], rd)
+	e, err := receiptCoder.Encode(rd)
 	if err != nil {
 		return common.Hash{}, err
 	}

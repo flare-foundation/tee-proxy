@@ -48,16 +48,14 @@ func TestVoting(t *testing.T) {
 	}()
 
 	iData := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("TestVoting")),
-			TeeID:                  teeID,
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.FDC2.Hash(),
-			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("TestVoting")),
+		TeeID:                     teeID,
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.FDC2.Hash(),
+		OPCommand:                 op.Prove.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
@@ -131,16 +129,14 @@ func TestStatus(t *testing.T) {
 	}()
 
 	iData := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("TestStatus")),
-			TeeID:                  teeID,
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.FDC2.Hash(),
-			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("TestStatus")),
+		TeeID:                     teeID,
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.FDC2.Hash(),
+		OPCommand:                 op.Prove.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
@@ -312,16 +308,14 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 		t.Helper()
 
 		iData := &instruction.Data{
-			DataFixed: instruction.DataFixed{
-				InstructionID:          crypto.Keccak256Hash([]byte("test_" + name)),
-				TeeID:                  teeID,
-				Timestamp:              uint64(time.Now().Unix()),
-				RewardEpochID:          1,
-				OPType:                 opType,
-				OPCommand:              opCommand,
-				OriginalMessage:        []byte("TEST_MESSAGE"),
-				AdditionalFixedMessage: hexutil.Bytes{},
-			},
+			InstructionID:             crypto.Keccak256Hash([]byte("test_" + name)),
+			TeeID:                     teeID,
+			Timestamp:                 uint64(time.Now().Unix()),
+			RewardEpochID:             1,
+			OPType:                    opType,
+			OPCommand:                 opCommand,
+			OriginalMessage:           []byte("TEST_MESSAGE"),
+			AdditionalFixedMessage:    hexutil.Bytes{},
 			AdditionalVariableMessage: hexutil.Bytes{},
 		}
 
@@ -378,16 +372,14 @@ func TestOPTypeOPCommandValidation(t *testing.T) {
 // Helper function to create a base instruction data with common fields
 func createBaseInstructionData(testName string, teeID common.Address) *instruction.Data {
 	return &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte(testName)),
-			TeeID:                  teeID,
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.FDC2.Hash(),
-			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        []byte("TEST_MESSAGE"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte(testName)),
+		TeeID:                     teeID,
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.FDC2.Hash(),
+		OPCommand:                 op.Prove.Hash(),
+		OriginalMessage:           []byte("TEST_MESSAGE"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 }

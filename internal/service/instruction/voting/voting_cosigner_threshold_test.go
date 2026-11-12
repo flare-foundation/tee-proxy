@@ -50,16 +50,14 @@ func TestCosignerThresholdExceedingSetIsRejected(t *testing.T) {
 
 	provider := crypto.PubkeyToAddress(testutil.PrivKey1.PublicKey)
 	data := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("f08")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("x"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("f08")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("x"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 

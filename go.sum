@@ -141,10 +141,10 @@ github.com/ferranbt/fastssz v0.1.4 h1:OCDB+dYDEQDvAgtAGnTSidK1Pe2tW3nFV40XyMkTeD
 github.com/ferranbt/fastssz v0.1.4/go.mod h1:Ea3+oeoRGGLGm5shYAeDgu6PGUlcvQhE2fILyD9+tGg=
 github.com/fjl/jsonw v0.1.0 h1:V3MyR79fjLpn/+bMgvegdGUIhoJOzjmqWcKDgcOmY1I=
 github.com/fjl/jsonw v0.1.0/go.mod h1:2KMLevM6FXEJnfhtk7naXu9vZdVfOma1GlnGdPRlumU=
-github.com/flare-foundation/go-flare-common v1.5.0 h1:ZpS1LmAvR5+lSOA96k0kuyy4IJFEHhR0F4xhO7lJlIQ=
-github.com/flare-foundation/go-flare-common v1.5.0/go.mod h1:Zy7MzZWnze1fu6NCxmyATs2pNlF2PBvetFqMocHgyTY=
-github.com/flare-foundation/tee-node v0.0.29 h1:8nZlJlN56FqLjWsJmReb9xnuotkNqaEOWj0ck+MDSvY=
-github.com/flare-foundation/tee-node v0.0.29/go.mod h1:XogLvzjUQCYUlcXNAGwCddVPpdHGgbxv8fRloaugudM=
+github.com/flare-foundation/go-flare-common v1.6.0 h1:Fuj7jueVAXTQf7wTH/5+BUmJwHtr4UzbitUKARw+t+o=
+github.com/flare-foundation/go-flare-common v1.6.0/go.mod h1:e97sWdqfge50ujfTCCsUgHTXHRvnTwvTOTJtL7OfSUk=
+github.com/flare-foundation/tee-node v0.0.30 h1:PYuXJkeb2eMrgaLpHPEuvS59YeFWDSC3s8GhCzzbqfs=
+github.com/flare-foundation/tee-node v0.0.30/go.mod h1:1q3yt6S2dpjbskJDFJczkKtCa8vh4U8AopFrOnZxgNs=
 github.com/fsnotify/fsnotify v1.9.0 h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=
 github.com/fsnotify/fsnotify v1.9.0/go.mod h1:8jBTzvmWwFyi3Pb8djgCCO5IBqzKJ/Jwo8TRcHyHii0=
 github.com/fsouza/fake-gcs-server v1.55.1 h1:8IsUkVFYQnS/QLyci2ORdpn7pkmqs+6hnJ8w51bN7Gg=

@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/abicoder"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
@@ -54,7 +54,7 @@ func makeKeyGenActionResult(t *testing.T, walletID common.Hash, keyID uint64) *t
 	kep, err := wal.KeyExistenceProof(teeID)
 	require.NoError(t, err)
 
-	encoded, err := structs.Encode(wallet.KeyExistenceStructArg, kep)
+	encoded, err := abicoder.Encode(wallet.KeyExistenceStructArg, kep)
 	require.NoError(t, err)
 
 	sig, err := crypto.Sign(accounts.TextHash(crypto.Keccak256(encoded)), teeKey)

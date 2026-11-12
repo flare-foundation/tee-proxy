@@ -240,16 +240,14 @@ func TestAddVoteRaisesWeightGauges(t *testing.T) {
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("weight")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          testutil.TestSigningPolicy.RewardEpochID,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("weight"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("weight")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             testutil.TestSigningPolicy.RewardEpochID,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("weight"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 

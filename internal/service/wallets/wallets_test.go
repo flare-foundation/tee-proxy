@@ -11,8 +11,8 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/abicoder"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
@@ -59,7 +59,7 @@ func TestNewKey(t *testing.T) {
 	kep, err := wal.KeyExistenceProof(teeID)
 	require.NoError(t, err)
 
-	existenceProofEncoded, err := structs.Encode(wallet.KeyExistenceStructArg, kep)
+	existenceProofEncoded, err := abicoder.Encode(wallet.KeyExistenceStructArg, kep)
 	require.NoError(t, err)
 
 	hash := crypto.Keccak256(existenceProofEncoded)

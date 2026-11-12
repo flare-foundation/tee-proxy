@@ -9,9 +9,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/flare-foundation/go-flare-common/pkg/abicoder"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/instruction"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/fdc2"
 	vrfstruct "github.com/flare-foundation/go-flare-common/pkg/tee/structs/vrf"
 	"github.com/flare-foundation/tee-node/pkg/fdc"
@@ -209,7 +209,7 @@ func TestThresholdBIPSFDC2(t *testing.T) {
 func encodeVRFMessage(t *testing.T, walletID common.Hash, keyID uint64) []byte {
 	t.Helper()
 
-	enc, err := structs.Encode(vrfstruct.MessageArguments[op.VRF], vrfstruct.IVrfVrfInstructionMessage{
+	enc, err := abicoder.Encode(vrfstruct.MessageArguments[op.VRF], vrfstruct.IVrfVrfInstructionMessage{
 		WalletId: walletID,
 		KeyId:    keyID,
 		Nonce:    []byte("nonce"),

@@ -133,10 +133,8 @@ func TestVerifyJWT(t *testing.T) {
 		DebugStatus: "disabled-since-boot",
 		EATNonce:    googlecloud.EATNonce{nonce},
 		SubMods:     googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
+		IssuedAt:    jwt.NewNumericDate(time.Now()),
+		ExpiresAt:   jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	tir.Attestation = signedJWT
 
@@ -224,11 +222,9 @@ func TestVerifyMaxTokenAgeMissingIat(t *testing.T) {
 	nonce := hex.EncodeToString(teeInfoHash)
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
-		EATNonce: googlecloud.EATNonce{nonce},
-		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
+		EATNonce:  googlecloud.EATNonce{nonce},
+		SubMods:   googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	tir.Attestation = signedJWT
 
@@ -244,12 +240,10 @@ func TestVerifyMaxTokenAgeFutureIat(t *testing.T) {
 	nonce := hex.EncodeToString(teeInfoHash)
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
-		EATNonce: googlecloud.EATNonce{nonce},
-		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(time.Now().Add(time.Hour)),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(2 * time.Hour)),
-		},
+		EATNonce:  googlecloud.EATNonce{nonce},
+		SubMods:   googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
+		IssuedAt:  jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(2 * time.Hour)),
 	})
 	tir.Attestation = signedJWT
 
@@ -265,14 +259,12 @@ func TestVerifySecBootRejectsWhenDisabled(t *testing.T) {
 	nonce := hex.EncodeToString(teeInfoHash)
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
-		SecBoot:  false,
-		HWModel:  testHWModel,
-		EATNonce: googlecloud.EATNonce{nonce},
-		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
+		SecBoot:   false,
+		HWModel:   testHWModel,
+		EATNonce:  googlecloud.EATNonce{nonce},
+		SubMods:   googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	tir.Attestation = signedJWT
 
@@ -289,13 +281,11 @@ func TestVerifyAudience(t *testing.T) {
 	nonce := hex.EncodeToString(teeInfoHash)
 
 	root, signedJWT := buildTestJWT(t, googlecloud.GoogleTeeClaims{
-		EATNonce: googlecloud.EATNonce{nonce},
-		SubMods:  googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
-		RegisteredClaims: jwt.RegisteredClaims{
-			Audience:  jwt.ClaimStrings{aud},
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
-		},
+		EATNonce:  googlecloud.EATNonce{nonce},
+		SubMods:   googlecloud.SubMods{Container: googlecloud.Container{ImageID: testImageDigest}},
+		Audience:  jwt.ClaimStrings{aud},
+		IssuedAt:  jwt.NewNumericDate(time.Now()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 	})
 	tir.Attestation = signedJWT
 

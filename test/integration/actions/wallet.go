@@ -17,8 +17,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/abicoder"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	commonwallet "github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 	"github.com/flare-foundation/tee-node/pkg/types"
 	"github.com/flare-foundation/tee-node/pkg/wallets"
@@ -74,7 +74,7 @@ func GenerateWallet(
 	err = json.Unmarshal(res.Result.Data, &swe)
 	require.NoError(t, err)
 
-	walletExistenceProof, err := structs.Decode[commonwallet.IWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, swe.KeyExistence)
+	walletExistenceProof, err := abicoder.Decode[commonwallet.IWalletKeyManagerKeyExistence](commonwallet.KeyExistenceStructArg, swe.KeyExistence)
 	require.NoError(t, err)
 
 	wst := make(chan bool, 1)
