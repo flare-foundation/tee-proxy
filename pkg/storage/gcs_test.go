@@ -270,16 +270,18 @@ func TestGCSStorageCorruptEnvelope(t *testing.T) {
 	s := NewGCSStorage[TestStruct](server.Client(), testBucket, "corrupt")
 
 	server.CreateObject(fakestorage.Object{
-		ObjectAttrs: fakestorage.ObjectAttrs{BucketName: testBucket, Name: "corrupt/envelope"},
-		Content:     []byte("not json"),
+		BucketName: testBucket,
+		Name:       "corrupt/envelope",
+		Content:    []byte("not json"),
 	})
 	_, err := s.Get(t.Context(), "envelope")
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNotFound)
 
 	server.CreateObject(fakestorage.Object{
-		ObjectAttrs: fakestorage.ObjectAttrs{BucketName: testBucket, Name: "corrupt/inner"},
-		Content:     []byte(`{"data":"Imp1c3QgYSBzdHJpbmci","expiresAt":"0001-01-01T00:00:00Z"}`),
+		BucketName: testBucket,
+		Name:       "corrupt/inner",
+		Content:    []byte(`{"data":"Imp1c3QgYSBzdHJpbmci","expiresAt":"0001-01-01T00:00:00Z"}`),
 	})
 	_, err = s.Get(t.Context(), "inner")
 	require.Error(t, err)

@@ -1,6 +1,6 @@
 # checkov:skip=CKV_DOCKER_2: Healthcheck is handled by the container orchestrator
 # Build stage
-FROM golang:1.26.10-alpine@sha256:9ce231b28998b32e116927c61aa5c406183061d4f3f2d61b292c88e7f6bdf7ca AS builder
+FROM golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf AS builder
 
 WORKDIR /app/tee-proxy
 

@@ -36,7 +36,9 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           tag="$REF_NAME"
-          body=$(sed -n "/^\# .*\[${tag}\]/,/^\# .*\[v/{/^\# .*\[v/!p}" CHANGELOG.md || true)
+          # escape dots; the section ends at the next H2 heading, tagged with or without a v
+          tag_re=${tag//./\\.}
+          body=$(sed -n "/^## \[${tag_re}\]/,/^## \[/{/^## \[/!p}" CHANGELOG.md || true)
           cat >> "$GITHUB_OUTPUT" <<DELIM
           body<<EOF
           ${body}

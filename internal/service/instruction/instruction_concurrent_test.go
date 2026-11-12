@@ -116,16 +116,14 @@ func TestConcurrentVoteBoxCreationDifferentInstHash(t *testing.T) {
 
 		// Create base instruction data with unique InstructionID for this pair
 		iData := &instruction.Data{
-			DataFixed: instruction.DataFixed{
-				InstructionID:          baseInstID,
-				TeeID:                  teeID,
-				Timestamp:              uint64(time.Now().Unix()) + uint64(i%10), // Slight time variation
-				RewardEpochID:          1,
-				OPType:                 op.FDC2.Hash(),
-				OPCommand:              op.Prove.Hash(),
-				OriginalMessage:        []byte("RACE_TEST_MESSAGE"),
-				AdditionalFixedMessage: hexutil.Bytes{},
-			},
+			InstructionID:             baseInstID,
+			TeeID:                     teeID,
+			Timestamp:                 uint64(time.Now().Unix()) + uint64(i%10), // Slight time variation
+			RewardEpochID:             1,
+			OPType:                    op.FDC2.Hash(),
+			OPCommand:                 op.Prove.Hash(),
+			OriginalMessage:           []byte("RACE_TEST_MESSAGE"),
+			AdditionalFixedMessage:    hexutil.Bytes{},
 			AdditionalVariableMessage: hexutil.Bytes{},
 		}
 

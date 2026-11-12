@@ -22,9 +22,9 @@ import (
 	pkgwallets "github.com/flare-foundation/tee-proxy/pkg/wallets"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/abicoder"
 	"github.com/flare-foundation/go-flare-common/pkg/logger"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/op"
-	"github.com/flare-foundation/go-flare-common/pkg/tee/structs"
 	"github.com/flare-foundation/go-flare-common/pkg/tee/structs/wallet"
 )
 
@@ -633,7 +633,7 @@ func parseNewKeyActionResult(r *types.ActionResult) (*wallets.SignedKeyExistence
 func parseKeyExistenceProof(proof *wallets.SignedKeyExistenceProof) (*pkgwallets.KeyExistence, error) {
 	out := new(pkgwallets.KeyExistence)
 
-	err := structs.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistence, out)
+	err := abicoder.DecodeTo(wallet.KeyExistenceStructArg, proof.KeyExistence, out)
 	if err != nil {
 		return nil, err
 	}

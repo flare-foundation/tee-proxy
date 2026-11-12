@@ -5,9 +5,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/flare-foundation/go-flare-common/pkg/contracts"
 	"github.com/flare-foundation/go-flare-common/pkg/contracts/tee/machinepathmanager"
-
-	"github.com/flare-foundation/tee-proxy/internal/chain"
 )
 
 var (
@@ -39,12 +38,12 @@ var (
 )
 
 func init() {
-	managerABI := chain.MustABI(machinepathmanager.MachinePathManagerMetaData)
-	machinePathListSignedEventSel = chain.MustEvent(managerABI, "MachinePathListSigned").ID
-	machinePathsAddedEventSel = chain.MustEvent(managerABI, "MachinePathsAdded").ID
-	machinePathListApprovedEventSel = chain.MustEvent(managerABI, "MachinePathListApproved").ID
+	managerABI := contracts.MustABI(machinepathmanager.MachinePathManagerMetaData)
+	machinePathListSignedEventSel = contracts.MustEvent(managerABI, "MachinePathListSigned").ID
+	machinePathsAddedEventSel = contracts.MustEvent(managerABI, "MachinePathsAdded").ID
+	machinePathListApprovedEventSel = contracts.MustEvent(managerABI, "MachinePathListApproved").ID
 
-	signMethod := chain.MustMethod(managerABI, "signMachinePathList")
+	signMethod := contracts.MustMethod(managerABI, "signMachinePathList")
 	copy(signMachinePathListSel[:], signMethod.ID)
 	signMachinePathListArgs = signMethod.Inputs
 

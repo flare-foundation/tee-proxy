@@ -79,11 +79,11 @@ func policyWithThreshold(t *testing.T, weights []uint16, threshold uint16) *cpol
 }
 
 func TestBuildVoteBoxThreshold(t *testing.T) {
-	data := &instruction.Data{DataFixed: instruction.DataFixed{
+	data := &instruction.Data{
 		OPType:    op.XRP.Hash(),
 		OPCommand: op.Pay.Hash(),
 		Timestamp: uint64(time.Now().Unix()),
-	}}
+	}
 	signer := common.BigToAddress(big.NewInt(1))
 	weights := []uint16{50, 30, 20}
 
@@ -126,16 +126,14 @@ func TestStorage(t *testing.T) {
 	require.True(t, ok)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("todo")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
@@ -232,18 +230,16 @@ func TestFDCMessageValidity(t *testing.T) {
 	require.NoError(t, err)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 op.FDC2.Hash(),
-			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        fdcReqBytes,
-			AdditionalFixedMessage: responseBody[:],
-			Cosigners:              cosigners,
-			CosignersThreshold:     cosignersThreshold,
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("todo")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 0,
+		RewardEpochID:             1,
+		OPType:                    op.FDC2.Hash(),
+		OPCommand:                 op.Prove.Hash(),
+		OriginalMessage:           fdcReqBytes,
+		AdditionalFixedMessage:    responseBody[:],
+		Cosigners:                 cosigners,
+		CosignersThreshold:        cosignersThreshold,
 		AdditionalVariableMessage: signature,
 	}
 
@@ -285,18 +281,16 @@ func TestFDCMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.FDC2.Hash(),
-			OPCommand:              op.Prove.Hash(),
-			OriginalMessage:        fdcReqBytes,
-			AdditionalFixedMessage: responseBody[:],
-			Cosigners:              cosigners,
-			CosignersThreshold:     cosignersThreshold,
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("todo")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.FDC2.Hash(),
+		OPCommand:                 op.Prove.Hash(),
+		OriginalMessage:           fdcReqBytes,
+		AdditionalFixedMessage:    responseBody[:],
+		Cosigners:                 cosigners,
+		CosignersThreshold:        cosignersThreshold,
 		AdditionalVariableMessage: signature,
 	}
 
@@ -324,16 +318,14 @@ func TestStorageConcurrent(t *testing.T) {
 	require.True(t, ok)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              0,
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("todo")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 0,
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
@@ -390,16 +382,14 @@ func TestAddingVoteAfterExpiry(t *testing.T) {
 	require.True(t, ok)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("todo")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("todo")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
@@ -445,16 +435,14 @@ func TestAddVoteFinalizedSendCancelledOnShutdown(t *testing.T) {
 	s.Out <- &types.Action{}
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("shutdown-send")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("shutdown-send")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
@@ -505,16 +493,14 @@ func TestConcurrentVoteAtExpiry(t *testing.T) {
 	s.StoreNewRound(testutil.TestSigningPolicy)
 
 	i := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("concurrent-expiry")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("TODO"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("concurrent-expiry")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("TODO"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 

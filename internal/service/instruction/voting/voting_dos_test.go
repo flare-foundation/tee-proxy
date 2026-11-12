@@ -21,11 +21,9 @@ import (
 // reject an oversized Cosigners slice before it is map-allocated and ABI-encoded.
 func TestCheckSizeRejectsOversizedCosigners(t *testing.T) {
 	data := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			OPCommand: op.KeyGenerate.Hash(),
-			// Far above any real admin/cosigner set.
-			Cosigners: make([]common.Address, 5000),
-		},
+		OPCommand: op.KeyGenerate.Hash(),
+		// Far above any real admin/cosigner set.
+		Cosigners: make([]common.Address, 5000),
 	}
 
 	err := checkSize(data, 0)
@@ -70,16 +68,14 @@ func TestIneligibleProposerRejectedBeforeMetaWork(t *testing.T) {
 	ineligible := crypto.PubkeyToAddress(sk.PublicKey)
 
 	data := &instruction.Data{
-		DataFixed: instruction.DataFixed{
-			InstructionID:          crypto.Keccak256Hash([]byte("f03-ineligible")),
-			TeeID:                  common.HexToAddress("dead"),
-			Timestamp:              uint64(time.Now().Unix()),
-			RewardEpochID:          1,
-			OPType:                 op.Wallet.Hash(),
-			OPCommand:              op.KeyGenerate.Hash(),
-			OriginalMessage:        []byte("x"),
-			AdditionalFixedMessage: hexutil.Bytes{},
-		},
+		InstructionID:             crypto.Keccak256Hash([]byte("f03-ineligible")),
+		TeeID:                     common.HexToAddress("dead"),
+		Timestamp:                 uint64(time.Now().Unix()),
+		RewardEpochID:             1,
+		OPType:                    op.Wallet.Hash(),
+		OPCommand:                 op.KeyGenerate.Hash(),
+		OriginalMessage:           []byte("x"),
+		AdditionalFixedMessage:    hexutil.Bytes{},
 		AdditionalVariableMessage: hexutil.Bytes{},
 	}
 
