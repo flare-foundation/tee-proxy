@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v0.0.27](https://github.com/flare-foundation/tee-proxy/tree/v0.0.27) - 2026-11-12
 
 ### Added
 
@@ -11,6 +11,7 @@
 ### Changed
 
 - Readiness fails when reading the chain head takes over 2 s, with either chain source.
+- tee-node bumped to v0.0.30 and go-flare-common to v1.6.0, which require Go 1.27.4; Go bumped to 1.27.4.
 
 ### Fixed
 
